@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b2d50" />
-    <meta name="description" content="Registro e conferência de ocorrências B&Q, com cinco evidências e sincronização confiável." />
+    <meta name="description" content="Registro operacional de ocorrências B&Q com serviços, materiais, cinco evidências e conferência." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
@@ -16,7 +16,6 @@
   </head>
   <body>
     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
-
     <div id="toastRegion" class="toast-region" role="status" aria-live="polite"></div>
 
     <main id="loginView" class="login-page">
@@ -26,53 +25,25 @@
           <div>
             <p class="eyebrow">Aplicativo empresarial</p>
             <h1>Ocorrências B&amp;Q</h1>
-            <p>Registro, evidências e conferência em um fluxo seguro e independente.</p>
+            <p>Serviços de emergência, materiais, evidências e conferência em um único fluxo.</p>
           </div>
         </div>
-        <div class="brand-points" aria-label="Recursos principais">
-          <span>5 evidências</span>
-          <span>Fila offline</span>
-          <span>Conferência do supervisor</span>
-        </div>
+        <div class="brand-points"><span>Catálogo Emergência</span><span>5 evidências</span><span>Fila offline</span></div>
       </section>
 
       <section class="login-card card" aria-labelledby="loginTitle">
-        <div class="login-card__heading">
-          <span class="icon-badge" aria-hidden="true">↗</span>
-          <div>
-            <p class="eyebrow">Acesso exclusivo</p>
-            <h2 id="loginTitle">Entrar no aplicativo</h2>
-          </div>
-        </div>
+        <div class="login-card__heading"><span class="icon-badge" aria-hidden="true">↗</span><div><p class="eyebrow">Acesso exclusivo</p><h2 id="loginTitle">Entrar no aplicativo</h2></div></div>
         <form id="loginForm" class="form-stack">
           <fieldset class="role-switch" aria-label="Tipo de acesso">
-            <label>
-              <input type="radio" name="role" value="field" checked />
-              <span>Usuário de campo</span>
-            </label>
-            <label>
-              <input type="radio" name="role" value="supervisor" />
-              <span>Supervisor</span>
-            </label>
+            <label><input type="radio" name="role" value="field" checked /><span>Usuário operacional</span></label>
+            <label><input type="radio" name="role" value="supervisor" /><span>Supervisor</span></label>
           </fieldset>
-          <label class="field">
-            <span>Nome</span>
-            <input id="loginUser" name="user" type="text" autocomplete="name" maxlength="120" required placeholder="Digite seu nome" />
-          </label>
-          <label class="field">
-            <span>Senha</span>
-            <input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Digite sua senha" />
-          </label>
-          <button id="loginButton" class="button button--primary button--full" type="submit">
-            <span>Entrar</span>
-          </button>
+          <label class="field"><span>Nome</span><input id="loginUser" name="user" type="text" autocomplete="name" maxlength="120" required placeholder="Digite seu nome" /></label>
+          <label class="field"><span>Senha</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Digite sua senha" /></label>
+          <button id="loginButton" class="button button--primary button--full" type="submit">Entrar</button>
           <p id="loginMessage" class="form-message" role="alert"></p>
         </form>
-        <div class="login-status">
-          <span id="loginNetworkDot" class="network-dot"></span>
-          <span id="loginNetworkText">Verificando conexão…</span>
-          <span>v2026.08.29.2</span>
-        </div>
+        <div class="login-status"><span id="loginNetworkDot" class="network-dot"></span><span id="loginNetworkText">Verificando conexão…</span><span>v2026.08.29.4</span></div>
       </section>
     </main>
 
@@ -81,293 +52,129 @@
         <div class="app-header__inner">
           <button class="brand-lockup brand-lockup--compact" type="button" data-nav="new" aria-label="Ir para nova ocorrência">
             <img class="brand-logo brand-logo--small" src="./assets/icon-192.png" alt="" />
-            <span>
-              <strong>Ocorrências B&amp;Q</strong>
-              <small id="sessionRoleLabel">Usuário de campo</small>
-            </span>
+            <span><strong>Ocorrências B&amp;Q</strong><small id="sessionRoleLabel">Usuário operacional</small></span>
           </button>
-          <div class="header-actions">
-            <span id="networkBadge" class="network-badge"><span class="network-dot"></span><span>Online</span></span>
-            <button id="installButton" class="icon-button" type="button" hidden aria-label="Instalar aplicativo" title="Instalar aplicativo">↓</button>
-            <button id="logoutButton" class="button button--ghost button--small" type="button">Sair</button>
-          </div>
+          <div class="header-actions"><span id="networkBadge" class="network-badge"><span class="network-dot"></span><span>Online</span></span><button id="installButton" class="icon-button" type="button" hidden aria-label="Instalar aplicativo">↓</button><button id="logoutButton" class="button button--ghost button--small" type="button">Sair</button></div>
         </div>
       </header>
 
       <div id="resumeBanner" class="resume-banner" hidden>
-        <div>
-          <strong>Você tem um rascunho em andamento</strong>
-          <span id="resumeBannerText">Continue de onde parou.</span>
-        </div>
-        <div class="button-row">
-          <button id="discardDraftButton" class="button button--ghost button--small" type="button">Descartar</button>
-          <button id="resumeDraftButton" class="button button--primary button--small" type="button">Continuar</button>
-        </div>
+        <div><strong>Você tem um rascunho em andamento</strong><span id="resumeBannerText">Continue de onde parou.</span></div>
+        <div class="button-row"><button id="discardDraftButton" class="button button--ghost button--small" type="button">Descartar</button><button id="resumeDraftButton" class="button button--primary button--small" type="button">Continuar</button></div>
       </div>
 
       <div class="app-layout">
         <nav id="mainNav" class="main-nav" aria-label="Navegação principal">
-          <button class="nav-item is-active" type="button" data-nav="new">
-            <span aria-hidden="true">＋</span><span>Nova</span>
-          </button>
-          <button class="nav-item" type="button" data-nav="mine">
-            <span aria-hidden="true">▤</span><span>Minhas ocorrências</span>
-          </button>
-          <button class="nav-item" type="button" data-nav="sync">
-            <span aria-hidden="true">↻</span><span>Sincronização</span><b id="syncNavCount" class="nav-count" hidden>0</b>
-          </button>
-          <button id="supervisorNav" class="nav-item" type="button" data-nav="supervisor" hidden>
-            <span aria-hidden="true">✓</span><span>Supervisor</span><b id="supervisorNavCount" class="nav-count" hidden>0</b>
-          </button>
+          <button class="nav-item is-active" type="button" data-nav="new"><span aria-hidden="true">＋</span><span>Nova</span></button>
+          <button class="nav-item" type="button" data-nav="mine"><span aria-hidden="true">▤</span><span>Minhas ocorrências</span></button>
+          <button class="nav-item" type="button" data-nav="sync"><span aria-hidden="true">↻</span><span>Sincronização</span><b id="syncNavCount" class="nav-count" hidden>0</b></button>
+          <button id="supervisorNav" class="nav-item" type="button" data-nav="supervisor" hidden><span aria-hidden="true">✓</span><span>Supervisor</span><b id="supervisorNavCount" class="nav-count" hidden>0</b></button>
         </nav>
 
         <main class="content-area">
           <section id="view-new" class="view is-active" aria-labelledby="newTitle">
-            <div class="page-heading">
-              <div>
-                <p class="eyebrow">Registro de campo</p>
-                <h2 id="newTitle">Nova ocorrência</h2>
-                <p>Escolha o serviço, registre a observação e anexe as cinco evidências.</p>
+            <div class="page-heading"><div><p class="eyebrow">Registro operacional</p><h2 id="newTitle">Nova ocorrência</h2><p>Informe a equipe, os serviços executados, os materiais e as cinco evidências.</p></div><span id="draftIdBadge" class="id-badge" hidden></span></div>
+            <ol class="stepper" aria-label="Etapas da ocorrência"><li class="is-active" data-step-indicator="1"><span>1</span><b>Dados</b></li><li data-step-indicator="2"><span>2</span><b>Evidências</b></li><li data-step-indicator="3"><span>3</span><b>Revisão</b></li></ol>
+
+            <section class="step-panel card" data-step-panel="1">
+              <div class="section-heading"><span class="section-number">01</span><div><h3>Identificação da ocorrência</h3><p>Os campos marcados são obrigatórios.</p></div></div>
+              <div class="form-grid form-grid--two">
+                <label class="field"><span>Equipe *</span><input id="team" type="text" maxlength="120" autocomplete="off" placeholder="Ex.: LM 01" /></label>
+                <label class="field"><span>Nº da ocorrência *</span><input id="occurrenceNumber" type="text" maxlength="120" autocomplete="off" placeholder="Digite o número" /></label>
               </div>
-              <span id="draftIdBadge" class="id-badge" hidden></span>
-            </div>
 
-            <ol class="stepper" aria-label="Etapas da ocorrência">
-              <li class="is-active" data-step-indicator="1"><span>1</span><b>Dados</b></li>
-              <li data-step-indicator="2"><span>2</span><b>Evidências</b></li>
-              <li data-step-indicator="3"><span>3</span><b>Revisão</b></li>
-            </ol>
-
-            <section id="formStep1" class="step-panel card" data-step-panel="1">
-              <div class="section-heading">
-                <span class="section-number">01</span>
-                <div>
-                  <h3>Dados do serviço</h3>
-                  <p>Pesquise pelo Código de Serviço do catálogo oficial.</p>
+              <fieldset class="form-section">
+                <legend>Tipo da ocorrência *</legend>
+                <p class="field-hint">Selecione uma ou mais opções.</p>
+                <div id="occurrenceTypes" class="choice-grid">
+                  <label class="choice-card"><input type="checkbox" value="SUBSTITUIÇÃO DE TRAFO" /><span>Substituição de trafo</span></label>
+                  <label class="choice-card"><input type="checkbox" value="SUBSTITUIÇÃO DE POSTE" /><span>Substituição de poste</span></label>
+                  <label class="choice-card"><input type="checkbox" value="SUBSTITUIÇÃO DE CONDUTOR" /><span>Substituição de condutor</span></label>
                 </div>
-              </div>
+              </fieldset>
 
-              <div class="catalog-search">
-                <label class="field">
-                  <span>Código de Serviço</span>
-                  <div class="input-with-icon">
-                    <span aria-hidden="true">⌕</span>
-                    <input id="serviceSearch" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ex.: SDMMU" aria-controls="serviceResults" />
-                    <span id="searchSpinner" class="mini-spinner" hidden aria-label="Pesquisando"></span>
-                  </div>
-                </label>
-                <div id="serviceResults" class="search-results" role="listbox" hidden></div>
-                <p id="serviceSearchHint" class="field-hint">Digite pelo menos 2 caracteres. Resultados idênticos entre bases serão agrupados.</p>
-              </div>
-
-              <div id="selectedServiceCard" class="selected-service" hidden>
-                <div class="selected-service__top">
-                  <span class="status-chip status-chip--info">Serviço selecionado</span>
-                  <button id="changeServiceButton" class="text-button" type="button">Trocar</button>
+              <section id="pgSection" class="form-section">
+                <div class="subsection-heading"><div><h4>PG</h4><p>Para Poste ou Condutor, informe pelo menos um PG.</p></div></div>
+                <div class="form-grid form-grid--three">
+                  <label class="field"><span>PG 1</span><input id="pg1" type="text" maxlength="80" /></label>
+                  <label class="field"><span>PG 2</span><input id="pg2" type="text" maxlength="80" /></label>
+                  <label class="field"><span>PG 3</span><input id="pg3" type="text" maxlength="80" /></label>
                 </div>
-                <strong id="selectedServiceCode"></strong>
-                <span id="selectedServiceText"></span>
-                <small id="selectedServiceOrigin"></small>
-              </div>
+              </section>
 
-              <label class="field">
-                <span>Observação</span>
-                <textarea id="observation" rows="5" maxlength="1800" placeholder="O texto breve do catálogo aparecerá aqui e poderá ser complementado." disabled></textarea>
-                <small><span id="observationCount">0</span>/1800 caracteres</small>
-              </label>
+              <section id="transformerSection" class="form-section transformer-section" hidden>
+                <div class="subsection-heading"><div><h4>Dados dos transformadores</h4><p>Obrigatório para substituição de trafo.</p></div></div>
+                <div class="transformer-grid">
+                  <div class="nested-card"><h5>Transformador retirado</h5><label class="field"><span>Código do trafo retirado *</span><input id="removedTransformerCode" type="text" maxlength="80" inputmode="numeric" placeholder="Use 999999 somente se não houver código" /></label><label class="field"><span>CIA do trafo retirado *</span><input id="removedTransformerCia" type="text" maxlength="80" /></label></div>
+                  <div class="nested-card"><h5>Transformador novo</h5><label class="field"><span>Código do trafo novo *</span><input id="newTransformerCode" type="text" maxlength="80" inputmode="numeric" /></label><label class="field"><span>CIA do trafo novo *</span><input id="newTransformerCia" type="text" maxlength="80" /></label></div>
+                </div>
+              </section>
 
-              <div class="readonly-grid">
-                <label class="field">
-                  <span>Unidade</span>
-                  <input id="unit" type="text" readonly placeholder="Preenchimento automático" />
-                </label>
-                <label class="field">
-                  <span>Grupo</span>
-                  <input id="group" type="text" readonly placeholder="Preenchimento automático" />
-                </label>
-                <label class="field field--wide">
-                  <span>Valor Referência Único</span>
-                  <input id="referenceValue" type="text" readonly placeholder="Preenchimento automático" />
-                </label>
-              </div>
+              <section class="form-section service-book">
+                <div class="subsection-heading"><div><p class="eyebrow">Base oficial</p><h4>Caderno de Serviços — Emergência</h4><p>Pesquise por código, parte do código ou palavras da descrição.</p></div><span class="status-chip status-chip--info">Somente Emergência</span></div>
+                <div class="catalog-search">
+                  <label class="field"><span>Pesquisar serviço</span><div class="input-with-icon"><span aria-hidden="true">⌕</span><input id="serviceSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Ex.: trafo, poste, cabo ou 4FU" aria-controls="serviceResults" /><span id="searchSpinner" class="mini-spinner" hidden></span></div></label>
+                  <div id="serviceResults" class="search-results" role="listbox" hidden></div>
+                  <p id="serviceSearchHint" class="field-hint">Digite pelo menos 2 caracteres.</p>
+                </div>
+                <div id="servicesList" class="line-items"></div>
+              </section>
 
-              <div class="panel-actions panel-actions--end">
-                <button id="continueToPhotosButton" class="button button--primary" type="button" disabled>Continuar para fotos <span aria-hidden="true">→</span></button>
-              </div>
+              <section class="goal-card" aria-label="Meta da equipe">
+                <div class="goal-card__values"><div><span>Meta da equipe</span><strong id="goalValue">R$ 6.000,00</strong></div><div><span>Valor atual</span><strong id="currentValue">R$ 0,00</strong></div><div><span>Percentual</span><strong id="goalPercentage">0%</strong></div></div>
+                <div class="goal-track"><span id="goalBar" style="width:0%"></span></div>
+                <strong id="goalStatus" class="goal-status goal-status--abaixo">ABAIXO DA META</strong>
+              </section>
+
+              <section class="form-section">
+                <div class="subsection-heading"><div><h4>Material aplicado *</h4><p>Adicione todos os materiais e suas quantidades.</p></div><button id="addMaterialButton" class="button button--ghost button--small" type="button">+ Adicionar material</button></div>
+                <div id="materialsList" class="line-items"></div>
+              </section>
+
+              <label class="field"><span>Observação</span><textarea id="observation" rows="5" maxlength="1800" placeholder="Digite a observação da ocorrência..."></textarea><small><span id="observationCount">0</span>/1800 caracteres</small></label>
+              <div id="stepOneErrors" class="validation-summary" role="alert" hidden></div>
+              <div class="panel-actions panel-actions--end"><button id="continueToPhotosButton" class="button button--primary" type="button" disabled>Continuar para fotos <span aria-hidden="true">→</span></button></div>
             </section>
 
-            <section id="formStep2" class="step-panel card" data-step-panel="2" hidden>
-              <div class="section-heading">
-                <span class="section-number">02</span>
-                <div>
-                  <h3>Evidências</h3>
-                  <p>As cinco posições são obrigatórias para a conferência do supervisor.</p>
-                </div>
-                <span id="photoProgressChip" class="status-chip status-chip--warning">0/5 fotos</span>
-              </div>
+            <section class="step-panel card" data-step-panel="2" hidden>
+              <div class="section-heading"><span class="section-number">02</span><div><h3>Evidências</h3><p>As cinco posições continuam obrigatórias para conferência.</p></div><span id="photoProgressChip" class="status-chip status-chip--warning">0/5 fotos</span></div>
               <div id="photoGrid" class="photo-grid"></div>
-              <div class="panel-actions">
-                <button class="button button--ghost" type="button" data-back-step="1"><span aria-hidden="true">←</span> Voltar</button>
-                <button id="continueToReviewButton" class="button button--primary" type="button" disabled>Revisar ocorrência <span aria-hidden="true">→</span></button>
-              </div>
+              <div class="panel-actions"><button class="button button--ghost" type="button" data-back-step="1">← Voltar</button><button id="continueToReviewButton" class="button button--primary" type="button" disabled>Revisar ocorrência →</button></div>
             </section>
 
-            <section id="formStep3" class="step-panel card" data-step-panel="3" hidden>
-              <div class="section-heading">
-                <span class="section-number">03</span>
-                <div>
-                  <h3>Revisar ocorrência</h3>
-                  <p>Confira os dados e as cinco fotos antes de enviar.</p>
-                </div>
-              </div>
+            <section class="step-panel card" data-step-panel="3" hidden>
+              <div class="section-heading"><span class="section-number">03</span><div><h3>Revisar ocorrência</h3><p>Confira os dados, valores, materiais e fotos antes do envio.</p></div></div>
               <div id="reviewSummary" class="review-summary"></div>
-              <div class="panel-actions">
-                <button class="button button--ghost" type="button" data-back-step="2"><span aria-hidden="true">←</span> Voltar</button>
-                <button id="submitOccurrenceButton" class="button button--success" type="button">Enviar para conferência</button>
-              </div>
+              <div class="panel-actions"><button class="button button--ghost" type="button" data-back-step="2">← Voltar</button><button id="submitOccurrenceButton" class="button button--success" type="button">Enviar para conferência</button></div>
             </section>
           </section>
 
           <section id="view-mine" class="view" aria-labelledby="mineTitle" hidden>
-            <div class="page-heading page-heading--with-actions">
-              <div>
-                <p class="eyebrow">Acompanhamento</p>
-                <h2 id="mineTitle">Minhas ocorrências</h2>
-                <p>Rascunhos, envios, correções e decisões do supervisor.</p>
-              </div>
-              <button id="refreshMineButton" class="button button--ghost" type="button">Atualizar</button>
-            </div>
-            <div id="mineFilters" class="filter-chips" aria-label="Filtrar ocorrências"></div>
-            <div id="mineList" class="record-list"></div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Acompanhamento</p><h2 id="mineTitle">Minhas ocorrências</h2><p>Rascunhos, envios, correções e decisões do supervisor.</p></div><button id="refreshMineButton" class="button button--ghost" type="button">Atualizar</button></div>
+            <div id="mineFilters" class="filter-chips"></div><div id="mineList" class="record-list"></div>
           </section>
 
           <section id="view-sync" class="view" aria-labelledby="syncTitle" hidden>
-            <div class="page-heading">
-              <div>
-                <p class="eyebrow">Fila independente</p>
-                <h2 id="syncTitle">Central de sincronização</h2>
-                <p>O aplicativo reconcilia o servidor e envia somente os dados ou fotos faltantes.</p>
-              </div>
-            </div>
-            <div class="sync-grid">
-              <article class="metric-card"><span>Conexão</span><strong id="syncConnection">Online</strong><small id="syncLastTest">Ainda não testada</small></article>
-              <article class="metric-card"><span>Registros pendentes</span><strong id="syncPendingRecords">0</strong><small>Aguardando confirmação</small></article>
-              <article class="metric-card"><span>Fotos pendentes</span><strong id="syncPendingPhotos">0</strong><small>Guardadas neste aparelho</small></article>
-              <article class="metric-card"><span>Fotos sincronizando</span><strong id="syncPhotosSyncing">0</strong><small>Restantes nos envios ativos</small></article>
-              <article class="metric-card"><span>Erros</span><strong id="syncErrors">0</strong><small>Podem ser tentados novamente</small></article>
-            </div>
-            <section class="card sync-actions-card">
-              <div>
-                <h3>Última sincronização</h3>
-                <p id="lastSyncAt">Nenhuma sincronização concluída.</p>
-              </div>
-              <div class="button-row">
-                <button id="testConnectionButton" class="button button--ghost" type="button">Testar conexão</button>
-                <button id="syncNowButton" class="button button--primary" type="button">Sincronizar agora</button>
-              </div>
-            </section>
+            <div class="page-heading"><div><p class="eyebrow">Fila independente</p><h2 id="syncTitle">Central de sincronização</h2><p>O aplicativo envia somente os dados ou fotos ainda não confirmados.</p></div></div>
+            <div class="sync-grid"><article class="metric-card"><span>Conexão</span><strong id="syncConnection">Online</strong><small id="syncLastTest">Ainda não testada</small></article><article class="metric-card"><span>Registros pendentes</span><strong id="syncPendingRecords">0</strong><small>Aguardando confirmação</small></article><article class="metric-card"><span>Fotos pendentes</span><strong id="syncPendingPhotos">0</strong><small>Guardadas neste aparelho</small></article><article class="metric-card"><span>Fotos sincronizando</span><strong id="syncPhotosSyncing">0</strong><small>Restantes nos envios ativos</small></article><article class="metric-card"><span>Erros</span><strong id="syncErrors">0</strong><small>Podem ser tentados novamente</small></article></div>
+            <section class="card sync-actions-card"><div><h3>Última sincronização</h3><p id="lastSyncAt">Nenhuma sincronização concluída.</p></div><div class="button-row"><button id="testConnectionButton" class="button button--ghost" type="button">Testar conexão</button><button id="syncNowButton" class="button button--primary" type="button">Sincronizar agora</button></div></section>
             <div id="syncQueueList" class="record-list"></div>
           </section>
 
           <section id="view-supervisor" class="view" aria-labelledby="supervisorTitle" hidden>
-            <div class="page-heading page-heading--with-actions">
-              <div>
-                <p class="eyebrow">Modo supervisor</p>
-                <h2 id="supervisorTitle">Ocorrências aguardando conferência</h2>
-                <p>Aprovação e publicação somente para registros aptos com 5/5 fotos.</p>
-              </div>
-              <button id="refreshSupervisorButton" class="button button--ghost" type="button">Atualizar</button>
-            </div>
-            <div class="supervisor-toolbar card">
-              <label class="checkbox-label"><input id="selectAllVisible" type="checkbox" /> <span>Selecionar todas as visíveis</span></label>
-              <strong id="selectedCountLabel">0 ocorrências selecionadas</strong>
-              <div class="button-row">
-                <button id="approveSelectedButton" class="button button--success button--small" type="button" disabled>Aprovar selecionadas</button>
-              </div>
-            </div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo supervisor</p><h2 id="supervisorTitle">Ocorrências aguardando conferência</h2><p>Aprovação e publicação somente para registros aptos com 5/5 fotos.</p></div><button id="refreshSupervisorButton" class="button button--ghost" type="button">Atualizar</button></div>
+            <div class="supervisor-toolbar card"><label class="checkbox-label"><input id="selectAllVisible" type="checkbox" /><span>Selecionar todas as visíveis</span></label><strong id="selectedCountLabel">0 ocorrências selecionadas</strong><button id="approveSelectedButton" class="button button--success button--small" type="button" disabled>Aprovar selecionadas</button></div>
             <div id="supervisorList" class="record-list record-list--supervisor"></div>
-            <div id="approveAllFooter" class="approve-all-footer" hidden>
-              <button id="approveAllButton" class="button button--primary" type="button">Aprovar todas as aptas</button>
-            </div>
+            <div id="approveAllFooter" class="approve-all-footer" hidden><button id="approveAllButton" class="button button--primary" type="button">Aprovar todas as aptas</button></div>
           </section>
         </main>
       </div>
     </div>
 
-    <dialog id="reviewDialog" class="modal modal--wide">
-      <form method="dialog" class="modal__surface">
-        <header class="modal__header">
-          <div>
-            <p class="eyebrow">Conferência detalhada</p>
-            <h2 id="reviewDialogTitle">Conferir ocorrência</h2>
-          </div>
-          <button class="icon-button" value="cancel" aria-label="Fechar">×</button>
-        </header>
-        <div id="reviewDialogContent" class="modal__body"></div>
-        <footer class="modal__footer modal__footer--review">
-          <button id="requestCorrectionButton" class="button button--warning" type="button">Solicitar correção</button>
-          <button id="rejectButton" class="button button--danger" type="button">Reprovar</button>
-          <button id="approveButton" class="button button--success" type="button">Aprovar e publicar</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="decisionDialog" class="modal">
-      <form id="decisionForm" method="dialog" class="modal__surface">
-        <header class="modal__header">
-          <div>
-            <p class="eyebrow">Decisão do supervisor</p>
-            <h2 id="decisionDialogTitle">Registrar decisão</h2>
-          </div>
-          <button class="icon-button" value="cancel" aria-label="Fechar">×</button>
-        </header>
-        <div class="modal__body form-stack">
-          <label class="field">
-            <span>Motivo</span>
-            <textarea id="decisionReason" rows="4" maxlength="600" required></textarea>
-          </label>
-          <label class="field">
-            <span>Observação do supervisor <small>(opcional)</small></span>
-            <textarea id="decisionNote" rows="4" maxlength="1200"></textarea>
-          </label>
-        </div>
-        <footer class="modal__footer">
-          <button class="button button--ghost" value="cancel">Cancelar</button>
-          <button id="confirmDecisionButton" class="button button--primary" value="default">Confirmar decisão</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="confirmDialog" class="modal modal--compact">
-      <form method="dialog" class="modal__surface">
-        <div class="modal__body confirm-body">
-          <span id="confirmIcon" class="confirm-icon" aria-hidden="true">?</span>
-          <h2 id="confirmTitle">Confirmar ação</h2>
-          <p id="confirmMessage"></p>
-        </div>
-        <footer class="modal__footer">
-          <button class="button button--ghost" value="cancel">Cancelar</button>
-          <button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="photoDialog" class="photo-modal">
-      <form method="dialog">
-        <button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button>
-        <img id="photoDialogImage" alt="Evidência ampliada" />
-        <p id="photoDialogLabel"></p>
-      </form>
-    </dialog>
-
-    <template id="emptyStateTemplate">
-      <div class="empty-state card">
-        <span aria-hidden="true">◇</span>
-        <h3></h3>
-        <p></p>
-      </div>
-    </template>
-
+    <dialog id="reviewDialog" class="modal modal--wide"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Conferência detalhada</p><h2 id="reviewDialogTitle">Conferir ocorrência</h2></div><button class="icon-button" value="cancel" aria-label="Fechar">×</button></header><div id="reviewDialogContent" class="modal__body"></div><footer class="modal__footer modal__footer--review"><button id="requestCorrectionButton" class="button button--warning" type="button">Solicitar correção</button><button id="rejectButton" class="button button--danger" type="button">Reprovar</button><button id="approveButton" class="button button--success" type="button">Aprovar e publicar</button></footer></form></dialog>
+    <dialog id="decisionDialog" class="modal"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Decisão do supervisor</p><h2 id="decisionDialogTitle">Registrar decisão</h2></div><button class="icon-button" value="cancel" aria-label="Fechar">×</button></header><div class="modal__body form-stack"><label class="field"><span>Motivo</span><textarea id="decisionReason" rows="4" maxlength="600" required></textarea></label><label class="field"><span>Observação do supervisor <small>(opcional)</small></span><textarea id="decisionNote" rows="4" maxlength="1200"></textarea></label></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button class="button button--primary" value="default">Confirmar decisão</button></footer></form></dialog>
+    <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
+    <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><img id="photoDialogImage" alt="Evidência ampliada" /><p id="photoDialogLabel"></p></form></dialog>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

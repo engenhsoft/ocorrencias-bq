@@ -1,4 +1,12 @@
-export const APP_VERSION = '2026.08.29.2';
+export const APP_VERSION = '2026.08.29.4';
+
+export const TEAM_GOAL = 6000;
+
+export const OCCURRENCE_TYPES = Object.freeze([
+  'SUBSTITUIÇÃO DE TRAFO',
+  'SUBSTITUIÇÃO DE POSTE',
+  'SUBSTITUIÇÃO DE CONDUTOR'
+]);
 
 export const RECORD_STATUS = Object.freeze({
   DRAFT: 'RASCUNHO',
@@ -51,14 +59,17 @@ export function formatCurrency(value) {
     .format(Number.isFinite(number) ? number : 0);
 }
 
+export function formatNumber(value) {
+  const number = Number(value);
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
+    .format(Number.isFinite(number) ? number : 0);
+}
+
 export function formatDateTime(value) {
   if (!value) return '—';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  }).format(date);
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(date);
 }
 
 export function generateUuid() {
@@ -76,6 +87,58 @@ export function generateUuid() {
 
 export function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
+export function serviceTotal(service) {
+  const quantity = Number(service?.quantity);
+  const unitValue = Number(service?.referenceValue);
+  return Number.isFinite(quantity) && Number.isFinite(unitValue) ? quantity * unitValue : 0;
+}
+
+export function occurrenceTotal(services = []) {
+  return services.reduce((total, service) => total + serviceTotal(service), 0);
+}
+
+export function goalProgress(total, goal = TEAM_GOAL) {
+  const safeTotal = Math.max(0, Number(total) || 0);
+  const safeGoal = Math.max(1, Number(goal) || TEAM_GOAL);
+  const percentage = safeTotal / safeGoal * 100;
+  return {
+    total: safeTotal,
+    goal: safeGoal,
+    percentage,
+    visualPercentage: Math.min(100, percentage),
+    state: percentage > 100 ? 'superada' : percentage === 100 ? 'atingida' : 'abaixo',
+    label: percentage > 100 ? 'META SUPERADA' : percentage === 100 ? 'META ATINGIDA' : 'ABAIXO DA META'
+  };
+}
+
+export function validateOccurrence(record = {}) {
+  const errors = [];
+  const types = Array.isArray(record.occurrenceTypes) ? record.occurrenceTypes : [];
+  if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
+  if (!String(record.occurrenceNumber || '').trim()) errors.push('Informe o Nº da ocorrência.');
+  if (!types.length || types.some((type) => !OCCURRENCE_TYPES.includes(type))) errors.push('Selecione pelo menos um tipo da ocorrência.');
+  if (types.includes('SUBSTITUIÇÃO DE POSTE') || types.includes('SUBSTITUIÇÃO DE CONDUTOR')) {
+    if (![record.pg1, record.pg2, record.pg3].some((value) => String(value || '').trim())) errors.push('Informe pelo menos um PG.');
+  }
+  if (types.includes('SUBSTITUIÇÃO DE TRAFO')) {
+    if (!String(record.transformer?.removedCode || '').trim()) errors.push('Informe o código do trafo retirado ou 999999.');
+    if (!String(record.transformer?.removedCia || '').trim()) errors.push('Informe a CIA do trafo retirado.');
+    if (!String(record.transformer?.newCode || '').trim() || String(record.transformer?.newCode || '').trim() === '999999') errors.push('Informe um código válido para o trafo novo.');
+    if (!String(record.transformer?.newCia || '').trim()) errors.push('Informe a CIA do trafo novo.');
+  }
+  if (!Array.isArray(record.services) || !record.services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
+  (record.services || []).forEach((service, index) => {
+    if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
+    if (!(Number(service?.quantity) >= 1)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
+  });
+  if (!Array.isArray(record.materials) || !record.materials.length) errors.push('Informe o material aplicado.');
+  (record.materials || []).forEach((material, index) => {
+    if (!String(material?.description || '').trim()) errors.push(`Informe o material aplicado no item ${index + 1}.`);
+    if (!(Number(material?.quantity) > 0)) errors.push(`Informe a quantidade do material no item ${index + 1}.`);
+  });
+  return [...new Set(errors)];
 }
 
 export function countConfirmedPhotos(record) {
@@ -100,9 +163,7 @@ export function summarizeQueue(records = []) {
     RECORD_STATUS.ERROR
   ]);
   const pendingRecords = records.filter((record) => pendingStatuses.has(record.status));
-  const pendingPhotos = pendingRecords.reduce((total, record) => (
-    total + Math.max(0, 5 - countConfirmedPhotos(record))
-  ), 0);
+  const pendingPhotos = pendingRecords.reduce((total, record) => total + Math.max(0, 5 - countConfirmedPhotos(record)), 0);
   const syncingPhotos = records
     .filter((record) => record.status === RECORD_STATUS.SYNCING_PHOTOS)
     .reduce((total, record) => total + Math.max(0, 5 - countConfirmedPhotos(record)), 0);
@@ -120,34 +181,16 @@ export function reconcilePhotoStates(localRecord, serverState) {
     const current = localRecord?.photoStates?.[index] || {};
     const server = byIndex.get(index + 1);
     if (current.replacePending) {
-      return {
-        ...current,
-        photoIndex: index + 1,
-        confirmed: false,
-        localReady: Boolean(current.localReady),
-        serverUrl: server?.url || current.serverUrl || ''
-      };
+      return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: server?.url || current.serverUrl || '' };
     }
     if (!server?.confirmed) {
-      return {
-        ...current,
-        photoIndex: index + 1,
-        confirmed: false,
-        localReady: Boolean(current.localReady),
-        serverUrl: current.serverUrl || ''
-      };
+      return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
     }
-    return {
-      ...current,
-      photoIndex: index + 1,
-      confirmed: true,
-      localReady: false,
-      serverUrl: server.url || current.serverUrl || '',
-      error: ''
-    };
+    return { ...current, photoIndex: index + 1, confirmed: true, localReady: false, serverUrl: server.url || current.serverUrl || '', error: '' };
   });
   return {
     ...localRecord,
+    ...(serverState?.record || {}),
     serverConfirmed: true,
     serverStatus: serverState?.status || localRecord?.serverStatus || '',
     status: serverState?.status || localRecord?.status,
@@ -160,16 +203,8 @@ export function reconcilePhotoStates(localRecord, serverState) {
 export function dedupeCatalogResults(items) {
   const grouped = new Map();
   for (const item of items || []) {
-    const key = [item.code, item.catalogText, item.unit, item.group, Number(item.referenceValue)]
-      .map(normalizeText).join('|');
-    if (!grouped.has(key)) {
-      grouped.set(key, { ...item, origins: [...(item.origins || [item.origin])], catalogKeys: [...(item.catalogKeys || [item.catalogKey])] });
-      continue;
-    }
-    const existing = grouped.get(key);
-    for (const origin of item.origins || [item.origin]) if (origin && !existing.origins.includes(origin)) existing.origins.push(origin);
-    for (const catalogKey of item.catalogKeys || [item.catalogKey]) if (catalogKey && !existing.catalogKeys.includes(catalogKey)) existing.catalogKeys.push(catalogKey);
-    existing.origin = existing.origins.join(' | ');
+    const key = [item.code, item.catalogText, item.unit, item.group, Number(item.referenceValue)].map(normalizeText).join('|');
+    if (!grouped.has(key)) grouped.set(key, { ...item });
   }
   return [...grouped.values()];
 }

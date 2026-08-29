@@ -151,11 +151,14 @@ export async function cacheCatalogResults(results) {
 }
 
 export async function searchCachedCatalog(query, limit = 25) {
-  const normalized = String(query || '').trim().toUpperCase();
+  const normalized = String(query || '').trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const { store } = await storeTransaction([STORE.catalog]);
   const rows = await requestResult(store(STORE.catalog).getAll());
   return rows
-    .filter((item) => String(item.code || '').toUpperCase().includes(normalized))
+    .filter((item) => [item.code, item.catalogText, item.group]
+      .some((value) => String(value || '').toUpperCase().normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '').includes(normalized)))
     .sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt-BR'))
     .slice(0, limit);
 }

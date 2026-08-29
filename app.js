@@ -1,34 +1,13 @@
 import {
-  APP_VERSION,
-  RECORD_STATUS,
-  countConfirmedPhotos,
-  countReadyPhotoStates,
-  escapeHtml,
-  formatCurrency,
-  formatDateTime,
-  generateUuid,
-  mergeRecordCollections,
-  normalizeText,
-  reconcilePhotoStates,
-  statusLabel,
-  statusTone,
-  tokenExpiry
+  APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
+  escapeHtml, formatCurrency, formatDateTime, formatNumber, generateUuid, goalProgress,
+  mergeRecordCollections, occurrenceTotal, reconcilePhotoStates, serviceTotal,
+  statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
 import {
-  cacheCatalogResults,
-  deletePhoto,
-  deleteRecord,
-  getAllRecords,
-  getMeta,
-  getPhoto,
-  getPhotosForRecord,
-  getQueueSummary,
-  getRecord,
-  openDatabase,
-  putPhoto,
-  putRecord,
-  searchCachedCatalog,
-  setMeta
+  cacheCatalogResults, deletePhoto, deleteRecord, getAllRecords, getMeta, getPhoto,
+  getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhoto, putRecord,
+  searchCachedCatalog, setMeta
 } from './db.js';
 import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck } from './api.js';
 
@@ -36,98 +15,49 @@ const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
 const ACTIVE_DRAFT_META = 'activeDraftId';
 const LAST_SYNC_META = 'lastSyncAt';
+const TYPE_TRAFO = 'SUBSTITUIÇÃO DE TRAFO';
 const SYNCABLE_STATUSES = new Set([
-  RECORD_STATUS.PENDING,
-  RECORD_STATUS.SYNCING_DATA,
-  RECORD_STATUS.SYNCING_PHOTOS,
-  RECORD_STATUS.ERROR
+  RECORD_STATUS.PENDING, RECORD_STATUS.SYNCING_DATA, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.ERROR
 ]);
-
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const elements = {
-  loginView: $('#loginView'),
-  loginForm: $('#loginForm'),
-  loginUser: $('#loginUser'),
-  loginPassword: $('#loginPassword'),
-  loginButton: $('#loginButton'),
-  loginMessage: $('#loginMessage'),
-  loginNetworkDot: $('#loginNetworkDot'),
-  loginNetworkText: $('#loginNetworkText'),
-  appShell: $('#appShell'),
-  sessionRoleLabel: $('#sessionRoleLabel'),
-  networkBadge: $('#networkBadge'),
-  installButton: $('#installButton'),
-  logoutButton: $('#logoutButton'),
-  mainNav: $('#mainNav'),
-  supervisorNav: $('#supervisorNav'),
-  supervisorNavCount: $('#supervisorNavCount'),
-  syncNavCount: $('#syncNavCount'),
-  resumeBanner: $('#resumeBanner'),
-  resumeBannerText: $('#resumeBannerText'),
-  resumeDraftButton: $('#resumeDraftButton'),
-  discardDraftButton: $('#discardDraftButton'),
-  draftIdBadge: $('#draftIdBadge'),
-  serviceSearch: $('#serviceSearch'),
-  serviceResults: $('#serviceResults'),
-  serviceSearchHint: $('#serviceSearchHint'),
-  searchSpinner: $('#searchSpinner'),
-  selectedServiceCard: $('#selectedServiceCard'),
-  selectedServiceCode: $('#selectedServiceCode'),
-  selectedServiceText: $('#selectedServiceText'),
-  selectedServiceOrigin: $('#selectedServiceOrigin'),
-  changeServiceButton: $('#changeServiceButton'),
-  observation: $('#observation'),
-  observationCount: $('#observationCount'),
-  unit: $('#unit'),
-  group: $('#group'),
-  referenceValue: $('#referenceValue'),
-  continueToPhotosButton: $('#continueToPhotosButton'),
-  continueToReviewButton: $('#continueToReviewButton'),
-  submitOccurrenceButton: $('#submitOccurrenceButton'),
-  photoGrid: $('#photoGrid'),
-  photoProgressChip: $('#photoProgressChip'),
-  reviewSummary: $('#reviewSummary'),
-  mineFilters: $('#mineFilters'),
-  mineList: $('#mineList'),
-  refreshMineButton: $('#refreshMineButton'),
-  syncConnection: $('#syncConnection'),
-  syncLastTest: $('#syncLastTest'),
-  syncPendingRecords: $('#syncPendingRecords'),
-  syncPendingPhotos: $('#syncPendingPhotos'),
-  syncPhotosSyncing: $('#syncPhotosSyncing'),
-  syncErrors: $('#syncErrors'),
-  lastSyncAt: $('#lastSyncAt'),
-  testConnectionButton: $('#testConnectionButton'),
-  syncNowButton: $('#syncNowButton'),
-  syncQueueList: $('#syncQueueList'),
-  refreshSupervisorButton: $('#refreshSupervisorButton'),
-  supervisorList: $('#supervisorList'),
-  selectAllVisible: $('#selectAllVisible'),
-  selectedCountLabel: $('#selectedCountLabel'),
-  approveSelectedButton: $('#approveSelectedButton'),
-  approveAllButton: $('#approveAllButton'),
-  approveAllFooter: $('#approveAllFooter'),
-  reviewDialog: $('#reviewDialog'),
-  reviewDialogTitle: $('#reviewDialogTitle'),
-  reviewDialogContent: $('#reviewDialogContent'),
-  requestCorrectionButton: $('#requestCorrectionButton'),
-  rejectButton: $('#rejectButton'),
-  approveButton: $('#approveButton'),
-  decisionDialog: $('#decisionDialog'),
-  decisionDialogTitle: $('#decisionDialogTitle'),
-  decisionReason: $('#decisionReason'),
-  decisionNote: $('#decisionNote'),
-  confirmDialog: $('#confirmDialog'),
-  confirmTitle: $('#confirmTitle'),
-  confirmMessage: $('#confirmMessage'),
-  confirmActionButton: $('#confirmActionButton'),
-  confirmIcon: $('#confirmIcon'),
-  photoDialog: $('#photoDialog'),
-  photoDialogImage: $('#photoDialogImage'),
-  photoDialogLabel: $('#photoDialogLabel'),
-  toastRegion: $('#toastRegion')
+  loginView: $('#loginView'), loginForm: $('#loginForm'), loginUser: $('#loginUser'),
+  loginPassword: $('#loginPassword'), loginButton: $('#loginButton'), loginMessage: $('#loginMessage'),
+  loginNetworkDot: $('#loginNetworkDot'), loginNetworkText: $('#loginNetworkText'), appShell: $('#appShell'),
+  sessionRoleLabel: $('#sessionRoleLabel'), networkBadge: $('#networkBadge'), installButton: $('#installButton'),
+  logoutButton: $('#logoutButton'), mainNav: $('#mainNav'), supervisorNav: $('#supervisorNav'),
+  supervisorNavCount: $('#supervisorNavCount'), syncNavCount: $('#syncNavCount'), resumeBanner: $('#resumeBanner'),
+  resumeBannerText: $('#resumeBannerText'), resumeDraftButton: $('#resumeDraftButton'),
+  discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), team: $('#team'),
+  occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'), pgSection: $('#pgSection'),
+  pg1: $('#pg1'), pg2: $('#pg2'), pg3: $('#pg3'), transformerSection: $('#transformerSection'),
+  removedTransformerCode: $('#removedTransformerCode'), removedTransformerCia: $('#removedTransformerCia'),
+  newTransformerCode: $('#newTransformerCode'), newTransformerCia: $('#newTransformerCia'),
+  serviceSearch: $('#serviceSearch'), serviceResults: $('#serviceResults'), serviceSearchHint: $('#serviceSearchHint'),
+  searchSpinner: $('#searchSpinner'), servicesList: $('#servicesList'), goalValue: $('#goalValue'),
+  currentValue: $('#currentValue'), goalPercentage: $('#goalPercentage'), goalBar: $('#goalBar'),
+  goalStatus: $('#goalStatus'), addMaterialButton: $('#addMaterialButton'), materialsList: $('#materialsList'),
+  observation: $('#observation'), observationCount: $('#observationCount'), stepOneErrors: $('#stepOneErrors'),
+  continueToPhotosButton: $('#continueToPhotosButton'), continueToReviewButton: $('#continueToReviewButton'),
+  submitOccurrenceButton: $('#submitOccurrenceButton'), photoGrid: $('#photoGrid'), photoProgressChip: $('#photoProgressChip'),
+  reviewSummary: $('#reviewSummary'), mineFilters: $('#mineFilters'), mineList: $('#mineList'),
+  refreshMineButton: $('#refreshMineButton'), syncConnection: $('#syncConnection'), syncLastTest: $('#syncLastTest'),
+  syncPendingRecords: $('#syncPendingRecords'), syncPendingPhotos: $('#syncPendingPhotos'),
+  syncPhotosSyncing: $('#syncPhotosSyncing'), syncErrors: $('#syncErrors'), lastSyncAt: $('#lastSyncAt'),
+  testConnectionButton: $('#testConnectionButton'), syncNowButton: $('#syncNowButton'),
+  syncQueueList: $('#syncQueueList'), refreshSupervisorButton: $('#refreshSupervisorButton'),
+  supervisorList: $('#supervisorList'), selectAllVisible: $('#selectAllVisible'),
+  selectedCountLabel: $('#selectedCountLabel'), approveSelectedButton: $('#approveSelectedButton'),
+  approveAllButton: $('#approveAllButton'), approveAllFooter: $('#approveAllFooter'),
+  reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
+  reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
+  rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'),
+  decisionDialogTitle: $('#decisionDialogTitle'), decisionReason: $('#decisionReason'), decisionNote: $('#decisionNote'),
+  confirmDialog: $('#confirmDialog'), confirmTitle: $('#confirmTitle'), confirmMessage: $('#confirmMessage'),
+  confirmActionButton: $('#confirmActionButton'), confirmIcon: $('#confirmIcon'), photoDialog: $('#photoDialog'),
+  photoDialogImage: $('#photoDialogImage'), photoDialogLabel: $('#photoDialogLabel'), toastRegion: $('#toastRegion')
 };
 
 let session = readSession();
@@ -151,8 +81,7 @@ let supervisorRefreshTimer = 0;
 function readSession() {
   try {
     const value = JSON.parse(localStorage.getItem(SESSION_KEY));
-    if (!value?.token || tokenExpiry(value.token) <= Date.now()) return null;
-    return value;
+    return value?.token && tokenExpiry(value.token) > Date.now() ? value : null;
   } catch { return null; }
 }
 
@@ -199,13 +128,12 @@ async function initialize() {
   await openDatabase();
   bindEvents();
   renderPhotoGrid();
+  renderMaterials();
+  renderServices();
   updateNetworkUi();
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(() => {});
-  }
-  if (session) await enterApplication();
-  else showLogin();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(() => {});
+  if (session) await enterApplication(); else showLogin();
   await updateQueueUi();
 }
 
@@ -216,30 +144,26 @@ function bindEvents() {
     const target = event.target.closest('[data-nav]');
     if (target) navigate(target.dataset.nav);
   });
-  $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => {
-    navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav);
-  }));
+  $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav)));
+  [elements.team, elements.occurrenceNumber, elements.pg1, elements.pg2, elements.pg3,
+    elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
+    elements.newTransformerCia, elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
+  elements.occurrenceTypes.addEventListener('change', handleFormInput);
   elements.serviceSearch.addEventListener('input', handleCatalogInput);
-  elements.serviceSearch.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') elements.serviceResults.hidden = true;
-  });
+  elements.serviceSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.serviceResults.hidden = true; });
   elements.serviceResults.addEventListener('click', (event) => {
     const button = event.target.closest('[data-catalog-index]');
     if (button) selectCatalogItem(catalogResults[Number(button.dataset.catalogIndex)]);
   });
-  document.addEventListener('click', (event) => {
-    if (!event.target.closest('.catalog-search')) elements.serviceResults.hidden = true;
+  document.addEventListener('click', (event) => { if (!event.target.closest('.catalog-search')) elements.serviceResults.hidden = true; });
+  elements.servicesList.addEventListener('input', handleServiceChange);
+  elements.servicesList.addEventListener('click', handleServiceChange);
+  elements.addMaterialButton.addEventListener('click', addMaterial);
+  elements.materialsList.addEventListener('input', handleMaterialChange);
+  elements.materialsList.addEventListener('click', handleMaterialChange);
+  elements.continueToPhotosButton.addEventListener('click', () => {
+    if (validateStepOne(true)) goToStep(2);
   });
-  elements.changeServiceButton.addEventListener('click', clearSelectedService);
-  elements.observation.addEventListener('input', async () => {
-    elements.observationCount.textContent = elements.observation.value.length;
-    if (activeRecord) {
-      activeRecord.observation = elements.observation.value;
-      await saveActiveDraft();
-    }
-    validateStepOne();
-  });
-  elements.continueToPhotosButton.addEventListener('click', () => goToStep(2));
   elements.continueToReviewButton.addEventListener('click', () => { renderReview(); goToStep(3); });
   $$('[data-back-step]').forEach((button) => button.addEventListener('click', () => goToStep(Number(button.dataset.backStep))));
   elements.submitOccurrenceButton.addEventListener('click', submitOccurrence);
@@ -251,8 +175,7 @@ function bindEvents() {
     const button = event.target.closest('[data-filter]');
     if (!button) return;
     mineFilter = button.dataset.filter;
-    renderMineFilters();
-    renderMineList();
+    renderMineFilters(); renderMineList();
   });
   elements.mineList.addEventListener('click', handleMineAction);
   elements.testConnectionButton.addEventListener('click', testConnection);
@@ -279,93 +202,60 @@ function bindEvents() {
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') syncAll(false);
   });
   window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-    deferredInstallPrompt = event;
-    elements.installButton.hidden = false;
+    event.preventDefault(); deferredInstallPrompt = event; elements.installButton.hidden = false;
   });
   elements.installButton.addEventListener('click', async () => {
     if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    elements.installButton.hidden = true;
+    deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null; elements.installButton.hidden = true;
   });
 }
 
 function showLogin() {
-  elements.loginView.hidden = false;
-  elements.appShell.hidden = true;
-  clearInterval(supervisorRefreshTimer);
+  elements.loginView.hidden = false; elements.appShell.hidden = true; clearInterval(supervisorRefreshTimer);
 }
 
 async function handleLogin(event) {
   event.preventDefault();
-  const formData = new FormData(elements.loginForm);
-  const user = String(formData.get('user') || '').trim();
-  const password = String(formData.get('password') || '');
-  const role = String(formData.get('role') || 'field');
+  const form = new FormData(elements.loginForm);
+  const user = String(form.get('user') || '').trim();
+  const password = String(form.get('password') || '');
+  const role = String(form.get('role') || 'field');
   elements.loginMessage.textContent = '';
-  if (!navigator.onLine) {
-    elements.loginMessage.textContent = 'Faça o primeiro acesso online. Depois, a fila continuará funcionando sem internet.';
-    return;
-  }
+  if (!navigator.onLine) { elements.loginMessage.textContent = 'Faça o primeiro acesso online. Depois, a fila continuará funcionando sem internet.'; return; }
   setBusy(elements.loginButton, true, 'Entrando…');
   try {
     const result = await api.login(user, password, role);
-    const nextSession = {
-      token: result.token,
-      user: result.user,
-      role: result.role,
-      expiresAt: tokenExpiry(result.token)
-    };
-    persistSession(nextSession);
+    persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
     localStorage.setItem(LAST_USER_KEY, result.user);
     elements.loginPassword.value = '';
     await enterApplication();
-  } catch (error) {
-    elements.loginMessage.textContent = friendlyError(error);
-  } finally {
-    setBusy(elements.loginButton, false);
-  }
+  } catch (error) { elements.loginMessage.textContent = friendlyError(error); }
+  finally { setBusy(elements.loginButton, false); }
 }
 
 async function enterApplication() {
-  elements.loginView.hidden = true;
-  elements.appShell.hidden = false;
+  elements.loginView.hidden = true; elements.appShell.hidden = false;
   elements.sessionRoleLabel.textContent = session.role === 'supervisor' ? `Supervisor · ${session.user}` : `Campo · ${session.user}`;
-  const fieldOnly = $$('[data-nav="new"], [data-nav="mine"]', elements.mainNav);
-  fieldOnly.forEach((item) => { item.hidden = session.role === 'supervisor'; });
+  $$('[data-nav="new"], [data-nav="mine"]', elements.mainNav).forEach((item) => { item.hidden = session.role === 'supervisor'; });
   elements.supervisorNav.hidden = session.role !== 'supervisor';
   if (session.role === 'supervisor') {
-    navigate('supervisor');
-    await refreshSupervisor(false);
+    navigate('supervisor'); await refreshSupervisor(false);
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) refreshSupervisor(false);
     }, 30000);
   } else {
-    navigate('new');
-    await detectDraft();
-    refreshMine(false);
-    if (navigator.onLine) syncAll(false);
+    navigate('new'); await detectDraft(); refreshMine(false); if (navigator.onLine) syncAll(false);
   }
   await updateQueueUi();
 }
 
-function logout() {
-  persistSession(null);
-  activeRecord = null;
-  clearPreviewUrls();
-  showLogin();
-}
+function logout() { persistSession(null); activeRecord = null; clearPreviewUrls(); showLogin(); }
 
 function navigate(view) {
   currentView = view;
-  $$('.view').forEach((section) => {
-    const active = section.id === `view-${view}`;
-    section.hidden = !active;
-    section.classList.toggle('is-active', active);
-  });
+  $$('.view').forEach((section) => { const active = section.id === `view-${view}`; section.hidden = !active; section.classList.toggle('is-active', active); });
   $$('.nav-item').forEach((item) => item.classList.toggle('is-active', item.dataset.nav === view));
   if (view === 'mine') refreshMine(false);
   if (view === 'sync') updateQueueUi();
@@ -376,53 +266,49 @@ function navigate(view) {
 function blankRecord() {
   const now = new Date().toISOString();
   return {
-    recordId: generateUuid(),
-    status: RECORD_STATUS.DRAFT,
-    serverStatus: '',
-    serverConfirmed: false,
-    step: 1,
-    code: '',
-    catalogText: '',
-    catalogKey: '',
-    origin: '',
-    observation: '',
-    unit: '',
-    group: '',
-    referenceValue: 0,
-    photoStates: Array.from({ length: 5 }, (_, index) => ({
-      photoIndex: index + 1,
-      confirmed: false,
-      localReady: false,
-      serverUrl: '',
-      uploadKey: '',
-      replacePending: false
-    })),
-    correctionMode: false,
-    attempts: 0,
-    lastError: '',
-    createdAt: now,
-    updatedAt: now,
-    user: session?.user || ''
+    recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
+    team: '', occurrenceNumber: '', occurrenceTypes: [], pg1: '', pg2: '', pg3: '',
+    transformer: { removedCode: '', removedCia: '', newCode: '', newCia: '' },
+    services: [], materials: [{ lineId: generateUuid(), description: '', quantity: '' }], observation: '',
+    photoStates: Array.from({ length: 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: false, localReady: false, serverUrl: '', uploadKey: '', replacePending: false })),
+    correctionMode: false, attempts: 0, lastError: '', createdAt: now, updatedAt: now, user: session?.user || ''
   };
 }
 
 async function ensureActiveRecord() {
   if (activeRecord) return activeRecord;
-  activeRecord = blankRecord();
-  await putRecord(activeRecord);
-  await setMeta(ACTIVE_DRAFT_META, activeRecord.recordId);
-  showDraftId();
+  activeRecord = blankRecord(); await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, activeRecord.recordId); showDraftId();
   return activeRecord;
+}
+
+function selectedTypes() { return $$('input[type="checkbox"]:checked', elements.occurrenceTypes).map((input) => input.value); }
+
+function syncFormToRecord() {
+  if (!activeRecord) return;
+  activeRecord.team = elements.team.value.trim();
+  activeRecord.occurrenceNumber = elements.occurrenceNumber.value.trim();
+  activeRecord.occurrenceTypes = selectedTypes();
+  activeRecord.pg1 = elements.pg1.value.trim(); activeRecord.pg2 = elements.pg2.value.trim(); activeRecord.pg3 = elements.pg3.value.trim();
+  activeRecord.transformer = {
+    removedCode: elements.removedTransformerCode.value.trim(), removedCia: elements.removedTransformerCia.value.trim(),
+    newCode: elements.newTransformerCode.value.trim(), newCia: elements.newTransformerCia.value.trim()
+  };
+  activeRecord.observation = elements.observation.value.trim();
+  activeRecord.totalServices = occurrenceTotal(activeRecord.services);
+  activeRecord.goalPercentage = goalProgress(activeRecord.totalServices).percentage;
+}
+
+async function handleFormInput() {
+  await ensureActiveRecord(); syncFormToRecord();
+  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
+  elements.observationCount.textContent = elements.observation.value.length;
+  validateStepOne(false); await saveActiveDraft();
 }
 
 async function saveActiveDraft() {
   if (!activeRecord) return;
-  activeRecord.step = currentStep;
-  activeRecord.updatedAt = new Date().toISOString();
-  activeRecord.user = session?.user || activeRecord.user;
-  await putRecord(activeRecord);
-  await setMeta(ACTIVE_DRAFT_META, activeRecord.recordId);
-  showDraftId();
+  activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); activeRecord.user = session?.user || activeRecord.user;
+  await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, activeRecord.recordId); showDraftId();
 }
 
 function showDraftId() {
@@ -434,33 +320,21 @@ async function detectDraft() {
   const recordId = await getMeta(ACTIVE_DRAFT_META);
   if (!recordId) { elements.resumeBanner.hidden = true; return; }
   const record = await getRecord(recordId);
-  if (!record || record.status !== RECORD_STATUS.DRAFT) {
-    await setMeta(ACTIVE_DRAFT_META, null);
-    elements.resumeBanner.hidden = true;
-    return;
-  }
+  if (!record || record.status !== RECORD_STATUS.DRAFT) { await setMeta(ACTIVE_DRAFT_META, null); elements.resumeBanner.hidden = true; return; }
   elements.resumeBanner.hidden = false;
-  elements.resumeBannerText.textContent = record.code ? `${record.code} · atualizado em ${formatDateTime(record.updatedAt)}` : `Atualizado em ${formatDateTime(record.updatedAt)}`;
+  elements.resumeBannerText.textContent = record.occurrenceNumber ? `Nº ${record.occurrenceNumber} · atualizado em ${formatDateTime(record.updatedAt)}` : `Atualizado em ${formatDateTime(record.updatedAt)}`;
 }
 
 async function resumeDraft() {
-  const recordId = await getMeta(ACTIVE_DRAFT_META);
-  const record = recordId ? await getRecord(recordId) : null;
-  if (!record) return;
-  await loadRecordIntoForm(record);
-  elements.resumeBanner.hidden = true;
-  navigate('new');
+  const recordId = await getMeta(ACTIVE_DRAFT_META); const record = recordId ? await getRecord(recordId) : null;
+  if (!record) return; await loadRecordIntoForm(record); elements.resumeBanner.hidden = true; navigate('new');
 }
 
 async function discardDraft() {
-  const recordId = await getMeta(ACTIVE_DRAFT_META);
-  if (!recordId) return;
+  const recordId = await getMeta(ACTIVE_DRAFT_META); if (!recordId) return;
   if (!await confirmAction('Descartar rascunho?', 'O rascunho e as fotos guardadas somente neste aparelho serão removidos.', 'Descartar', 'danger')) return;
-  await deleteRecord(recordId);
-  await setMeta(ACTIVE_DRAFT_META, null);
-  elements.resumeBanner.hidden = true;
-  if (activeRecord?.recordId === recordId) resetForm();
-  toast('Rascunho descartado.');
+  await deleteRecord(recordId); await setMeta(ACTIVE_DRAFT_META, null); elements.resumeBanner.hidden = true;
+  if (activeRecord?.recordId === recordId) resetForm(); toast('Rascunho descartado.');
 }
 
 function goToStep(step) {
@@ -468,152 +342,133 @@ function goToStep(step) {
   $$('[data-step-panel]').forEach((panel) => { panel.hidden = Number(panel.dataset.stepPanel) !== step; });
   $$('[data-step-indicator]').forEach((indicator) => {
     const number = Number(indicator.dataset.stepIndicator);
-    indicator.classList.toggle('is-active', number === step);
-    indicator.classList.toggle('is-complete', number < step);
+    indicator.classList.toggle('is-active', number === step); indicator.classList.toggle('is-complete', number < step);
   });
-  if (activeRecord) saveActiveDraft();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (activeRecord) saveActiveDraft(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function handleCatalogInput() {
-  const query = elements.serviceSearch.value.toUpperCase().replace(/\s+/g, '');
-  elements.serviceSearch.value = query;
+  const query = elements.serviceSearch.value.trim();
   if (query) await ensureActiveRecord();
-  clearTimeout(catalogSearchTimer);
-  const requestId = ++catalogSearchRequestId;
+  clearTimeout(catalogSearchTimer); const requestId = ++catalogSearchRequestId;
   if (query.length < 2) {
-    elements.searchSpinner.hidden = true;
-    elements.serviceResults.hidden = true;
-    elements.serviceSearchHint.textContent = 'Digite pelo menos 2 caracteres. Resultados idênticos entre bases serão agrupados.';
-    return;
+    elements.searchSpinner.hidden = true; elements.serviceResults.hidden = true;
+    elements.serviceSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; return;
   }
-  catalogSearchTimer = setTimeout(() => searchCatalog(query, requestId), 320);
+  catalogSearchTimer = setTimeout(() => searchCatalog(query, requestId), 260);
 }
 
 async function searchCatalog(query, requestId) {
   elements.searchSpinner.hidden = false;
-  elements.serviceSearchHint.textContent = navigator.onLine ? 'Pesquisando no Caderno de Serviços…' : 'Sem internet: pesquisando itens já consultados neste aparelho.';
+  elements.serviceSearchHint.textContent = navigator.onLine ? 'Pesquisando na aba Emergência…' : 'Sem internet: pesquisando itens salvos neste aparelho.';
   try {
-    const results = navigator.onLine
-      ? (await api.searchCatalog(session.token, query, 30)).results
-      : await searchCachedCatalog(query, 30);
-    if (requestId !== catalogSearchRequestId || elements.serviceSearch.value !== query) return;
-    catalogResults = results || [];
-    if (navigator.onLine) await cacheCatalogResults(catalogResults);
-    if (requestId !== catalogSearchRequestId || elements.serviceSearch.value !== query) return;
-    renderCatalogResults();
+    const results = navigator.onLine ? (await api.searchCatalog(session.token, query, 40)).results : await searchCachedCatalog(query, 40);
+    if (requestId !== catalogSearchRequestId || elements.serviceSearch.value.trim() !== query) return;
+    catalogResults = results || []; if (navigator.onLine) await cacheCatalogResults(catalogResults); renderCatalogResults();
   } catch (error) {
-    const cached = await searchCachedCatalog(query, 30);
-    if (requestId !== catalogSearchRequestId || elements.serviceSearch.value !== query) return;
-    catalogResults = cached;
-    renderCatalogResults(error);
-  } finally {
-    if (requestId === catalogSearchRequestId) elements.searchSpinner.hidden = true;
-  }
+    catalogResults = await searchCachedCatalog(query, 40);
+    if (requestId === catalogSearchRequestId) renderCatalogResults(error);
+  } finally { if (requestId === catalogSearchRequestId) elements.searchSpinner.hidden = true; }
 }
 
 function renderCatalogResults(error = null) {
   elements.serviceResults.hidden = false;
   if (!catalogResults.length) {
-    elements.serviceResults.innerHTML = `<div class="search-empty">${escapeHtml(error ? 'Não foi possível consultar o servidor e não há resultado salvo neste aparelho.' : 'Nenhum Código de Serviço encontrado.')}</div>`;
-    elements.serviceSearchHint.textContent = error ? friendlyError(error) : 'Revise o código pesquisado.';
-    return;
+    elements.serviceResults.innerHTML = `<div class="search-empty">${escapeHtml(error ? 'Servidor indisponível e nenhum resultado salvo.' : 'Nenhum serviço encontrado na aba Emergência.')}</div>`;
+    elements.serviceSearchHint.textContent = error ? friendlyError(error) : 'Tente outro código ou palavra.'; return;
   }
-  elements.serviceResults.innerHTML = catalogResults.map((item, index) => `
-    <button class="search-result" type="button" role="option" data-catalog-index="${index}">
-      <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>${escapeHtml(item.origin)}</small></span>
-      <span>${escapeHtml(item.catalogText || 'Sem texto breve')}</span>
-      <span class="search-result__meta">
-        <b>${escapeHtml(item.unit || '—')}</b><span>${escapeHtml(item.group || '—')}</span><span>${escapeHtml(formatCurrency(item.referenceValue))}</span>
-      </span>
-    </button>`).join('');
-  elements.serviceSearchHint.textContent = `${catalogResults.length} resultado(s). Toque no registro correto.`;
+  elements.serviceResults.innerHTML = catalogResults.map((item, index) => `<button class="search-result" type="button" role="option" data-catalog-index="${index}">
+    <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Emergência</small></span>
+    <span>${escapeHtml(item.catalogText || 'Sem descrição')}</span>
+    <span class="search-result__meta"><b>${escapeHtml(item.unit || '—')}</b><span>${escapeHtml(item.group || '')}</span><span>${escapeHtml(formatCurrency(item.referenceValue))}</span></span>
+  </button>`).join('');
+  elements.serviceSearchHint.textContent = `${catalogResults.length} resultado(s). Toque para adicionar.`;
 }
 
 async function selectCatalogItem(item) {
-  if (!item) return;
-  await ensureActiveRecord();
-  activeRecord.code = item.code;
-  activeRecord.catalogText = item.catalogText || '';
-  activeRecord.catalogKey = item.catalogKey || item.catalogKeys?.[0] || '';
-  activeRecord.origin = item.origin || item.origins?.join(' | ') || '';
-  activeRecord.observation = item.catalogText || '';
-  activeRecord.unit = item.unit || '';
-  activeRecord.group = item.group || '';
-  activeRecord.referenceValue = Number(item.referenceValue) || 0;
-  elements.serviceResults.hidden = true;
-  applySelectedService();
-  await saveActiveDraft();
-  validateStepOne();
+  if (!item) return; await ensureActiveRecord();
+  const catalogKey = item.catalogKey || item.catalogKeys?.[0] || '';
+  if (activeRecord.services.some((service) => service.catalogKey === catalogKey)) { toast('Este serviço já foi adicionado.', 'error'); return; }
+  activeRecord.services.push({ lineId: generateUuid(), catalogKey, code: item.code, catalogText: item.catalogText || '', unit: item.unit || '', group: item.group || '', referenceValue: Number(item.referenceValue) || 0, quantity: 1, origin: 'Emergência' });
+  elements.serviceSearch.value = ''; elements.serviceResults.hidden = true; catalogResults = [];
+  renderServices(); validateStepOne(false); await saveActiveDraft();
 }
 
-function applySelectedService() {
-  const selected = Boolean(activeRecord?.code && activeRecord?.catalogKey);
-  elements.selectedServiceCard.hidden = !selected;
-  elements.serviceSearch.hidden = selected;
-  if (!selected) return;
-  elements.selectedServiceCode.textContent = activeRecord.code;
-  elements.selectedServiceText.textContent = activeRecord.catalogText || activeRecord.observation;
-  elements.selectedServiceOrigin.textContent = `Origem: ${activeRecord.origin}`;
-  elements.observation.disabled = false;
-  elements.observation.value = activeRecord.observation || '';
-  elements.observationCount.textContent = elements.observation.value.length;
-  elements.unit.value = activeRecord.unit || '';
-  elements.group.value = activeRecord.group || '';
-  elements.referenceValue.value = formatCurrency(activeRecord.referenceValue);
+function renderServices() {
+  const services = activeRecord?.services || [];
+  if (!services.length) {
+    elements.servicesList.innerHTML = '<div class="line-items__empty">Nenhum serviço selecionado.</div>'; updateGoal(); return;
+  }
+  elements.servicesList.innerHTML = services.map((service, index) => `<article class="line-item" data-service-line="${escapeHtml(service.lineId)}">
+    <div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} ${service.group ? `· ${escapeHtml(service.group)}` : ''}</small></div><button class="icon-button delete-photo" type="button" data-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div>
+    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(formatCurrency(service.referenceValue))}</strong></div><div><span>Valor total</span><strong>${escapeHtml(formatCurrency(serviceTotal(service)))}</strong></div></div>
+  </article>`).join(''); updateGoal();
 }
 
-async function clearSelectedService() {
-  if (!activeRecord) return;
-  catalogSearchRequestId += 1;
-  clearTimeout(catalogSearchTimer);
-  Object.assign(activeRecord, { code: '', catalogText: '', catalogKey: '', origin: '', observation: '', unit: '', group: '', referenceValue: 0 });
-  elements.serviceSearch.hidden = false;
-  elements.serviceSearch.value = '';
-  elements.selectedServiceCard.hidden = true;
-  elements.observation.value = '';
-  elements.observation.disabled = true;
-  elements.observationCount.textContent = '0';
-  elements.unit.value = '';
-  elements.group.value = '';
-  elements.referenceValue.value = '';
-  validateStepOne();
-  await saveActiveDraft();
-  elements.serviceSearch.focus();
+async function handleServiceChange(event) {
+  const remove = event.target.closest('[data-remove-service]');
+  const quantity = event.target.closest('[data-service-quantity]');
+  if (!activeRecord || (!remove && !quantity)) return;
+  if (remove) activeRecord.services = activeRecord.services.filter((service) => service.lineId !== remove.dataset.removeService);
+  if (quantity) {
+    const service = activeRecord.services.find((item) => item.lineId === quantity.dataset.serviceQuantity);
+    if (service) service.quantity = quantity.value;
+  }
+  renderServices(); validateStepOne(false); await saveActiveDraft();
 }
 
-function validateStepOne() {
-  const valid = Boolean(activeRecord?.code && activeRecord?.catalogKey && elements.observation.value.trim() && activeRecord.unit && activeRecord.group);
-  elements.continueToPhotosButton.disabled = !valid;
-  return valid;
+function updateGoal() {
+  const total = occurrenceTotal(activeRecord?.services || []); const progress = goalProgress(total, TEAM_GOAL);
+  elements.goalValue.textContent = formatCurrency(TEAM_GOAL); elements.currentValue.textContent = formatCurrency(total);
+  elements.goalPercentage.textContent = `${formatNumber(progress.percentage)}%`; elements.goalBar.style.width = `${progress.visualPercentage}%`;
+  elements.goalStatus.textContent = progress.label; elements.goalStatus.className = `goal-status goal-status--${progress.state}`;
+}
+
+async function addMaterial() {
+  await ensureActiveRecord(); activeRecord.materials.push({ lineId: generateUuid(), description: '', quantity: '' });
+  renderMaterials(); await saveActiveDraft();
+}
+
+function renderMaterials() {
+  const materials = activeRecord?.materials || [{ lineId: 'blank', description: '', quantity: '' }];
+  elements.materialsList.innerHTML = materials.map((material, index) => `<article class="line-item material-line" data-material-line="${escapeHtml(material.lineId)}">
+    <span class="line-item__index">${index + 1}</span><label class="field"><span>Material *</span><input type="text" maxlength="180" data-material-description="${escapeHtml(material.lineId)}" value="${escapeHtml(material.description)}" placeholder="Ex.: Cabo 35mm" /></label><label class="field"><span>Quantidade *</span><input type="number" min="0.001" step="any" inputmode="decimal" data-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /></label>${materials.length > 1 ? `<button class="icon-button delete-photo" type="button" data-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button>` : ''}
+  </article>`).join('');
+}
+
+async function handleMaterialChange(event) {
+  if (!activeRecord) { await ensureActiveRecord(); renderMaterials(); }
+  const remove = event.target.closest('[data-remove-material]');
+  const description = event.target.closest('[data-material-description]');
+  const quantity = event.target.closest('[data-material-quantity]');
+  if (remove) activeRecord.materials = activeRecord.materials.filter((item) => item.lineId !== remove.dataset.removeMaterial);
+  if (description) { const item = activeRecord.materials.find((row) => row.lineId === description.dataset.materialDescription) || activeRecord.materials[0]; if (item) item.description = description.value; }
+  if (quantity) { const item = activeRecord.materials.find((row) => row.lineId === quantity.dataset.materialQuantity) || activeRecord.materials[0]; if (item) item.quantity = quantity.value; }
+  if (remove) renderMaterials(); validateStepOne(false); await saveActiveDraft();
+}
+
+function validateStepOne(showErrors = false) {
+  if (activeRecord) syncFormToRecord();
+  const errors = activeRecord ? validateOccurrence(activeRecord) : ['Preencha os dados da ocorrência.'];
+  elements.continueToPhotosButton.disabled = errors.length > 0;
+  if (showErrors && errors.length) {
+    elements.stepOneErrors.hidden = false;
+    elements.stepOneErrors.innerHTML = `<strong>Revise os campos:</strong><ul>${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul>`;
+    elements.stepOneErrors.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (!errors.length || !showErrors) { elements.stepOneErrors.hidden = true; }
+  return errors.length === 0;
 }
 
 function renderPhotoGrid() {
   elements.photoGrid.innerHTML = Array.from({ length: 5 }, (_, offset) => {
     const index = offset + 1;
-    return `<article class="photo-card" data-photo-card="${index}">
-      <div class="photo-card__header"><strong>Foto ${index}</strong><span class="status-chip status-chip--neutral" data-photo-status="${index}">Pendente</span></div>
-      <div class="photo-card__preview" data-photo-preview="${index}">
-        <div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>
-      </div>
-      <div class="photo-card__actions">
-        <button class="button button--primary" type="button" data-photo-take="${index}">Tirar foto</button>
-        <button class="button button--ghost" type="button" data-photo-attach="${index}">Anexar foto</button>
-      </div>
-      <div class="photo-card__secondary" data-photo-secondary="${index}" hidden>
-        <button type="button" data-photo-replace="${index}">Substituir</button>
-        <button class="delete-photo" type="button" data-photo-delete="${index}">Excluir</button>
-      </div>
-    </article>`;
-  }).join('');
-  updatePhotoGrid();
+    return `<article class="photo-card" data-photo-card="${index}"><div class="photo-card__header"><strong>Foto ${index}</strong><span class="status-chip status-chip--neutral" data-photo-status="${index}">Pendente</span></div><div class="photo-card__preview" data-photo-preview="${index}"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div></div><div class="photo-card__actions"><button class="button button--primary" type="button" data-photo-take="${index}">Tirar foto</button><button class="button button--ghost" type="button" data-photo-attach="${index}">Anexar foto</button></div><div class="photo-card__secondary" data-photo-secondary="${index}" hidden><button type="button" data-photo-replace="${index}">Substituir</button><button class="delete-photo" type="button" data-photo-delete="${index}">Excluir</button></div></article>`;
+  }).join(''); updatePhotoGrid();
 }
 
 async function handlePhotoGridClick(event) {
-  const take = event.target.closest('[data-photo-take]');
-  const attach = event.target.closest('[data-photo-attach]');
-  const replace = event.target.closest('[data-photo-replace]');
-  const remove = event.target.closest('[data-photo-delete]');
+  const take = event.target.closest('[data-photo-take]'); const attach = event.target.closest('[data-photo-attach]');
+  const replace = event.target.closest('[data-photo-replace]'); const remove = event.target.closest('[data-photo-delete]');
   const preview = event.target.closest('[data-photo-preview] img');
   if (take) return choosePhoto(Number(take.dataset.photoTake), true);
   if (attach) return choosePhoto(Number(attach.dataset.photoAttach), false);
@@ -623,379 +478,170 @@ async function handlePhotoGridClick(event) {
 }
 
 function choosePhoto(photoIndex, capture, replace = false) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
-  if (capture) input.setAttribute('capture', 'environment');
-  input.hidden = true;
-  input.addEventListener('change', async () => {
-    const file = input.files?.[0];
-    input.remove();
-    if (file) await storeSelectedPhoto(photoIndex, file, replace);
-  }, { once: true });
-  document.body.append(input);
-  input.click();
+  const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
+  if (capture) input.setAttribute('capture', 'environment'); input.hidden = true;
+  input.addEventListener('change', async () => { const file = input.files?.[0]; input.remove(); if (file) await storeSelectedPhoto(photoIndex, file, replace); }, { once: true });
+  document.body.append(input); input.click();
 }
 
 async function storeSelectedPhoto(photoIndex, file, replace) {
   try {
-    await ensureActiveRecord();
-    const blob = await optimizePhoto(file);
+    await ensureActiveRecord(); const blob = await optimizePhoto(file);
     if (blob.size > 9 * 1024 * 1024) throw new Error('A foto ficou acima de 9 MB mesmo após a otimização.');
-    const uploadKey = generateUuid();
-    const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
-    const replacePending = replace || Boolean(state.confirmed || state.serverUrl);
-    activeRecord.photoStates[photoIndex - 1] = {
-      ...state,
-      photoIndex,
-      confirmed: false,
-      localReady: true,
-      uploadKey,
-      replacePending,
-      error: ''
-    };
+    const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
+    activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.confirmed || state.serverUrl), error: '' };
     await putPhoto(activeRecord.recordId, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
-    activePhotos.set(photoIndex, { blob, uploadKey });
-    setPreviewUrl(photoIndex, URL.createObjectURL(blob));
-    await saveActiveDraft();
-    updatePhotoGrid();
-  } catch (error) {
-    toast(error.message || 'Não foi possível preparar a foto.', 'error');
-  }
+    activePhotos.set(photoIndex, { blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
+    await saveActiveDraft(); updatePhotoGrid();
+  } catch (error) { toast(error.message || 'Não foi possível preparar a foto.', 'error'); }
 }
 
 async function optimizePhoto(file) {
   if (!file.type.startsWith('image/')) throw new Error('Escolha um arquivo de imagem.');
   const sourceUrl = URL.createObjectURL(file);
   try {
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = sourceUrl;
-    await image.decode();
-    const maxSide = 1600;
-    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d', { alpha: false });
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84));
-    return blob || file;
-  } catch {
-    if (file.size <= 9 * 1024 * 1024) return file;
-    throw new Error('Este formato não pôde ser otimizado neste aparelho. Use JPG ou PNG.');
-  } finally {
-    URL.revokeObjectURL(sourceUrl);
-  }
+    const image = new Image(); image.decoding = 'async'; image.src = sourceUrl; await image.decode();
+    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d', { alpha: false }); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84)) || file;
+  } catch { if (file.size <= 9 * 1024 * 1024) return file; throw new Error('Este formato não pôde ser otimizado neste aparelho. Use JPG ou PNG.'); }
+  finally { URL.revokeObjectURL(sourceUrl); }
 }
 
 async function removePhoto(photoIndex) {
-  const state = activeRecord?.photoStates?.[photoIndex - 1];
-  if (!state) return;
-  if (state.confirmed && !state.replacePending) {
-    toast('Uma foto já confirmada no servidor pode ser substituída, mas não removida isoladamente.', 'error');
-    return;
-  }
-  await deletePhoto(activeRecord.recordId, photoIndex);
-  activePhotos.delete(photoIndex);
-  revokePreviewUrl(photoIndex);
-  activeRecord.photoStates[photoIndex - 1] = {
-    photoIndex,
-    confirmed: Boolean(state.serverUrl),
-    localReady: false,
-    serverUrl: state.serverUrl || '',
-    uploadKey: '',
-    replacePending: false
-  };
-  await saveActiveDraft();
-  updatePhotoGrid();
+  const state = activeRecord?.photoStates?.[photoIndex - 1]; if (!state) return;
+  if (state.confirmed && !state.replacePending) { toast('Uma foto confirmada pode ser substituída, mas não removida isoladamente.', 'error'); return; }
+  await deletePhoto(activeRecord.recordId, photoIndex); activePhotos.delete(photoIndex); revokePreviewUrl(photoIndex);
+  activeRecord.photoStates[photoIndex - 1] = { photoIndex, confirmed: Boolean(state.serverUrl), localReady: false, serverUrl: state.serverUrl || '', uploadKey: '', replacePending: false };
+  await saveActiveDraft(); updatePhotoGrid();
 }
 
-function setPreviewUrl(index, url) {
-  revokePreviewUrl(index);
-  previewUrls.set(index, url);
-}
-
-function revokePreviewUrl(index) {
-  const current = previewUrls.get(index);
-  if (current?.startsWith('blob:')) URL.revokeObjectURL(current);
-  previewUrls.delete(index);
-}
-
-function clearPreviewUrls() {
-  for (const index of previewUrls.keys()) revokePreviewUrl(index);
-  activePhotos.clear();
-}
+function setPreviewUrl(index, url) { revokePreviewUrl(index); previewUrls.set(index, url); }
+function revokePreviewUrl(index) { const current = previewUrls.get(index); if (current?.startsWith('blob:')) URL.revokeObjectURL(current); previewUrls.delete(index); }
+function clearPreviewUrls() { for (const index of [...previewUrls.keys()]) revokePreviewUrl(index); activePhotos.clear(); }
 
 function updatePhotoGrid() {
   let ready = 0;
   for (let index = 1; index <= 5; index += 1) {
-    const state = activeRecord?.photoStates?.[index - 1] || {};
-    const local = Boolean(state.localReady) || activePhotos.has(index) || previewUrls.has(index) && previewUrls.get(index).startsWith('blob:');
-    const url = previewUrls.get(index) || state.serverUrl || '';
-    const present = local || Boolean(url) || state.confirmed;
-    if (present) ready += 1;
-    const card = $(`[data-photo-card="${index}"]`);
-    const preview = $(`[data-photo-preview="${index}"]`);
-    const status = $(`[data-photo-status="${index}"]`);
-    const secondary = $(`[data-photo-secondary="${index}"]`);
+    const state = activeRecord?.photoStates?.[index - 1] || {}; const local = Boolean(state.localReady) || activePhotos.has(index);
+    const url = previewUrls.get(index) || state.serverUrl || ''; const present = local || Boolean(url) || state.confirmed; if (present) ready += 1;
+    const card = $(`[data-photo-card="${index}"]`); const preview = $(`[data-photo-preview="${index}"]`); const status = $(`[data-photo-status="${index}"]`); const secondary = $(`[data-photo-secondary="${index}"]`);
     card?.classList.toggle('has-photo', present);
-    if (preview) preview.innerHTML = url
-      ? `<img src="${escapeHtml(url)}" alt="Foto ${index}" />`
-      : `<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>`;
-    if (status) {
-      status.textContent = state.confirmed && !state.replacePending ? 'Confirmada' : present ? 'Pronta' : 'Pendente';
-      status.className = `status-chip ${state.confirmed && !state.replacePending ? 'status-chip--success' : present ? 'status-chip--info' : 'status-chip--neutral'}`;
-    }
-    if (secondary) {
-      secondary.hidden = !present;
-      const deleteButton = $('[data-photo-delete]', secondary);
-      if (deleteButton) deleteButton.hidden = Boolean(state.confirmed && !state.replacePending && !local);
-    }
+    if (preview) preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="Foto ${index}" />` : '<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>';
+    if (status) { status.textContent = state.confirmed && !state.replacePending ? 'Confirmada' : present ? 'Pronta' : 'Pendente'; status.className = `status-chip ${state.confirmed && !state.replacePending ? 'status-chip--success' : present ? 'status-chip--info' : 'status-chip--neutral'}`; }
+    if (secondary) { secondary.hidden = !present; const button = $('[data-photo-delete]', secondary); if (button) button.hidden = Boolean(state.confirmed && !state.replacePending && !local); }
   }
-  elements.photoProgressChip.textContent = `${ready}/5 fotos`;
-  elements.photoProgressChip.className = `status-chip ${ready === 5 ? 'status-chip--success' : 'status-chip--warning'}`;
+  elements.photoProgressChip.textContent = `${ready}/5 fotos`; elements.photoProgressChip.className = `status-chip ${ready === 5 ? 'status-chip--success' : 'status-chip--warning'}`;
   elements.continueToReviewButton.disabled = ready !== 5;
 }
 
-function renderReview() {
-  if (!activeRecord) return;
-  const photos = Array.from({ length: 5 }, (_, offset) => {
-    const index = offset + 1;
-    const url = previewUrls.get(index) || activeRecord.photoStates[index - 1]?.serverUrl || '';
-    return `<figure class="review-photo"><img src="${escapeHtml(url)}" alt="Foto ${index}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index}" /><span>Foto ${index}</span></figure>`;
-  }).join('');
-  elements.reviewSummary.innerHTML = `
-    <dl class="review-data">
-      <div class="review-data__grid">
-        <div><dt>Código de Serviço</dt><dd>${escapeHtml(activeRecord.code)}</dd></div>
-        <div><dt>Unidade</dt><dd>${escapeHtml(activeRecord.unit)}</dd></div>
-        <div><dt>Grupo</dt><dd>${escapeHtml(activeRecord.group)}</dd></div>
-        <div><dt>Valor Referência Único</dt><dd>${escapeHtml(formatCurrency(activeRecord.referenceValue))}</dd></div>
-      </div>
-      <div><dt>Observação</dt><dd>${escapeHtml(activeRecord.observation)}</dd></div>
-      <div><dt>Origem do serviço</dt><dd>${escapeHtml(activeRecord.origin)}</dd></div>
-    </dl>
-    <div class="review-photos">${photos}</div>`;
+function serviceTable(services = []) {
+  return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td>${escapeHtml(service.code)}</td><td>${escapeHtml(service.catalogText)}</td><td>${escapeHtml(service.unit)}</td><td>${escapeHtml(formatNumber(service.quantity))}</td><td>${escapeHtml(formatCurrency(service.referenceValue))}</td><td>${escapeHtml(formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
+function materialTable(materials = []) {
+  return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => `<tr><td>${escapeHtml(material.description)}</td><td>${escapeHtml(formatNumber(material.quantity))}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+function occurrenceDetails(record, includePhotos = true) {
+  const total = occurrenceTotal(record.services || []); const progress = goalProgress(total);
+  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Retirado</dt><dd>${escapeHtml(record.transformer?.removedCode)} · CIA ${escapeHtml(record.transformer?.removedCia)}</dd></div><div><dt>Novo</dt><dd>${escapeHtml(record.transformer?.newCode)} · CIA ${escapeHtml(record.transformer?.newCia)}</dd></div></div></div>` : '';
+  const photos = includePhotos ? `<div class="review-photos">${(record.photos || Array.from({ length: 5 }, (_, index) => previewUrls.get(index + 1) || record.photoStates?.[index]?.serverUrl || '')).map((url, index) => url ? `<figure class="review-photo"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" /><span>Foto ${index + 1}</span></figure>` : '').join('')}</div>` : '';
+  return `<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</dd></div><div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Meta da equipe</dt><dd>${escapeHtml(formatNumber(progress.percentage))}% · ${escapeHtml(progress.label)}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+}
+
+function renderReview() { if (activeRecord) { syncFormToRecord(); elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
+
 async function submitOccurrence() {
-  if (!activeRecord || !validateStepOne() || countReadyPhotos() !== 5) {
-    toast('Complete os dados e as cinco fotos antes de enviar.', 'error');
-    return;
-  }
+  if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) !== 5) { toast('Complete os dados e as cinco fotos antes de enviar.', 'error'); return; }
   if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
-  activeRecord.observation = elements.observation.value.trim();
-  activeRecord.status = RECORD_STATUS.PENDING;
-  activeRecord.lastError = '';
-  await putRecord(activeRecord);
-  await setMeta(ACTIVE_DRAFT_META, null);
-  const submittedId = activeRecord.recordId;
+  syncFormToRecord(); activeRecord.status = RECORD_STATUS.PENDING; activeRecord.lastError = '';
+  await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, null); const submittedId = activeRecord.recordId;
   setBusy(elements.submitOccurrenceButton, true, 'Enviando…');
   try {
     const result = await syncSingleRecord(submittedId, false);
-    if (result?.status === RECORD_STATUS.WAITING_SUPERVISOR || result?.status === RECORD_STATUS.PUBLISHED) {
-      toast('Ocorrência enviada para conferência.', 'success');
-    } else {
-      toast('Ocorrência guardada na fila. A sincronização continuará automaticamente.');
-    }
-  } finally {
-    setBusy(elements.submitOccurrenceButton, false);
-    resetForm();
-    navigate('mine');
-  }
-}
-
-function countReadyPhotos() {
-  return countReadyPhotoStates(activeRecord);
+    toast(result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'Ocorrência enviada para conferência.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.', result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'success' : 'default');
+  } finally { setBusy(elements.submitOccurrenceButton, false); resetForm(); navigate('mine'); }
 }
 
 async function syncSingleRecord(recordId, notify = true) {
-  const record = await getRecord(recordId);
-  if (!record || !session || session.role !== 'field') return null;
-  if (!navigator.onLine) {
-    record.status = RECORD_STATUS.PENDING;
-    record.lastError = 'Sem internet';
-    await putRecord(record);
-    await updateQueueUi();
-    if (notify) toast('Sem internet. O registro continua guardado neste aparelho.');
-    return record;
-  }
+  const record = await getRecord(recordId); if (!record || !session || session.role !== 'field') return null;
+  if (!navigator.onLine) { record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet'; await putRecord(record); await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record; }
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
   try {
     if (next.serverConfirmed || next.attempts > 1) {
-      try {
-        const serverState = await api.getRecordState(session.token, next.recordId);
-        next = reconcilePhotoStates(next, serverState);
-        await putRecord(next);
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error;
-      }
+      try { next = reconcilePhotoStates(next, await api.getRecordState(session.token, next.recordId)); await putRecord(next); }
+      catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
     }
-
-    next.status = RECORD_STATUS.SYNCING_DATA;
-    await putRecord(next);
-    const dataResult = await api.submitRecord(session.token, {
-      recordId: next.recordId,
-      code: next.code,
-      observation: next.observation,
-      unit: next.unit,
-      group: next.group,
-      referenceValue: next.referenceValue,
-      origin: next.origin,
-      catalogKey: next.catalogKey
-    }, APP_VERSION);
-    next = reconcilePhotoStates(next, dataResult);
-    next.status = RECORD_STATUS.SYNCING_PHOTOS;
-    await putRecord(next);
-
-    const reconciled = await api.getRecordState(session.token, next.recordId);
-    next = reconcilePhotoStates(next, reconciled);
-    await putRecord(next);
-
+    next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
+    next = reconcilePhotoStates(next, await api.submitRecord(session.token, {
+      recordId: next.recordId, team: next.team, occurrenceNumber: next.occurrenceNumber,
+      occurrenceTypes: next.occurrenceTypes, pg1: next.pg1, pg2: next.pg2, pg3: next.pg3,
+      transformer: next.transformer, services: next.services, materials: next.materials,
+      totalServices: occurrenceTotal(next.services), goalPercentage: goalProgress(occurrenceTotal(next.services)).percentage,
+      observation: next.observation
+    }, APP_VERSION));
+    next.status = RECORD_STATUS.SYNCING_PHOTOS; await putRecord(next);
+    next = reconcilePhotoStates(next, await api.getRecordState(session.token, next.recordId)); await putRecord(next);
     for (let index = 1; index <= 5; index += 1) {
       const state = next.photoStates[index - 1] || {};
-      if (state.confirmed && !state.replacePending) {
-        await deletePhoto(next.recordId, index).catch(() => {});
-        continue;
-      }
+      if (state.confirmed && !state.replacePending) { await deletePhoto(next.recordId, index).catch(() => {}); continue; }
       const localPhoto = await getPhoto(next.recordId, index);
       if (!localPhoto?.blob) throw new ApiError(`A Foto ${index} não está disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
-      const dataUrl = await blobToDataUrl(localPhoto.blob);
-      const photoResult = await api.uploadPhoto(session.token, { ...localPhoto, dataUrl }, { replace: Boolean(state.replacePending) });
-      next = reconcilePhotoStates(next, photoResult);
-      next.photoStates[index - 1].replacePending = false;
-      next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS;
-      next.lastError = '';
-      await putRecord(next);
-      if (photoResult.photoStates?.find((item) => item.photoIndex === index)?.confirmed) {
-        await deletePhoto(next.recordId, index);
-      }
-      await updateQueueUi();
+      const photoResult = await api.uploadPhoto(session.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending) });
+      next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
+      await putRecord(next); if (photoResult.photoStates?.find((item) => item.photoIndex === index)?.confirmed) await deletePhoto(next.recordId, index); await updateQueueUi();
     }
-
-    const finalState = await api.getRecordState(session.token, next.recordId);
-    next = reconcilePhotoStates(next, finalState);
-    next.status = finalState.status || RECORD_STATUS.WAITING_SUPERVISOR;
-    next.lastError = '';
-    next.syncedAt = new Date().toISOString();
-    await putRecord(next);
-    await setMeta(LAST_SYNC_META, next.syncedAt);
-    if (notify) toast(statusLabel(next.status, next.photoCount), 'success');
-    return next;
+    const finalState = await api.getRecordState(session.token, next.recordId); next = reconcilePhotoStates(next, finalState);
+    next.status = finalState.status || RECORD_STATUS.WAITING_SUPERVISOR; next.lastError = ''; next.syncedAt = new Date().toISOString();
+    await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
-    next.status = RECORD_STATUS.ERROR;
-    next.lastError = friendlyError(error);
-    await putRecord(next);
-    if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
-    if (notify) toast(next.lastError, 'error', 5200);
-    return next;
-  } finally {
-    await updateQueueUi();
-    if (currentView === 'mine') refreshMine(false);
-  }
+    next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await putRecord(next);
+    if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
+  } finally { await updateQueueUi(); if (currentView === 'mine') refreshMine(false); }
 }
 
 async function syncAll(notify = false) {
-  if (syncRunning || !session || session.role !== 'field') return;
-  syncRunning = true;
-  setBusy(elements.syncNowButton, true, 'Sincronizando…');
-  try {
-    const records = await getAllRecords();
-    const queue = records.filter((record) => SYNCABLE_STATUSES.has(record.status));
-    for (const record of queue) await syncSingleRecord(record.recordId, false);
-    if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success');
-  } finally {
-    syncRunning = false;
-    setBusy(elements.syncNowButton, false);
-    await updateQueueUi();
-  }
+  if (syncRunning || !session || session.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
+  try { const queue = (await getAllRecords()).filter((record) => SYNCABLE_STATUSES.has(record.status)); for (const record of queue) await syncSingleRecord(record.recordId, false); if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success'); }
+  finally { syncRunning = false; setBusy(elements.syncNowButton, false); await updateQueueUi(); }
 }
 
 async function updateQueueUi() {
-  const summary = await getQueueSummary();
-  elements.syncPendingRecords.textContent = summary.pendingRecords.length;
-  elements.syncPendingPhotos.textContent = summary.pendingPhotos;
-  elements.syncPhotosSyncing.textContent = summary.syncingPhotos;
-  elements.syncErrors.textContent = summary.errors;
-  elements.syncNavCount.hidden = !summary.pendingRecords.length;
-  elements.syncNavCount.textContent = summary.pendingRecords.length;
-  const lastSync = await getMeta(LAST_SYNC_META);
-  elements.lastSyncAt.textContent = lastSync ? formatDateTime(lastSync) : 'Nenhuma sincronização concluída.';
-  renderSyncQueue(summary.pendingRecords);
+  const summary = await getQueueSummary(); elements.syncPendingRecords.textContent = summary.pendingRecords.length; elements.syncPendingPhotos.textContent = summary.pendingPhotos;
+  elements.syncPhotosSyncing.textContent = summary.syncingPhotos; elements.syncErrors.textContent = summary.errors; elements.syncNavCount.hidden = !summary.pendingRecords.length; elements.syncNavCount.textContent = summary.pendingRecords.length;
+  const lastSync = await getMeta(LAST_SYNC_META); elements.lastSyncAt.textContent = lastSync ? formatDateTime(lastSync) : 'Nenhuma sincronização concluída.'; renderSyncQueue(summary.pendingRecords);
 }
 
 function renderSyncQueue(records) {
-  if (!records.length) {
-    elements.syncQueueList.innerHTML = emptyState('Fila em dia', 'Não há registros ou fotos aguardando envio.');
-    return;
-  }
-  elements.syncQueueList.innerHTML = records.map((record) => recordCard(record, `
-    <button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}">Tentar novamente</button>`)).join('');
+  elements.syncQueueList.innerHTML = records.length ? records.map((record) => recordCard(record, `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}">Tentar novamente</button>`)).join('') : emptyState('Fila em dia', 'Não há registros ou fotos aguardando envio.');
 }
 
 async function testConnection(notify = true) {
-  elements.syncLastTest.textContent = 'Testando…';
-  setBusy(elements.testConnectionButton, true, 'Testando…');
-  try {
-    const result = await healthCheck();
-    elements.syncLastTest.textContent = `Servidor ${result.version} · ${formatDateTime(result.timestamp)}`;
-    if (notify) toast('Conexão com o servidor confirmada.', 'success');
-    return true;
-  } catch (error) {
-    elements.syncLastTest.textContent = friendlyError(error);
-    if (notify) toast(friendlyError(error), 'error');
-    return false;
-  } finally {
-    setBusy(elements.testConnectionButton, false);
-  }
+  elements.syncLastTest.textContent = 'Testando…'; setBusy(elements.testConnectionButton, true, 'Testando…');
+  try { const result = await healthCheck(); elements.syncLastTest.textContent = `Servidor ${result.version} · ${formatDateTime(result.timestamp)}`; if (notify) toast('Conexão com o servidor confirmada.', 'success'); return true; }
+  catch (error) { elements.syncLastTest.textContent = friendlyError(error); if (notify) toast(friendlyError(error), 'error'); return false; }
+  finally { setBusy(elements.testConnectionButton, false); }
 }
 
 async function refreshMine(notify = false) {
-  if (!session || session.role !== 'field') return;
-  setBusy(elements.refreshMineButton, true, 'Atualizando…');
+  if (!session || session.role !== 'field') return; setBusy(elements.refreshMineButton, true, 'Atualizando…');
   try {
-    const localRecords = await getAllRecords();
-    let serverRecords = [];
-    if (navigator.onLine && endpointConfigured()) {
-      try { serverRecords = (await api.listMine(session.token)).records || []; }
-      catch (error) { if (notify) toast(friendlyError(error), 'error'); }
-    }
-    mineRecords = mergeRecordCollections(localRecords, serverRecords);
-    renderMineFilters();
-    renderMineList();
-  } finally {
-    setBusy(elements.refreshMineButton, false);
-  }
+    const localRecords = await getAllRecords(); let serverRecords = [];
+    if (navigator.onLine && endpointConfigured()) { try { serverRecords = (await api.listMine(session.token)).records || []; } catch (error) { if (notify) toast(friendlyError(error), 'error'); } }
+    mineRecords = mergeRecordCollections(localRecords, serverRecords); renderMineFilters(); renderMineList();
+  } finally { setBusy(elements.refreshMineButton, false); }
 }
 
 function renderMineFilters() {
-  const filters = [
-    ['all', 'Todas'], ['draft', 'Rascunhos'], ['pending', 'Pendentes'], ['waiting', 'Aguardando'],
-    ['correction', 'Correção'], ['approved', 'Aprovadas'], ['rejected', 'Reprovadas']
-  ];
+  const filters = [['all', 'Todas'], ['draft', 'Rascunhos'], ['pending', 'Pendentes'], ['waiting', 'Aguardando'], ['correction', 'Correção'], ['approved', 'Aprovadas'], ['rejected', 'Reprovadas']];
   elements.mineFilters.innerHTML = filters.map(([value, label]) => `<button class="filter-chip${mineFilter === value ? ' is-active' : ''}" type="button" data-filter="${value}">${label}</button>`).join('');
 }
 
 function renderMineList() {
-  const filtered = mineRecords.filter((record) => {
-    if (mineFilter === 'all') return true;
-    if (mineFilter === 'draft') return record.status === RECORD_STATUS.DRAFT;
-    if (mineFilter === 'pending') return SYNCABLE_STATUSES.has(record.status);
-    if (mineFilter === 'waiting') return record.status === RECORD_STATUS.WAITING_SUPERVISOR;
-    if (mineFilter === 'correction') return record.status === RECORD_STATUS.CORRECTION_REQUESTED;
-    if (mineFilter === 'approved') return [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status);
-    if (mineFilter === 'rejected') return record.status === RECORD_STATUS.REJECTED;
-    return true;
-  });
-  if (!filtered.length) {
-    elements.mineList.innerHTML = emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.');
-    return;
-  }
+  const filtered = mineRecords.filter((record) => mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
+  if (!filtered.length) { elements.mineList.innerHTML = emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.'); return; }
   elements.mineList.innerHTML = filtered.map((record) => {
     let action = '';
     if (record.status === RECORD_STATUS.DRAFT) action = `<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`;
@@ -1006,333 +652,120 @@ function renderMineList() {
 }
 
 function recordCard(record, actionHtml = '') {
-  const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
-  const status = record.status || record.serverStatus;
-  return `<article class="record-card">
-    <header class="record-card__header">
-      <div><h3>${escapeHtml(record.code || 'Ocorrência sem código')}</h3><small>${escapeHtml(record.recordId || '')}</small></div>
-      <span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span>
-    </header>
-    <p>${escapeHtml(record.observation || 'Sem observação')}</p>
-    <div class="record-card__body">
-      <div class="record-meta"><span>Unidade</span><strong>${escapeHtml(record.unit || '—')}</strong></div>
-      <div class="record-meta"><span>Grupo</span><strong>${escapeHtml(record.group || '—')}</strong></div>
-      <div class="record-meta"><span>Valor</span><strong>${escapeHtml(formatCurrency(record.referenceValue))}</strong></div>
-      <div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div>
-    </div>
-    ${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}
-    ${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}
-    <div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div>
-    <footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer>
-  </article>`;
+  const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []);
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · ') || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Serviços</span><strong>${record.services?.length || 0}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
 }
 
 async function handleMineAction(event) {
-  const button = event.target.closest('[data-mine-action]');
-  if (!button) return;
-  const recordId = button.dataset.recordId;
+  const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
-  const local = await getRecord(recordId);
-  const server = mineRecords.find((item) => item.recordId === recordId);
-  const record = local || server;
-  if (!record) return;
+  const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId); const record = local || server; if (!record) return;
   if (button.dataset.mineAction === 'correct') {
-    const correction = {
-      ...record,
-      status: RECORD_STATUS.DRAFT,
-      serverStatus: RECORD_STATUS.CORRECTION_REQUESTED,
-      correctionMode: true,
-      catalogKey: record.catalogKey || record.audit?.catalogKey || '',
-      catalogText: record.catalogText || record.observation,
-      photoStates: Array.from({ length: 5 }, (_, index) => ({
-        photoIndex: index + 1,
-        confirmed: Boolean(record.photos?.[index]),
-        localReady: false,
-        serverUrl: record.photos?.[index] || '',
-        uploadKey: '',
-        replacePending: false
-      }))
-    };
-    await putRecord(correction);
-    await setMeta(ACTIVE_DRAFT_META, correction.recordId);
-    return loadRecordIntoForm(correction);
+    const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, photoStates: Array.from({ length: 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: Boolean(record.photos?.[index]), localReady: false, serverUrl: record.photos?.[index] || '', uploadKey: '', replacePending: false })) };
+    await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId); return loadRecordIntoForm(correction);
   }
-  await setMeta(ACTIVE_DRAFT_META, record.recordId);
-  await loadRecordIntoForm(record);
+  await setMeta(ACTIVE_DRAFT_META, record.recordId); await loadRecordIntoForm(record);
 }
 
 async function loadRecordIntoForm(record) {
-  clearPreviewUrls();
-  activeRecord = {
-    ...blankRecord(),
-    ...record,
-    status: RECORD_STATUS.DRAFT,
-    photoStates: Array.from({ length: 5 }, (_, index) => record.photoStates?.[index] || {
-      photoIndex: index + 1,
-      confirmed: Boolean(record.photos?.[index]),
-      localReady: false,
-      serverUrl: record.photos?.[index] || '',
-      uploadKey: '',
-      replacePending: false
-    })
-  };
+  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, services: record.services || [], materials: record.materials?.length ? record.materials : [{ lineId: generateUuid(), description: '', quantity: '' }], photoStates: Array.from({ length: 5 }, (_, index) => record.photoStates?.[index] || { photoIndex: index + 1, confirmed: Boolean(record.photos?.[index]), localReady: false, serverUrl: record.photos?.[index] || '', uploadKey: '', replacePending: false }) };
   const photos = await getPhotosForRecord(record.recordId);
-  for (const photo of photos) {
-    const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex };
-    activeRecord.photoStates[photo.photoIndex - 1] = {
-      ...state,
-      localReady: true,
-      uploadKey: state.uploadKey || photo.uploadKey || ''
-    };
-    activePhotos.set(photo.photoIndex, photo);
-    setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob));
-  }
+  for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
   if (photos.length) await putRecord(activeRecord);
-  elements.serviceSearch.value = activeRecord.code || '';
-  applySelectedService();
-  showDraftId();
-  validateStepOne();
-  updatePhotoGrid();
-  goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1)));
-  elements.resumeBanner.hidden = true;
-  navigate('new');
+  elements.team.value = activeRecord.team || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
+  $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
+  elements.pg1.value = activeRecord.pg1 || ''; elements.pg2.value = activeRecord.pg2 || ''; elements.pg3.value = activeRecord.pg3 || '';
+  elements.removedTransformerCode.value = activeRecord.transformer.removedCode || ''; elements.removedTransformerCia.value = activeRecord.transformer.removedCia || '';
+  elements.newTransformerCode.value = activeRecord.transformer.newCode || ''; elements.newTransformerCia.value = activeRecord.transformer.newCia || '';
+  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
+  renderServices(); renderMaterials(); showDraftId(); validateStepOne(false); updatePhotoGrid(); goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1))); elements.resumeBanner.hidden = true; navigate('new');
 }
 
 function resetForm() {
-  catalogSearchRequestId += 1;
-  clearTimeout(catalogSearchTimer);
-  clearPreviewUrls();
-  activeRecord = null;
-  currentStep = 1;
-  elements.serviceSearch.hidden = false;
-  elements.serviceSearch.value = '';
-  elements.serviceResults.hidden = true;
-  elements.selectedServiceCard.hidden = true;
-  elements.observation.value = '';
-  elements.observation.disabled = true;
-  elements.observationCount.textContent = '0';
-  elements.unit.value = '';
-  elements.group.value = '';
-  elements.referenceValue.value = '';
-  elements.draftIdBadge.hidden = true;
-  renderPhotoGrid();
-  validateStepOne();
-  goToStep(1);
+  catalogSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
+  [elements.team, elements.occurrenceNumber, elements.pg1, elements.pg2, elements.pg3, elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode, elements.newTransformerCia, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
+  $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
+  elements.transformerSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
+  renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1);
 }
 
 async function refreshSupervisor(notify = false) {
   if (!session || session.role !== 'supervisor') return;
-  if (!navigator.onLine) {
-    if (notify) toast('O painel do supervisor precisa de conexão.', 'error');
-    return;
-  }
+  if (!navigator.onLine) { if (notify) toast('O painel do supervisor precisa de conexão.', 'error'); return; }
   setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
-  try {
-    supervisorRecords = (await api.listPending(session.token)).records || [];
-    selectedSupervisorIds = new Set([...selectedSupervisorIds].filter((id) => supervisorRecords.some((record) => record.recordId === id)));
-    renderSupervisorList();
-    if (notify) toast('Painel atualizado.', 'success');
-  } catch (error) {
-    if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
-    else if (notify) toast(friendlyError(error), 'error');
-    renderSupervisorList(error);
-  } finally {
-    setBusy(elements.refreshSupervisorButton, false);
-  }
+  try { supervisorRecords = (await api.listPending(session.token)).records || []; selectedSupervisorIds = new Set([...selectedSupervisorIds].filter((id) => supervisorRecords.some((record) => record.recordId === id))); renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); }
+  catch (error) { if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout(); else if (notify) toast(friendlyError(error), 'error'); renderSupervisorList(error); }
+  finally { setBusy(elements.refreshSupervisorButton, false); }
 }
 
 function renderSupervisorList(error = null) {
-  elements.supervisorNavCount.hidden = !supervisorRecords.length;
-  elements.supervisorNavCount.textContent = supervisorRecords.length;
-  elements.approveAllFooter.hidden = !supervisorRecords.length;
-  if (!supervisorRecords.length) {
-    elements.supervisorList.innerHTML = emptyState(error ? 'Não foi possível carregar' : 'Nenhuma ocorrência aguardando', error ? friendlyError(error) : 'As ocorrências completas aparecerão aqui para conferência.');
-    updateSupervisorSelectionUi();
-    return;
-  }
+  elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !supervisorRecords.length;
+  if (!supervisorRecords.length) { elements.supervisorList.innerHTML = emptyState(error ? 'Não foi possível carregar' : 'Nenhuma ocorrência aguardando', error ? friendlyError(error) : 'As ocorrências completas aparecerão aqui para conferência.'); updateSupervisorSelectionUi(); return; }
   elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
-    const checked = selectedSupervisorIds.has(record.recordId);
-    const thumbs = (record.photos || []).map((url, index) => `<button type="button" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" /></button>`).join('');
-    return `<article class="record-card supervisor-card">
-      <input type="checkbox" aria-label="Selecionar ${escapeHtml(record.code)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} />
-      <div class="supervisor-card__content">
-        <header class="record-card__header"><div><h3>${escapeHtml(record.code)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--warning">${record.photoCount}/5 fotos</span></header>
-        <p>${escapeHtml(record.observation)}</p>
-        <div class="record-card__body">
-          <div class="record-meta"><span>Grupo</span><strong>${escapeHtml(record.group)}</strong></div>
-          <div class="record-meta"><span>Unidade</span><strong>${escapeHtml(record.unit)}</strong></div>
-          <div class="record-meta"><span>Valor</span><strong>${escapeHtml(formatCurrency(record.referenceValue))}</strong></div>
-          <div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt))}</strong></div>
-        </div>
-        <div class="supervisor-thumbs">${thumbs}</div>
-        <footer class="record-card__footer"><span class="photo-count">Origem: ${escapeHtml(record.origin)}</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer>
-      </div>
-    </article>`;
-  }).join('');
-  updateSupervisorSelectionUi();
+    const checked = selectedSupervisorIds.has(record.recordId); const thumbs = (record.photos || []).map((url, index) => `<button type="button" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" /></button>`).join('');
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--warning">${record.photoCount}/5 fotos</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Serviços</span><strong>${record.services?.length || 0}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(occurrenceTotal(record.services || [])))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt))}</strong></div></div><div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatNumber(record.goalPercentage || goalProgress(occurrenceTotal(record.services || [])).percentage))}% da meta</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+  }).join(''); updateSupervisorSelectionUi();
 }
 
 function handleSupervisorListClick(event) {
-  const review = event.target.closest('[data-review-record]');
-  const zoom = event.target.closest('[data-zoom-src]');
-  if (zoom) return openPhoto(zoom.dataset.zoomSrc, zoom.dataset.zoomLabel);
-  if (review) openSupervisorReview(review.dataset.reviewRecord);
+  const review = event.target.closest('[data-review-record]'); const zoom = event.target.closest('[data-zoom-src]');
+  if (zoom) return openPhoto(zoom.dataset.zoomSrc, zoom.dataset.zoomLabel); if (review) openSupervisorReview(review.dataset.reviewRecord);
 }
 
-function handleSupervisorSelection(event) {
-  const checkbox = event.target.closest('[data-supervisor-select]');
-  if (!checkbox) return;
-  if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect);
-  else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect);
-  updateSupervisorSelectionUi();
-}
+function handleSupervisorSelection(event) { const checkbox = event.target.closest('[data-supervisor-select]'); if (!checkbox) return; if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect); else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect); updateSupervisorSelectionUi(); }
+function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) supervisorRecords.forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
+function updateSupervisorSelectionUi() { const count = selectedSupervisorIds.size; elements.selectedCountLabel.textContent = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`; elements.approveSelectedButton.disabled = !count; elements.selectAllVisible.checked = Boolean(supervisorRecords.length && count === supervisorRecords.length); elements.selectAllVisible.indeterminate = count > 0 && count < supervisorRecords.length; }
 
-function selectAllSupervisorVisible() {
-  if (elements.selectAllVisible.checked) supervisorRecords.forEach((record) => selectedSupervisorIds.add(record.recordId));
-  else selectedSupervisorIds.clear();
-  $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); });
-  updateSupervisorSelectionUi();
-}
-
-function updateSupervisorSelectionUi() {
-  const count = selectedSupervisorIds.size;
-  elements.selectedCountLabel.textContent = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`;
-  elements.approveSelectedButton.disabled = !count;
-  elements.selectAllVisible.checked = Boolean(supervisorRecords.length && count === supervisorRecords.length);
-  elements.selectAllVisible.indeterminate = count > 0 && count < supervisorRecords.length;
-}
-
-function openSupervisorReview(recordId) {
-  activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId);
-  if (!activeSupervisorRecord) return;
-  elements.reviewDialogTitle.textContent = `${activeSupervisorRecord.code} · ${activeSupervisorRecord.photoCount}/5 fotos`;
-  elements.reviewDialogContent.innerHTML = detailedRecord(activeSupervisorRecord);
-  elements.reviewDialog.showModal();
-}
-
-function detailedRecord(record) {
-  const photos = (record.photos || []).map((url, index) => `<figure class="review-photo"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" /><span>Foto ${index + 1}</span></figure>`).join('');
-  return `<dl class="review-data">
-    <div class="review-data__grid">
-      <div><dt>Código</dt><dd>${escapeHtml(record.code)}</dd></div><div><dt>Unidade</dt><dd>${escapeHtml(record.unit)}</dd></div>
-      <div><dt>Grupo</dt><dd>${escapeHtml(record.group)}</dd></div><div><dt>Valor</dt><dd>${escapeHtml(formatCurrency(record.referenceValue))}</dd></div>
-      <div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt))}</dd></div><div><dt>Origem</dt><dd>${escapeHtml(record.origin)}</dd></div>
-    </div><div><dt>Observação</dt><dd>${escapeHtml(record.observation)}</dd></div>
-  </dl><div class="review-photos">${photos}</div>`;
-}
+function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${activeSupervisorRecord.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); elements.reviewDialog.showModal(); }
 
 async function decideSupervisor(decision) {
-  if (!activeSupervisorRecord) return;
-  let reason = '';
-  let note = '';
-  if (decision === 'approve') {
-    if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.code} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return;
-  } else {
-    const values = await collectDecision(decision);
-    if (!values) return;
-    ({ reason, note } = values);
-    const label = decision === 'reject' ? 'reprovar' : 'solicitar correção para';
-    if (!await confirmAction('Confirmar decisão?', `Deseja ${label} a ocorrência ${activeSupervisorRecord.code}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return;
-  }
-  setBusy(decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton, true, 'Salvando…');
-  try {
-    await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note);
-    elements.reviewDialog.close();
-    toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção solicitada.', 'success');
-    await refreshSupervisor(false);
-  } catch (error) {
-    toast(friendlyError(error), 'error');
-  } finally {
-    setBusy(elements.approveButton, false);
-    setBusy(elements.rejectButton, false);
-    setBusy(elements.requestCorrectionButton, false);
-  }
+  if (!activeSupervisorRecord) return; let reason = ''; let note = '';
+  if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
+  else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); const label = decision === 'reject' ? 'reprovar' : 'solicitar correção para'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} a ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
+  const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
+  try { await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção solicitada.', 'success'); await refreshSupervisor(false); }
+  catch (error) { toast(friendlyError(error), 'error'); }
+  finally { setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false); }
 }
 
 function collectDecision(decision) {
-  elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção';
-  elements.decisionReason.value = '';
-  elements.decisionNote.value = '';
-  elements.decisionDialog.showModal();
-  return new Promise((resolve) => {
-    const handler = () => {
-      elements.decisionDialog.removeEventListener('close', handler);
-      if (elements.decisionDialog.returnValue === 'cancel') resolve(null);
-      else resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim() });
-    };
-    elements.decisionDialog.addEventListener('close', handler);
-  });
+  elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção'; elements.decisionReason.value = ''; elements.decisionNote.value = ''; elements.decisionDialog.showModal();
+  return new Promise((resolve) => { const handler = () => { elements.decisionDialog.removeEventListener('close', handler); if (elements.decisionDialog.returnValue === 'cancel' || !elements.decisionReason.value.trim()) resolve(null); else resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim() }); }; elements.decisionDialog.addEventListener('close', handler); });
 }
 
 async function approveSelected() {
-  const ids = [...selectedSupervisorIds];
-  if (!ids.length) return;
-  if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas. Itens inválidos serão ignorados.`, 'Aprovar selecionadas', 'success')) return;
+  const ids = [...selectedSupervisorIds]; if (!ids.length) return;
+  if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas.`, 'Aprovar selecionadas', 'success')) return;
   setBusy(elements.approveSelectedButton, true, 'Aprovando…');
-  try {
-    const result = await api.approveBatch(session.token, ids, false);
-    toast(`${result.approvedCount} aprovada(s); ${result.skippedCount} ignorada(s).`, result.approvedCount ? 'success' : 'default');
-    selectedSupervisorIds.clear();
-    await refreshSupervisor(false);
-  } catch (error) { toast(friendlyError(error), 'error'); }
-  finally { setBusy(elements.approveSelectedButton, false); }
+  try { const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} aprovada(s); ${result.skippedCount} ignorada(s).`, result.approvedCount ? 'success' : 'default'); selectedSupervisorIds.clear(); await refreshSupervisor(false); }
+  catch (error) { toast(friendlyError(error), 'error'); } finally { setBusy(elements.approveSelectedButton, false); }
 }
 
 async function approveAll() {
   if (!await confirmAction('Aprovar todas?', 'Você tem certeza que deseja aprovar todas as ocorrências aptas?', 'Sim, aprovar todas', 'success')) return;
   setBusy(elements.approveAllButton, true, 'Aprovando…');
-  try {
-    const result = await api.approveBatch(session.token, [], true);
-    toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success');
-    selectedSupervisorIds.clear();
-    await refreshSupervisor(false);
-  } catch (error) { toast(friendlyError(error), 'error'); }
-  finally { setBusy(elements.approveAllButton, false); }
+  try { const result = await api.approveBatch(session.token, [], true); toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success'); selectedSupervisorIds.clear(); await refreshSupervisor(false); }
+  catch (error) { toast(friendlyError(error), 'error'); } finally { setBusy(elements.approveAllButton, false); }
 }
 
 function confirmAction(title, message, actionLabel = 'Confirmar', tone = 'default') {
-  elements.confirmTitle.textContent = title;
-  elements.confirmMessage.textContent = message;
-  elements.confirmActionButton.textContent = actionLabel;
+  elements.confirmTitle.textContent = title; elements.confirmMessage.textContent = message; elements.confirmActionButton.textContent = actionLabel;
   elements.confirmActionButton.className = `button ${tone === 'danger' ? 'button--danger' : tone === 'success' ? 'button--success' : tone === 'warning' ? 'button--warning' : 'button--primary'}`;
-  elements.confirmIcon.textContent = tone === 'danger' ? '!' : tone === 'success' ? '✓' : '?';
-  elements.confirmDialog.showModal();
-  return new Promise((resolve) => {
-    const handler = () => {
-      elements.confirmDialog.removeEventListener('close', handler);
-      resolve(elements.confirmDialog.returnValue === 'confirm');
-    };
-    elements.confirmDialog.addEventListener('close', handler);
-  });
+  elements.confirmIcon.textContent = tone === 'danger' ? '!' : tone === 'success' ? '✓' : '?'; elements.confirmDialog.showModal();
+  return new Promise((resolve) => { const handler = () => { elements.confirmDialog.removeEventListener('close', handler); resolve(elements.confirmDialog.returnValue === 'confirm'); }; elements.confirmDialog.addEventListener('close', handler); });
 }
 
-function handleZoomClick(event) {
-  const target = event.target.closest('[data-zoom-src]');
-  if (target) openPhoto(target.dataset.zoomSrc, target.dataset.zoomLabel);
-}
-
-function openPhoto(src, label = 'Evidência') {
-  if (!src) return;
-  elements.photoDialogImage.src = src;
-  elements.photoDialogLabel.textContent = label;
-  elements.photoDialog.showModal();
-}
-
-function emptyState(title, message) {
-  return `<div class="empty-state card"><span aria-hidden="true">◇</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>`;
-}
+function handleZoomClick(event) { const target = event.target.closest('[data-zoom-src]'); if (target) openPhoto(target.dataset.zoomSrc, target.dataset.zoomLabel); }
+function openPhoto(src, label = 'Evidência') { if (!src) return; elements.photoDialogImage.src = src; elements.photoDialogLabel.textContent = label; elements.photoDialog.showModal(); }
+function emptyState(title, message) { return `<div class="empty-state card"><span aria-hidden="true">◇</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>`; }
 
 function friendlyError(error) {
-  const code = error?.code;
-  if (code === 'INVALID_CREDENTIALS') return 'Nome, função ou senha inválidos.';
-  if (code === 'AUTH_REQUIRED') return 'Sua sessão expirou. Entre novamente.';
-  if (code === 'NETWORK_ERROR') return navigator.onLine ? 'Não foi possível falar com o servidor.' : 'Sem internet. Os dados continuam guardados neste aparelho.';
-  if (code === 'TIMEOUT') return 'A conexão demorou demais. A fila foi preservada para nova tentativa.';
-  if (code === 'ENDPOINT_NOT_CONFIGURED') return 'A publicação do backend ainda está sendo concluída.';
+  if (error?.code === 'INVALID_CREDENTIALS') return 'Nome, perfil ou senha inválidos.';
+  if (error?.code === 'AUTH_REQUIRED') return 'Sua sessão expirou. Entre novamente.';
+  if (error?.code === 'NETWORK_ERROR') return navigator.onLine ? 'Não foi possível falar com o servidor.' : 'Sem internet. Os dados continuam guardados neste aparelho.';
+  if (error?.code === 'TIMEOUT') return 'A conexão demorou demais. A fila foi preservada para nova tentativa.';
+  if (error?.code === 'ENDPOINT_NOT_CONFIGURED') return 'A publicação do backend ainda está sendo concluída.';
   return error?.message || 'Ocorreu um erro inesperado.';
 }
 
-initialize().catch((error) => {
-  elements.loginMessage.textContent = friendlyError(error);
-  toast(friendlyError(error), 'error');
-});
+initialize().catch((error) => { elements.loginMessage.textContent = friendlyError(error); toast(friendlyError(error), 'error'); });
