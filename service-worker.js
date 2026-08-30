@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const CACHE_NAME = `${CACHE_PREFIX}2026.08.29.4`;
+const CACHE_NAME = `${CACHE_PREFIX}2026.08.30.1`;
 const APP_SHELL = [
   './',
   './index.html',

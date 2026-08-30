@@ -83,6 +83,7 @@ export const api = Object.freeze({
     replace: Boolean(options.replace)
   }, { timeoutMs: 60000 }),
   getRecordState: (token, recordId) => apiRequest('getRecordState', { token, recordId }),
+  getDailyTeamProduction: (token, team, date, recordId = '') => apiRequest('getDailyTeamProduction', { token, team, date, recordId }),
   listMine: (token) => apiRequest('listMine', { token }),
   listPending: (token) => apiRequest('listPending', { token }),
   supervisorAction: (token, decision, recordId, reason = '', note = '') => apiRequest('supervisorAction', { token, decision, recordId, reason, note }),

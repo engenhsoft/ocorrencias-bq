@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.08.29.4';
+export const APP_VERSION = '2026.08.30.1';
 
 export const TEAM_GOAL = 6000;
 
@@ -97,6 +97,58 @@ export function serviceTotal(service) {
 
 export function occurrenceTotal(services = []) {
   return services.reduce((total, service) => total + serviceTotal(service), 0);
+}
+
+export function operationalDate(value = new Date(), timeZone = 'America/Bahia') {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+export function normalizeTeamKey(value) {
+  return normalizeText(value).replace(/[^A-Z0-9]/g, '');
+}
+
+export function dailyTeamKey(team, date = operationalDate()) {
+  return `${date}|${normalizeTeamKey(team)}`;
+}
+
+export function dailyGoalProjection(totalSent = 0, currentOccurrence = 0, goal = TEAM_GOAL) {
+  const sent = Math.max(0, Number(totalSent) || 0);
+  const current = Math.max(0, Number(currentOccurrence) || 0);
+  return {
+    totalSent: sent,
+    currentOccurrence: current,
+    projectedTotal: sent + current,
+    ...goalProgress(sent + current, goal)
+  };
+}
+
+export function driveFileId(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const patterns = [
+    /\/d\/([A-Za-z0-9_-]{20,})/,
+    /[?&]id=([A-Za-z0-9_-]{20,})/,
+    /\/thumbnail\?id=([A-Za-z0-9_-]{20,})/,
+    /\/d\/([A-Za-z0-9_-]{20,})=/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return match[1];
+  }
+  return '';
+}
+
+export function normalizePhotoUrl(value, size = 1600) {
+  const text = String(value || '').trim();
+  if (!text || /^(blob:|data:)/i.test(text)) return text;
+  const fileId = driveFileId(text);
+  return fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w${Math.max(320, Number(size) || 1600)}` : text;
 }
 
 export function goalProgress(total, goal = TEAM_GOAL) {

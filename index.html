@@ -43,7 +43,7 @@
           <button id="loginButton" class="button button--primary button--full" type="submit">Entrar</button>
           <p id="loginMessage" class="form-message" role="alert"></p>
         </form>
-        <div class="login-status"><span id="loginNetworkDot" class="network-dot"></span><span id="loginNetworkText">Verificando conexão…</span><span>v2026.08.29.4</span></div>
+        <div class="login-status"><span id="loginNetworkDot" class="network-dot"></span><span id="loginNetworkText">Verificando conexão…</span><span>v2026.08.30.1</span></div>
       </section>
     </main>
 
@@ -73,7 +73,7 @@
 
         <main class="content-area">
           <section id="view-new" class="view is-active" aria-labelledby="newTitle">
-            <div class="page-heading"><div><p class="eyebrow">Registro operacional</p><h2 id="newTitle">Nova ocorrência</h2><p>Informe a equipe, os serviços executados, os materiais e as cinco evidências.</p></div><span id="draftIdBadge" class="id-badge" hidden></span></div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Registro operacional</p><h2 id="newTitle">Nova ocorrência</h2><p>Informe a equipe, os serviços executados, os materiais e as cinco evidências.</p></div><div class="heading-actions"><span id="draftIdBadge" class="id-badge" hidden></span><button id="modeSupervisorButton" class="button button--ghost button--small" type="button">Modo supervisor</button></div></div>
             <ol class="stepper" aria-label="Etapas da ocorrência"><li class="is-active" data-step-indicator="1"><span>1</span><b>Dados</b></li><li data-step-indicator="2"><span>2</span><b>Evidências</b></li><li data-step-indicator="3"><span>3</span><b>Revisão</b></li></ol>
 
             <section class="step-panel card" data-step-panel="1">
@@ -120,8 +120,9 @@
                 <div id="servicesList" class="line-items"></div>
               </section>
 
-              <section class="goal-card" aria-label="Meta da equipe">
-                <div class="goal-card__values"><div><span>Meta da equipe</span><strong id="goalValue">R$ 6.000,00</strong></div><div><span>Valor atual</span><strong id="currentValue">R$ 0,00</strong></div><div><span>Percentual</span><strong id="goalPercentage">0%</strong></div></div>
+              <section id="goalCard" class="goal-card" aria-label="Meta diária da equipe">
+                <div class="goal-card__heading"><div><span class="live-indicator"><i></i> Ao vivo</span><strong id="dailyTeamLabel">Meta diária da equipe</strong></div><button id="refreshDailyGoalButton" class="text-button" type="button">Atualizar</button></div>
+                <div class="goal-card__values goal-card__values--daily"><div><span>Meta diária</span><strong id="goalValue">R$ 6.000,00</strong></div><div><span>Já realizado hoje</span><strong id="dailySentValue">R$ 0,00</strong></div><div><span>Ocorrência atual</span><strong id="currentValue">R$ 0,00</strong></div><div><span>Se enviada</span><strong id="projectedValue">R$ 0,00</strong></div><div><span>Percentual projetado</span><strong id="goalPercentage">0%</strong></div></div>
                 <div class="goal-track"><span id="goalBar" style="width:0%"></span></div>
                 <strong id="goalStatus" class="goal-status goal-status--abaixo">ABAIXO DA META</strong>
               </section>
@@ -151,6 +152,7 @@
 
           <section id="view-mine" class="view" aria-labelledby="mineTitle" hidden>
             <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Acompanhamento</p><h2 id="mineTitle">Minhas ocorrências</h2><p>Rascunhos, envios, correções e decisões do supervisor.</p></div><button id="refreshMineButton" class="button button--ghost" type="button">Atualizar</button></div>
+            <section id="mineGoalCard" class="goal-card goal-card--compact" aria-label="Produção diária da equipe"><div class="goal-card__heading"><div><span class="live-indicator"><i></i> Ao vivo</span><strong>Produção diária da equipe</strong></div><label class="field field--team-select"><span>Equipe</span><select id="mineTeamSelect" aria-label="Equipe da produção diária"></select></label></div><div class="goal-card__values"><div><span>Meta diária</span><strong id="mineGoalValue">R$ 6.000,00</strong></div><div><span>Produção hoje</span><strong id="mineDailyValue">R$ 0,00</strong></div><div><span>Percentual</span><strong id="mineGoalPercentage">0%</strong></div></div><div class="goal-track"><span id="mineGoalBar" style="width:0%"></span></div><strong id="mineGoalStatus" class="goal-status goal-status--abaixo">ABAIXO DA META</strong></section>
             <div id="mineFilters" class="filter-chips"></div><div id="mineList" class="record-list"></div>
           </section>
 
@@ -162,7 +164,7 @@
           </section>
 
           <section id="view-supervisor" class="view" aria-labelledby="supervisorTitle" hidden>
-            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo supervisor</p><h2 id="supervisorTitle">Ocorrências aguardando conferência</h2><p>Aprovação e publicação somente para registros aptos com 5/5 fotos.</p></div><button id="refreshSupervisorButton" class="button button--ghost" type="button">Atualizar</button></div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo supervisor</p><h2 id="supervisorTitle">Ocorrências aguardando conferência</h2><p>Aprovação e publicação somente para registros aptos com 5/5 fotos.</p></div><div class="heading-actions"><button id="registerOccurrenceButton" class="button button--ghost" type="button">Registrar ocorrência</button><button id="refreshSupervisorButton" class="button button--ghost" type="button">Atualizar</button></div></div>
             <div class="supervisor-toolbar card"><label class="checkbox-label"><input id="selectAllVisible" type="checkbox" /><span>Selecionar todas as visíveis</span></label><strong id="selectedCountLabel">0 ocorrências selecionadas</strong><button id="approveSelectedButton" class="button button--success button--small" type="button" disabled>Aprovar selecionadas</button></div>
             <div id="supervisorList" class="record-list record-list--supervisor"></div>
             <div id="approveAllFooter" class="approve-all-footer" hidden><button id="approveAllButton" class="button button--primary" type="button">Aprovar todas as aptas</button></div>
@@ -172,9 +174,11 @@
     </div>
 
     <dialog id="reviewDialog" class="modal modal--wide"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Conferência detalhada</p><h2 id="reviewDialogTitle">Conferir ocorrência</h2></div><button class="icon-button" value="cancel" aria-label="Fechar">×</button></header><div id="reviewDialogContent" class="modal__body"></div><footer class="modal__footer modal__footer--review"><button id="requestCorrectionButton" class="button button--warning" type="button">Solicitar correção</button><button id="rejectButton" class="button button--danger" type="button">Reprovar</button><button id="approveButton" class="button button--success" type="button">Aprovar e publicar</button></footer></form></dialog>
+    <dialog id="mineDetailDialog" class="modal modal--wide"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Consulta da ocorrência</p><h2 id="mineDetailTitle">Detalhes da ocorrência</h2></div><button class="icon-button" value="cancel" aria-label="Fechar">×</button></header><div id="mineDetailContent" class="modal__body"></div><footer class="modal__footer"><button class="button button--primary" value="cancel">Fechar</button></footer></form></dialog>
+    <dialog id="profileSwitchDialog" class="modal modal--compact"><form id="profileSwitchForm" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Troca autenticada de perfil</p><h2 id="profileSwitchTitle">Mudar perfil</h2></div><button class="icon-button" type="button" data-close-profile-switch aria-label="Fechar">×</button></header><div class="modal__body form-stack"><div class="profile-target"><span>Perfil solicitado</span><strong id="profileTargetLabel">Supervisor</strong></div><label class="field"><span>Usuário</span><input id="profileSwitchUser" name="user" type="text" autocomplete="name" maxlength="120" required /></label><label class="field"><span>Senha</span><input id="profileSwitchPassword" name="password" type="password" autocomplete="current-password" required /></label><p id="profileSwitchMessage" class="form-message" role="alert"></p></div><footer class="modal__footer"><button class="button button--ghost" type="button" data-close-profile-switch>Cancelar</button><button id="profileSwitchSubmit" class="button button--primary" type="submit">Autenticar e trocar</button></footer></form></dialog>
     <dialog id="decisionDialog" class="modal"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Decisão do supervisor</p><h2 id="decisionDialogTitle">Registrar decisão</h2></div><button class="icon-button" value="cancel" aria-label="Fechar">×</button></header><div class="modal__body form-stack"><label class="field"><span>Motivo</span><textarea id="decisionReason" rows="4" maxlength="600" required></textarea></label><label class="field"><span>Observação do supervisor <small>(opcional)</small></span><textarea id="decisionNote" rows="4" maxlength="1200"></textarea></label></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button class="button button--primary" value="default">Confirmar decisão</button></footer></form></dialog>
     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
-    <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><img id="photoDialogImage" alt="Evidência ampliada" /><p id="photoDialogLabel"></p></form></dialog>
+    <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

@@ -1,7 +1,8 @@
 import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
-  escapeHtml, formatCurrency, formatDateTime, formatNumber, generateUuid, goalProgress,
-  mergeRecordCollections, occurrenceTotal, reconcilePhotoStates, serviceTotal,
+  dailyGoalProjection, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
+  generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
+  occurrenceTotal, operationalDate, reconcilePhotoStates, serviceTotal,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
 import {
@@ -13,6 +14,7 @@ import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck } from '.
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
+const LAST_TEAM_KEY = 'ocorrencias-bq-last-team-v1';
 const ACTIVE_DRAFT_META = 'activeDraftId';
 const LAST_SYNC_META = 'lastSyncAt';
 const TYPE_TRAFO = 'SUBSTITUIÇÃO DE TRAFO';
@@ -37,12 +39,16 @@ const elements = {
   newTransformerCode: $('#newTransformerCode'), newTransformerCia: $('#newTransformerCia'),
   serviceSearch: $('#serviceSearch'), serviceResults: $('#serviceResults'), serviceSearchHint: $('#serviceSearchHint'),
   searchSpinner: $('#searchSpinner'), servicesList: $('#servicesList'), goalValue: $('#goalValue'),
-  currentValue: $('#currentValue'), goalPercentage: $('#goalPercentage'), goalBar: $('#goalBar'),
+  goalCard: $('#goalCard'), dailyTeamLabel: $('#dailyTeamLabel'), dailySentValue: $('#dailySentValue'),
+  currentValue: $('#currentValue'), projectedValue: $('#projectedValue'), goalPercentage: $('#goalPercentage'), goalBar: $('#goalBar'),
+  refreshDailyGoalButton: $('#refreshDailyGoalButton'),
   goalStatus: $('#goalStatus'), addMaterialButton: $('#addMaterialButton'), materialsList: $('#materialsList'),
   observation: $('#observation'), observationCount: $('#observationCount'), stepOneErrors: $('#stepOneErrors'),
   continueToPhotosButton: $('#continueToPhotosButton'), continueToReviewButton: $('#continueToReviewButton'),
   submitOccurrenceButton: $('#submitOccurrenceButton'), photoGrid: $('#photoGrid'), photoProgressChip: $('#photoProgressChip'),
-  reviewSummary: $('#reviewSummary'), mineFilters: $('#mineFilters'), mineList: $('#mineList'),
+  reviewSummary: $('#reviewSummary'), mineFilters: $('#mineFilters'), mineList: $('#mineList'), mineTeamSelect: $('#mineTeamSelect'),
+  mineGoalCard: $('#mineGoalCard'), mineGoalValue: $('#mineGoalValue'), mineDailyValue: $('#mineDailyValue'),
+  mineGoalPercentage: $('#mineGoalPercentage'), mineGoalBar: $('#mineGoalBar'), mineGoalStatus: $('#mineGoalStatus'),
   refreshMineButton: $('#refreshMineButton'), syncConnection: $('#syncConnection'), syncLastTest: $('#syncLastTest'),
   syncPendingRecords: $('#syncPendingRecords'), syncPendingPhotos: $('#syncPendingPhotos'),
   syncPhotosSyncing: $('#syncPhotosSyncing'), syncErrors: $('#syncErrors'), lastSyncAt: $('#lastSyncAt'),
@@ -57,7 +63,13 @@ const elements = {
   decisionDialogTitle: $('#decisionDialogTitle'), decisionReason: $('#decisionReason'), decisionNote: $('#decisionNote'),
   confirmDialog: $('#confirmDialog'), confirmTitle: $('#confirmTitle'), confirmMessage: $('#confirmMessage'),
   confirmActionButton: $('#confirmActionButton'), confirmIcon: $('#confirmIcon'), photoDialog: $('#photoDialog'),
-  photoDialogImage: $('#photoDialogImage'), photoDialogLabel: $('#photoDialogLabel'), toastRegion: $('#toastRegion')
+  photoDialogImage: $('#photoDialogImage'), photoDialogLabel: $('#photoDialogLabel'), photoPreviousButton: $('#photoPreviousButton'),
+  photoNextButton: $('#photoNextButton'), mineDetailDialog: $('#mineDetailDialog'), mineDetailTitle: $('#mineDetailTitle'),
+  mineDetailContent: $('#mineDetailContent'), modeSupervisorButton: $('#modeSupervisorButton'),
+  registerOccurrenceButton: $('#registerOccurrenceButton'), profileSwitchDialog: $('#profileSwitchDialog'),
+  profileSwitchForm: $('#profileSwitchForm'), profileSwitchTitle: $('#profileSwitchTitle'), profileTargetLabel: $('#profileTargetLabel'),
+  profileSwitchUser: $('#profileSwitchUser'), profileSwitchPassword: $('#profileSwitchPassword'),
+  profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'), toastRegion: $('#toastRegion')
 };
 
 let session = readSession();
@@ -70,13 +82,20 @@ let catalogResults = [];
 let catalogSearchTimer = 0;
 let catalogSearchRequestId = 0;
 let mineRecords = [];
-let mineFilter = 'all';
+let mineFilter = 'today';
+let mineTeam = '';
 let supervisorRecords = [];
 let selectedSupervisorIds = new Set();
 let activeSupervisorRecord = null;
 let syncRunning = false;
 let deferredInstallPrompt = null;
 let supervisorRefreshTimer = 0;
+let dailyProduction = { team: '', date: operationalDate(), goal: TEAM_GOAL, totalSent: 0, totalExcludingRecord: 0, recordContribution: 0 };
+let dailyRequestId = 0;
+let dailyLoadTimer = 0;
+let profileSwitchTarget = '';
+let photoGallery = [];
+let photoGalleryIndex = 0;
 
 function readSession() {
   try {
@@ -167,6 +186,7 @@ function bindEvents() {
   elements.continueToReviewButton.addEventListener('click', () => { renderReview(); goToStep(3); });
   $$('[data-back-step]').forEach((button) => button.addEventListener('click', () => goToStep(Number(button.dataset.backStep))));
   elements.submitOccurrenceButton.addEventListener('click', submitOccurrence);
+  elements.refreshDailyGoalButton.addEventListener('click', () => loadDailyProduction(elements.team.value, true));
   elements.photoGrid.addEventListener('click', handlePhotoGridClick);
   elements.resumeDraftButton.addEventListener('click', resumeDraft);
   elements.discardDraftButton.addEventListener('click', discardDraft);
@@ -178,6 +198,7 @@ function bindEvents() {
     renderMineFilters(); renderMineList();
   });
   elements.mineList.addEventListener('click', handleMineAction);
+  elements.mineTeamSelect.addEventListener('change', () => { mineTeam = elements.mineTeamSelect.value; localStorage.setItem(LAST_TEAM_KEY, mineTeam); refreshMineGoal(false); });
   elements.testConnectionButton.addEventListener('click', testConnection);
   elements.syncNowButton.addEventListener('click', () => syncAll(true));
   elements.syncQueueList.addEventListener('click', (event) => {
@@ -195,11 +216,20 @@ function bindEvents() {
   elements.requestCorrectionButton.addEventListener('click', () => decideSupervisor('request_correction'));
   elements.reviewDialogContent.addEventListener('click', handleZoomClick);
   elements.reviewSummary.addEventListener('click', handleZoomClick);
+  elements.mineDetailContent.addEventListener('click', handleZoomClick);
+  elements.modeSupervisorButton.addEventListener('click', () => openProfileSwitch('supervisor'));
+  elements.registerOccurrenceButton.addEventListener('click', () => openProfileSwitch('field'));
+  elements.profileSwitchForm.addEventListener('submit', handleProfileSwitch);
+  $$('[data-close-profile-switch]').forEach((button) => button.addEventListener('click', () => elements.profileSwitchDialog.close()));
   elements.photoDialog.addEventListener('click', (event) => { if (event.target === elements.photoDialog) elements.photoDialog.close(); });
+  elements.photoPreviousButton.addEventListener('click', () => movePhotoGallery(-1));
+  elements.photoNextButton.addEventListener('click', () => movePhotoGallery(1));
+  document.addEventListener('error', handlePhotoLoadError, true);
   window.addEventListener('online', async () => { updateNetworkUi(); await testConnection(false); if (session?.role === 'field') syncAll(false); });
   window.addEventListener('offline', updateNetworkUi);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') syncAll(false);
+    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') { syncAll(false); loadDailyProduction(elements.team.value, false); }
+    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'supervisor') refreshSupervisor(false);
   });
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault(); deferredInstallPrompt = event; elements.installButton.hidden = false;
@@ -240,15 +270,45 @@ async function enterApplication() {
   $$('[data-nav="new"], [data-nav="mine"]', elements.mainNav).forEach((item) => { item.hidden = session.role === 'supervisor'; });
   elements.supervisorNav.hidden = session.role !== 'supervisor';
   if (session.role === 'supervisor') {
+    elements.resumeBanner.hidden = true;
     navigate('supervisor'); await refreshSupervisor(false);
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) refreshSupervisor(false);
     }, 30000);
   } else {
-    navigate('new'); await detectDraft(); refreshMine(false); if (navigator.onLine) syncAll(false);
+    navigate('new'); await detectDraft();
+    if (!elements.team.value) elements.team.value = localStorage.getItem(LAST_TEAM_KEY) || '';
+    updateGoal(); refreshMine(false); if (navigator.onLine) { syncAll(false); loadDailyProduction(elements.team.value, false); }
   }
   await updateQueueUi();
+}
+
+function openProfileSwitch(targetRole) {
+  profileSwitchTarget = targetRole === 'supervisor' ? 'supervisor' : 'field';
+  const supervisor = profileSwitchTarget === 'supervisor';
+  elements.profileSwitchTitle.textContent = supervisor ? 'Entrar no modo Supervisor' : 'Registrar ocorrência';
+  elements.profileTargetLabel.textContent = supervisor ? 'SUPERVISOR' : 'CAMPO / OPERACIONAL';
+  elements.profileSwitchUser.value = session?.user || localStorage.getItem(LAST_USER_KEY) || '';
+  elements.profileSwitchPassword.value = ''; elements.profileSwitchMessage.textContent = '';
+  elements.profileSwitchDialog.showModal();
+  setTimeout(() => (elements.profileSwitchUser.value ? elements.profileSwitchPassword : elements.profileSwitchUser).focus(), 50);
+}
+
+async function handleProfileSwitch(event) {
+  event.preventDefault();
+  const user = elements.profileSwitchUser.value.trim(); const password = elements.profileSwitchPassword.value;
+  elements.profileSwitchMessage.textContent = '';
+  if (!navigator.onLine) { elements.profileSwitchMessage.textContent = 'A troca de perfil precisa de conexão para validar a senha.'; return; }
+  setBusy(elements.profileSwitchSubmit, true, 'Autenticando…');
+  try {
+    const result = await api.login(user, password, profileSwitchTarget);
+    persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
+    localStorage.setItem(LAST_USER_KEY, result.user); elements.profileSwitchPassword.value = '';
+    elements.profileSwitchDialog.close(); clearInterval(supervisorRefreshTimer); await enterApplication();
+    toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
+  } catch (error) { elements.profileSwitchMessage.textContent = friendlyError(error); }
+  finally { setBusy(elements.profileSwitchSubmit, false); }
 }
 
 function logout() { persistSession(null); activeRecord = null; clearPreviewUrls(); showLogin(); }
@@ -257,6 +317,7 @@ function navigate(view) {
   currentView = view;
   $$('.view').forEach((section) => { const active = section.id === `view-${view}`; section.hidden = !active; section.classList.toggle('is-active', active); });
   $$('.nav-item').forEach((item) => item.classList.toggle('is-active', item.dataset.nav === view));
+  if (view === 'new' && session?.role === 'field') loadDailyProduction(elements.team.value, false);
   if (view === 'mine') refreshMine(false);
   if (view === 'sync') updateQueueUi();
   if (view === 'supervisor') refreshSupervisor(false);
@@ -267,6 +328,7 @@ function blankRecord() {
   const now = new Date().toISOString();
   return {
     recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
+    operationalDate: operationalDate(),
     team: '', occurrenceNumber: '', occurrenceTypes: [], pg1: '', pg2: '', pg3: '',
     transformer: { removedCode: '', removedCia: '', newCode: '', newCia: '' },
     services: [], materials: [{ lineId: generateUuid(), description: '', quantity: '' }], observation: '',
@@ -295,14 +357,41 @@ function syncFormToRecord() {
   };
   activeRecord.observation = elements.observation.value.trim();
   activeRecord.totalServices = occurrenceTotal(activeRecord.services);
-  activeRecord.goalPercentage = goalProgress(activeRecord.totalServices).percentage;
+  activeRecord.goalPercentage = dailyGoalProjection(dailyProduction.totalExcludingRecord, activeRecord.totalServices).percentage;
 }
 
-async function handleFormInput() {
+async function handleFormInput(event) {
   await ensureActiveRecord(); syncFormToRecord();
   elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
   elements.observationCount.textContent = elements.observation.value.length;
+  if (event?.target === elements.team) {
+    localStorage.setItem(LAST_TEAM_KEY, elements.team.value.trim());
+    clearTimeout(dailyLoadTimer); dailyLoadTimer = setTimeout(() => loadDailyProduction(elements.team.value, false), 520);
+  }
+  updateGoal();
   validateStepOne(false); await saveActiveDraft();
+}
+
+function emptyDailyProduction(team = '') {
+  return { team: String(team || '').trim(), date: operationalDate(), goal: TEAM_GOAL, totalSent: 0, totalExcludingRecord: 0, recordContribution: 0, percentage: 0, status: 'ABAIXO_DA_META' };
+}
+
+function dailyCacheKey(team, date = operationalDate()) { return `dailyProduction:${date}|${normalizeTeamKey(team)}`; }
+
+async function loadDailyProduction(teamValue, notify = false) {
+  const team = String(teamValue || '').trim(); const date = operationalDate(); const requestId = ++dailyRequestId;
+  if (!team) { dailyProduction = emptyDailyProduction(); updateGoal(); return dailyProduction; }
+  let cached = await getMeta(dailyCacheKey(team, date));
+  if (requestId !== dailyRequestId) return dailyProduction;
+  if (cached) { dailyProduction = { ...emptyDailyProduction(team), ...cached, team, date, totalExcludingRecord: Number(cached.totalSent) || 0 }; updateGoal(); }
+  if (!navigator.onLine || !endpointConfigured() || session?.role !== 'field') return dailyProduction;
+  try {
+    const result = await api.getDailyTeamProduction(session.token, team, date, activeRecord?.recordId || '');
+    if (requestId !== dailyRequestId || normalizeTeamKey(elements.team.value) !== normalizeTeamKey(team)) return dailyProduction;
+    dailyProduction = { ...emptyDailyProduction(team), ...result };
+    await setMeta(dailyCacheKey(team, date), { team, date, goal: result.goal, totalSent: result.totalSent, percentage: result.percentage, status: result.status });
+    updateGoal(); if (notify) toast('Produção diária atualizada.', 'success'); return dailyProduction;
+  } catch (error) { if (notify) toast(friendlyError(error), 'error'); return dailyProduction; }
 }
 
 async function saveActiveDraft() {
@@ -321,6 +410,7 @@ async function detectDraft() {
   if (!recordId) { elements.resumeBanner.hidden = true; return; }
   const record = await getRecord(recordId);
   if (!record || record.status !== RECORD_STATUS.DRAFT) { await setMeta(ACTIVE_DRAFT_META, null); elements.resumeBanner.hidden = true; return; }
+  if (record.user && record.user !== session?.user) { elements.resumeBanner.hidden = true; return; }
   elements.resumeBanner.hidden = false;
   elements.resumeBannerText.textContent = record.occurrenceNumber ? `Nº ${record.occurrenceNumber} · atualizado em ${formatDateTime(record.updatedAt)}` : `Atualizado em ${formatDateTime(record.updatedAt)}`;
 }
@@ -401,7 +491,7 @@ function renderServices() {
   }
   elements.servicesList.innerHTML = services.map((service, index) => `<article class="line-item" data-service-line="${escapeHtml(service.lineId)}">
     <div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} ${service.group ? `· ${escapeHtml(service.group)}` : ''}</small></div><button class="icon-button delete-photo" type="button" data-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div>
-    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(formatCurrency(service.referenceValue))}</strong></div><div><span>Valor total</span><strong>${escapeHtml(formatCurrency(serviceTotal(service)))}</strong></div></div>
+    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(formatCurrency(service.referenceValue))}</strong></div><div><span>Valor total</span><strong data-service-total="${escapeHtml(service.lineId)}">${escapeHtml(formatCurrency(serviceTotal(service)))}</strong></div></div>
   </article>`).join(''); updateGoal();
 }
 
@@ -409,19 +499,30 @@ async function handleServiceChange(event) {
   const remove = event.target.closest('[data-remove-service]');
   const quantity = event.target.closest('[data-service-quantity]');
   if (!activeRecord || (!remove && !quantity)) return;
-  if (remove) activeRecord.services = activeRecord.services.filter((service) => service.lineId !== remove.dataset.removeService);
+  if (remove) {
+    activeRecord.services = activeRecord.services.filter((service) => service.lineId !== remove.dataset.removeService);
+    renderServices(); validateStepOne(false); await saveActiveDraft(); return;
+  }
   if (quantity) {
     const service = activeRecord.services.find((item) => item.lineId === quantity.dataset.serviceQuantity);
-    if (service) service.quantity = quantity.value;
+    if (service) {
+      service.quantity = quantity.value;
+      const total = $(`[data-service-total="${CSS.escape(service.lineId)}"]`, elements.servicesList);
+      if (total) total.textContent = formatCurrency(serviceTotal(service));
+    }
   }
-  renderServices(); validateStepOne(false); await saveActiveDraft();
+  updateGoal(); validateStepOne(false); await saveActiveDraft();
 }
 
 function updateGoal() {
-  const total = occurrenceTotal(activeRecord?.services || []); const progress = goalProgress(total, TEAM_GOAL);
-  elements.goalValue.textContent = formatCurrency(TEAM_GOAL); elements.currentValue.textContent = formatCurrency(total);
+  const current = occurrenceTotal(activeRecord?.services || []);
+  const base = normalizeTeamKey(dailyProduction.team) === normalizeTeamKey(elements.team.value) && dailyProduction.date === operationalDate() ? Number(dailyProduction.totalExcludingRecord) || 0 : 0;
+  const progress = dailyGoalProjection(base, current, TEAM_GOAL);
+  elements.goalValue.textContent = formatCurrency(TEAM_GOAL); elements.dailySentValue.textContent = formatCurrency(base); elements.currentValue.textContent = formatCurrency(current); elements.projectedValue.textContent = formatCurrency(progress.projectedTotal);
+  elements.dailyTeamLabel.textContent = elements.team.value.trim() ? `Meta diária · ${elements.team.value.trim()}` : 'Meta diária da equipe';
   elements.goalPercentage.textContent = `${formatNumber(progress.percentage)}%`; elements.goalBar.style.width = `${progress.visualPercentage}%`;
   elements.goalStatus.textContent = progress.label; elements.goalStatus.className = `goal-status goal-status--${progress.state}`;
+  elements.goalCard.classList.toggle('is-achieved', progress.state === 'atingida'); elements.goalCard.classList.toggle('is-exceeded', progress.state === 'superada');
 }
 
 async function addMaterial() {
@@ -525,10 +626,10 @@ function updatePhotoGrid() {
   let ready = 0;
   for (let index = 1; index <= 5; index += 1) {
     const state = activeRecord?.photoStates?.[index - 1] || {}; const local = Boolean(state.localReady) || activePhotos.has(index);
-    const url = previewUrls.get(index) || state.serverUrl || ''; const present = local || Boolean(url) || state.confirmed; if (present) ready += 1;
+    const url = normalizePhotoUrl(previewUrls.get(index) || state.serverUrl || ''); const present = local || Boolean(url) || state.confirmed; if (present) ready += 1;
     const card = $(`[data-photo-card="${index}"]`); const preview = $(`[data-photo-preview="${index}"]`); const status = $(`[data-photo-status="${index}"]`); const secondary = $(`[data-photo-secondary="${index}"]`);
     card?.classList.toggle('has-photo', present);
-    if (preview) preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="Foto ${index}" />` : '<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>';
+    if (preview) preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="Foto ${index}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" />` : '<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>';
     if (status) { status.textContent = state.confirmed && !state.replacePending ? 'Confirmada' : present ? 'Pronta' : 'Pendente'; status.className = `status-chip ${state.confirmed && !state.replacePending ? 'status-chip--success' : present ? 'status-chip--info' : 'status-chip--neutral'}`; }
     if (secondary) { secondary.hidden = !present; const button = $('[data-photo-delete]', secondary); if (button) button.hidden = Boolean(state.confirmed && !state.replacePending && !local); }
   }
@@ -544,14 +645,33 @@ function materialTable(materials = []) {
   return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => `<tr><td>${escapeHtml(material.description)}</td><td>${escapeHtml(formatNumber(material.quantity))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
-function occurrenceDetails(record, includePhotos = true) {
-  const total = occurrenceTotal(record.services || []); const progress = goalProgress(total);
-  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Retirado</dt><dd>${escapeHtml(record.transformer?.removedCode)} · CIA ${escapeHtml(record.transformer?.removedCia)}</dd></div><div><dt>Novo</dt><dd>${escapeHtml(record.transformer?.newCode)} · CIA ${escapeHtml(record.transformer?.newCia)}</dd></div></div></div>` : '';
-  const photos = includePhotos ? `<div class="review-photos">${(record.photos || Array.from({ length: 5 }, (_, index) => previewUrls.get(index + 1) || record.photoStates?.[index]?.serverUrl || '')).map((url, index) => url ? `<figure class="review-photo"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" /><span>Foto ${index + 1}</span></figure>` : '').join('')}</div>` : '';
-  return `<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</dd></div><div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Meta da equipe</dt><dd>${escapeHtml(formatNumber(progress.percentage))}% · ${escapeHtml(progress.label)}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+function photoUrlsForRecord(record = {}) {
+  return Array.from({ length: 5 }, (_, index) => normalizePhotoUrl(
+    record.photos?.[index] || record.photoStates?.[index]?.serverUrl || record.photoStates?.[index]?.url || previewUrls.get(index + 1) || ''
+  ));
 }
 
-function renderReview() { if (activeRecord) { syncFormToRecord(); elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
+function photoMarkup(record) {
+  return `<div class="review-photos">${photoUrlsForRecord(record).map((url, index) => url
+    ? `<figure class="review-photo"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>Foto ${index + 1}</span></figure>`
+    : `<figure class="review-photo review-photo--empty"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Foto ${index + 1} indisponível</span></div><span>Foto ${index + 1}</span></figure>`).join('')}</div>`;
+}
+
+function dailyDetailMarkup(record) {
+  const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction;
+  const totalSent = Number(daily?.totalSent) || (record.serverConfirmed ? total : 0); const progress = goalProgress(totalSent, Number(daily?.goal) || TEAM_GOAL);
+  return `<section class="daily-detail"><span class="live-indicator"><i></i> Ao vivo</span><div class="daily-detail__values"><div><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div><span>Produção da equipe no dia</span><strong>${escapeHtml(formatCurrency(totalSent))} / ${escapeHtml(formatCurrency(Number(daily?.goal) || TEAM_GOAL))}</strong></div><div><span>Percentual diário</span><strong>${escapeHtml(formatNumber(progress.percentage))}%</strong></div></div></section>`;
+}
+
+function occurrenceDetails(record, includePhotos = true) {
+  const total = occurrenceTotal(record.services || []);
+  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Retirado</dt><dd>${escapeHtml(record.transformer?.removedCode)} · CIA ${escapeHtml(record.transformer?.removedCia)}</dd></div><div><dt>Novo</dt><dd>${escapeHtml(record.transformer?.newCode)} · CIA ${escapeHtml(record.transformer?.newCia)}</dd></div></div></div>` : '';
+  const photos = includePhotos ? photoMarkup(record) : '';
+  const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
+  return `${dailyDetailMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</dd></div><div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+}
+
+function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
 
 async function submitOccurrence() {
   if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) !== 5) { toast('Complete os dados e as cinco fotos antes de enviar.', 'error'); return; }
@@ -562,7 +682,13 @@ async function submitOccurrence() {
   try {
     const result = await syncSingleRecord(submittedId, false);
     toast(result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'Ocorrência enviada para conferência.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.', result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'success' : 'default');
-  } finally { setBusy(elements.submitOccurrenceButton, false); resetForm(); navigate('mine'); }
+  } finally { setBusy(elements.submitOccurrenceButton, false); resetForm({ preserveTeam: true }); navigate('mine'); }
+}
+
+async function cacheDailySummary(summary) {
+  if (!summary?.team || !summary?.date) return;
+  await setMeta(dailyCacheKey(summary.team, summary.date), { team: summary.team, date: summary.date, goal: summary.goal, totalSent: summary.totalSent, percentage: summary.percentage, status: summary.status });
+  if (normalizeTeamKey(elements.team.value) === normalizeTeamKey(summary.team)) { dailyProduction = { ...emptyDailyProduction(summary.team), ...summary }; updateGoal(); }
 }
 
 async function syncSingleRecord(recordId, notify = true) {
@@ -575,13 +701,14 @@ async function syncSingleRecord(recordId, notify = true) {
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
     }
     next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
-    next = reconcilePhotoStates(next, await api.submitRecord(session.token, {
+    const submitResult = await api.submitRecord(session.token, {
       recordId: next.recordId, team: next.team, occurrenceNumber: next.occurrenceNumber,
       occurrenceTypes: next.occurrenceTypes, pg1: next.pg1, pg2: next.pg2, pg3: next.pg3,
       transformer: next.transformer, services: next.services, materials: next.materials,
-      totalServices: occurrenceTotal(next.services), goalPercentage: goalProgress(occurrenceTotal(next.services)).percentage,
+      totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyProduction.totalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
-    }, APP_VERSION));
+    }, APP_VERSION);
+    next = reconcilePhotoStates(next, submitResult); await cacheDailySummary(submitResult.dailyProduction || next.dailyProduction);
     next.status = RECORD_STATUS.SYNCING_PHOTOS; await putRecord(next);
     next = reconcilePhotoStates(next, await api.getRecordState(session.token, next.recordId)); await putRecord(next);
     for (let index = 1; index <= 5; index += 1) {
@@ -595,7 +722,7 @@ async function syncSingleRecord(recordId, notify = true) {
     }
     const finalState = await api.getRecordState(session.token, next.recordId); next = reconcilePhotoStates(next, finalState);
     next.status = finalState.status || RECORD_STATUS.WAITING_SUPERVISOR; next.lastError = ''; next.syncedAt = new Date().toISOString();
-    await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
+    await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); await cacheDailySummary(finalState.dailyProduction || next.dailyProduction); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
     next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await putRecord(next);
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
@@ -630,36 +757,72 @@ async function refreshMine(notify = false) {
   try {
     const localRecords = await getAllRecords(); let serverRecords = [];
     if (navigator.onLine && endpointConfigured()) { try { serverRecords = (await api.listMine(session.token)).records || []; } catch (error) { if (notify) toast(friendlyError(error), 'error'); } }
-    mineRecords = mergeRecordCollections(localRecords, serverRecords); renderMineFilters(); renderMineList();
+    mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); await refreshMineGoal(false);
   } finally { setBusy(elements.refreshMineButton, false); }
 }
 
+function setupMineTeams() {
+  const teams = [...new Set(mineRecords.map((record) => String(record.team || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const preferred = mineTeam || localStorage.getItem(LAST_TEAM_KEY) || activeRecord?.team || teams[0] || '';
+  mineTeam = teams.find((team) => normalizeTeamKey(team) === normalizeTeamKey(preferred)) || preferred;
+  if (mineTeam && !teams.some((team) => normalizeTeamKey(team) === normalizeTeamKey(mineTeam))) teams.unshift(mineTeam);
+  elements.mineTeamSelect.innerHTML = teams.length ? teams.map((team) => `<option value="${escapeHtml(team)}"${normalizeTeamKey(team) === normalizeTeamKey(mineTeam) ? ' selected' : ''}>${escapeHtml(team)}</option>`).join('') : '<option value="">Nenhuma equipe</option>';
+  elements.mineGoalCard.hidden = !mineTeam;
+}
+
+async function refreshMineGoal(notify = false) {
+  if (!mineTeam) { elements.mineGoalCard.hidden = true; return; }
+  elements.mineGoalCard.hidden = false; const date = operationalDate();
+  const fromRecord = mineRecords.find((record) => normalizeTeamKey(record.team) === normalizeTeamKey(mineTeam) && record.dailyProduction?.date === date)?.dailyProduction;
+  let summary = fromRecord || await getMeta(dailyCacheKey(mineTeam, date)) || emptyDailyProduction(mineTeam);
+  if (navigator.onLine && endpointConfigured() && session?.role === 'field') {
+    try { summary = await api.getDailyTeamProduction(session.token, mineTeam, date); await cacheDailySummary(summary); }
+    catch (error) { if (notify) toast(friendlyError(error), 'error'); }
+  }
+  renderMineGoal(summary);
+}
+
+function renderMineGoal(summary = emptyDailyProduction(mineTeam)) {
+  const progress = goalProgress(Number(summary.totalSent) || 0, Number(summary.goal) || TEAM_GOAL);
+  elements.mineGoalValue.textContent = formatCurrency(progress.goal); elements.mineDailyValue.textContent = formatCurrency(progress.total);
+  elements.mineGoalPercentage.textContent = `${formatNumber(progress.percentage)}%`; elements.mineGoalBar.style.width = `${progress.visualPercentage}%`;
+  elements.mineGoalStatus.textContent = progress.label; elements.mineGoalStatus.className = `goal-status goal-status--${progress.state}`;
+  elements.mineGoalCard.classList.toggle('is-achieved', progress.state === 'atingida'); elements.mineGoalCard.classList.toggle('is-exceeded', progress.state === 'superada');
+}
+
 function renderMineFilters() {
-  const filters = [['all', 'Todas'], ['draft', 'Rascunhos'], ['pending', 'Pendentes'], ['waiting', 'Aguardando'], ['correction', 'Correção'], ['approved', 'Aprovadas'], ['rejected', 'Reprovadas']];
+  const filters = [['today', 'Hoje'], ['history', 'Outros dias'], ['all', 'Todas'], ['draft', 'Rascunhos'], ['pending', 'Pendentes'], ['waiting', 'Aguardando'], ['correction', 'Correção'], ['approved', 'Aprovadas'], ['rejected', 'Reprovadas']];
   elements.mineFilters.innerHTML = filters.map(([value, label]) => `<button class="filter-chip${mineFilter === value ? ' is-active' : ''}" type="button" data-filter="${value}">${label}</button>`).join('');
 }
 
 function renderMineList() {
-  const filtered = mineRecords.filter((record) => mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
+  const today = operationalDate();
+  const filtered = mineRecords.filter((record) => (mineFilter === 'today' && operationalDate(record.registeredAt || record.createdAt) === today) || (mineFilter === 'history' && operationalDate(record.registeredAt || record.createdAt) !== today) || mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
   if (!filtered.length) { elements.mineList.innerHTML = emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.'); return; }
   elements.mineList.innerHTML = filtered.map((record) => {
-    let action = '';
-    if (record.status === RECORD_STATUS.DRAFT) action = `<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`;
-    else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED) action = `<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`;
-    else if (SYNCABLE_STATUSES.has(record.status)) action = `<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">Sincronizar agora</button>`;
+    const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
+    if (record.status === RECORD_STATUS.DRAFT) actions.push(`<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`);
+    else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED) actions.push(`<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`);
+    else if (SYNCABLE_STATUSES.has(record.status)) actions.push(`<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">Sincronizar agora</button>`);
+    const action = `<div class="button-row">${actions.join('')}</div>`;
     return recordCard(record, action);
   }).join('');
 }
 
 function recordCard(record, actionHtml = '') {
-  const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []);
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · ') || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Serviços</span><strong>${record.services?.length || 0}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
+  const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []); const serviceQuantity = (record.services || []).reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · ') || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
 }
 
 async function handleMineAction(event) {
   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
   const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId); const record = local || server; if (!record) return;
+  if (button.dataset.mineAction === 'view') {
+    const detailRecord = { ...record, ...(server || {}), photos: server?.photos || record.photos, dailyProduction: server?.dailyProduction || record.dailyProduction };
+    elements.mineDetailTitle.textContent = `Ocorrência ${detailRecord.occurrenceNumber || 'sem número'}`;
+    elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); elements.mineDetailDialog.showModal(); return;
+  }
   if (button.dataset.mineAction === 'correct') {
     const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, photoStates: Array.from({ length: 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: Boolean(record.photos?.[index]), localReady: false, serverUrl: record.photos?.[index] || '', uploadKey: '', replacePending: false })) };
     await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId); return loadRecordIntoForm(correction);
@@ -673,6 +836,7 @@ async function loadRecordIntoForm(record) {
   for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
   if (photos.length) await putRecord(activeRecord);
   elements.team.value = activeRecord.team || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
+  if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); await loadDailyProduction(activeRecord.team, false); }
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
   elements.pg1.value = activeRecord.pg1 || ''; elements.pg2.value = activeRecord.pg2 || ''; elements.pg3.value = activeRecord.pg3 || '';
   elements.removedTransformerCode.value = activeRecord.transformer.removedCode || ''; elements.removedTransformerCia.value = activeRecord.transformer.removedCia || '';
@@ -681,12 +845,14 @@ async function loadRecordIntoForm(record) {
   renderServices(); renderMaterials(); showDraftId(); validateStepOne(false); updatePhotoGrid(); goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1))); elements.resumeBanner.hidden = true; navigate('new');
 }
 
-function resetForm() {
+function resetForm({ preserveTeam = false } = {}) {
+  const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
   catalogSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
   [elements.team, elements.occurrenceNumber, elements.pg1, elements.pg2, elements.pg3, elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode, elements.newTransformerCia, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
+  elements.team.value = team;
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
   elements.transformerSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
-  renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1);
+  renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1); if (team) loadDailyProduction(team, false);
 }
 
 async function refreshSupervisor(notify = false) {
@@ -702,14 +868,16 @@ function renderSupervisorList(error = null) {
   elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !supervisorRecords.length;
   if (!supervisorRecords.length) { elements.supervisorList.innerHTML = emptyState(error ? 'Não foi possível carregar' : 'Nenhuma ocorrência aguardando', error ? friendlyError(error) : 'As ocorrências completas aparecerão aqui para conferência.'); updateSupervisorSelectionUi(); return; }
   elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
-    const checked = selectedSupervisorIds.has(record.recordId); const thumbs = (record.photos || []).map((url, index) => `<button type="button" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" /></button>`).join('');
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--warning">${record.photoCount}/5 fotos</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Serviços</span><strong>${record.services?.length || 0}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(occurrenceTotal(record.services || [])))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt))}</strong></div></div><div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatNumber(record.goalPercentage || goalProgress(occurrenceTotal(record.services || [])).percentage))}% da meta</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    const checked = selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
+    const thumbs = urls.map((url, index) => url ? `<button type="button" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
+    const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--warning">${record.photoCount}/5 fotos</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div><div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
 function handleSupervisorListClick(event) {
   const review = event.target.closest('[data-review-record]'); const zoom = event.target.closest('[data-zoom-src]');
-  if (zoom) return openPhoto(zoom.dataset.zoomSrc, zoom.dataset.zoomLabel); if (review) openSupervisorReview(review.dataset.reviewRecord);
+  if (zoom) return openPhotoFromElement(zoom); if (review) openSupervisorReview(review.dataset.reviewRecord);
 }
 
 function handleSupervisorSelection(event) { const checkbox = event.target.closest('[data-supervisor-select]'); if (!checkbox) return; if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect); else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect); updateSupervisorSelectionUi(); }
@@ -755,8 +923,28 @@ function confirmAction(title, message, actionLabel = 'Confirmar', tone = 'defaul
   return new Promise((resolve) => { const handler = () => { elements.confirmDialog.removeEventListener('close', handler); resolve(elements.confirmDialog.returnValue === 'confirm'); }; elements.confirmDialog.addEventListener('close', handler); });
 }
 
-function handleZoomClick(event) { const target = event.target.closest('[data-zoom-src]'); if (target) openPhoto(target.dataset.zoomSrc, target.dataset.zoomLabel); }
-function openPhoto(src, label = 'Evidência') { if (!src) return; elements.photoDialogImage.src = src; elements.photoDialogLabel.textContent = label; elements.photoDialog.showModal(); }
+function photoFallbackUrl(value) { const id = driveFileId(value); return id ? `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}` : ''; }
+function handlePhotoLoadError(event) {
+  const image = event.target.closest?.('img[data-fallback-src]'); if (!image) return;
+  const fallback = image.dataset.fallbackSrc;
+  if (!image.dataset.fallbackAttempted && fallback && image.src !== fallback) { image.dataset.fallbackAttempted = '1'; image.src = fallback; return; }
+  image.removeAttribute('src'); image.alt = `${image.alt || 'Foto'} indisponível`; image.classList.add('is-photo-unavailable');
+}
+function galleryFromElement(target) {
+  const container = target.closest('.review-photos, .supervisor-thumbs');
+  return container ? $$('[data-zoom-src]', container).map((item) => ({ src: item.dataset.zoomSrc, label: item.dataset.zoomLabel || 'Evidência' })).filter((item) => item.src) : [];
+}
+function openPhotoFromElement(target) { openPhoto(target.dataset.zoomSrc, target.dataset.zoomLabel, galleryFromElement(target)); }
+function handleZoomClick(event) { const target = event.target.closest('[data-zoom-src]'); if (target) openPhotoFromElement(target); }
+function openPhoto(src, label = 'Evidência', gallery = []) {
+  if (!src) return; photoGallery = gallery.length ? gallery : [{ src, label }]; photoGalleryIndex = Math.max(0, photoGallery.findIndex((item) => item.src === src));
+  renderPhotoDialog(); elements.photoDialog.showModal();
+}
+function renderPhotoDialog() {
+  const item = photoGallery[photoGalleryIndex] || {}; elements.photoDialogImage.src = item.src || ''; elements.photoDialogImage.dataset.fallbackSrc = photoFallbackUrl(item.src); delete elements.photoDialogImage.dataset.fallbackAttempted;
+  elements.photoDialogLabel.textContent = item.label || `Foto ${photoGalleryIndex + 1}`; elements.photoPreviousButton.disabled = photoGallery.length < 2; elements.photoNextButton.disabled = photoGallery.length < 2;
+}
+function movePhotoGallery(direction) { if (photoGallery.length < 2) return; photoGalleryIndex = (photoGalleryIndex + direction + photoGallery.length) % photoGallery.length; renderPhotoDialog(); }
 function emptyState(title, message) { return `<div class="empty-state card"><span aria-hidden="true">◇</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>`; }
 
 function friendlyError(error) {
