@@ -86,7 +86,8 @@ export const api = Object.freeze({
   getDailyTeamProduction: (token, team, date, recordId = '') => apiRequest('getDailyTeamProduction', { token, team, date, recordId }),
   listMine: (token) => apiRequest('listMine', { token }),
   listPending: (token) => apiRequest('listPending', { token }),
-  supervisorAction: (token, decision, recordId, reason = '', note = '') => apiRequest('supervisorAction', { token, decision, recordId, reason, note }),
+  supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
+  supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }),
   approveBatch: (token, recordIds = [], all = false, note = '') => apiRequest('approveBatch', { token, recordIds, all, note }, { timeoutMs: 60000 })
 });
 

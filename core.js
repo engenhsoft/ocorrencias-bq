@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.08.30.1';
+export const APP_VERSION = '2026.08.30.2';
 
 export const TEAM_GOAL = 6000;
 
@@ -205,6 +205,32 @@ export function countReadyPhotoStates(record) {
   }
   if (Array.isArray(record?.photos)) return record.photos.filter(Boolean).length;
   return Number(record?.photoCount) || 0;
+}
+
+export function photoIssueIndexes(record, failedIndexes = []) {
+  const urls = Array.from({ length: 5 }, (_, index) => record?.photos?.[index] || record?.photoStates?.[index]?.serverUrl || record?.photoStates?.[index]?.url || '');
+  const issues = urls.map((url, index) => url ? 0 : index + 1).filter(Boolean);
+  for (const index of failedIndexes || []) if (Number.isInteger(Number(index)) && Number(index) >= 1 && Number(index) <= 5) issues.push(Number(index));
+  return [...new Set(issues)].sort((left, right) => left - right);
+}
+
+export function supervisorCorrectionChanges(before = {}, after = {}) {
+  const changes = [];
+  const add = (field, previousValue, newValue) => {
+    const previous = typeof previousValue === 'string' ? previousValue : JSON.stringify(previousValue ?? '');
+    const next = typeof newValue === 'string' ? newValue : JSON.stringify(newValue ?? '');
+    if (previous !== next) changes.push({ field, previousValue: previous, newValue: next });
+  };
+  add('Equipe', before.team, after.team);
+  add('Nº da ocorrência', before.occurrenceNumber, after.occurrenceNumber);
+  add('Tipo(s) da ocorrência', before.occurrenceTypes || [], after.occurrenceTypes || []);
+  add('PG 1', before.pg1, after.pg1); add('PG 2', before.pg2, after.pg2); add('PG 3', before.pg3, after.pg3);
+  add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia } : {});
+  add('Transformador novo', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia } : {});
+  add('Serviços selecionados', (before.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), (after.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
+  add('Materiais aplicados', (before.materials || []).map(({ description, quantity }) => ({ description, quantity })), (after.materials || []).map(({ description, quantity }) => ({ description, quantity })));
+  add('Observação', before.observation, after.observation);
+  return changes;
 }
 
 export function summarizeQueue(records = []) {

@@ -2,7 +2,8 @@ import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   dailyGoalProjection, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  occurrenceTotal, operationalDate, reconcilePhotoStates, serviceTotal,
+  occurrenceTotal, operationalDate, photoIssueIndexes, reconcilePhotoStates, serviceTotal,
+  supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
 import {
@@ -59,7 +60,7 @@ const elements = {
   approveAllButton: $('#approveAllButton'), approveAllFooter: $('#approveAllFooter'),
   reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
-  rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'),
+  editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'),
   decisionDialogTitle: $('#decisionDialogTitle'), decisionReason: $('#decisionReason'), decisionNote: $('#decisionNote'),
   confirmDialog: $('#confirmDialog'), confirmTitle: $('#confirmTitle'), confirmMessage: $('#confirmMessage'),
   confirmActionButton: $('#confirmActionButton'), confirmIcon: $('#confirmIcon'), photoDialog: $('#photoDialog'),
@@ -69,7 +70,15 @@ const elements = {
   registerOccurrenceButton: $('#registerOccurrenceButton'), profileSwitchDialog: $('#profileSwitchDialog'),
   profileSwitchForm: $('#profileSwitchForm'), profileSwitchTitle: $('#profileSwitchTitle'), profileTargetLabel: $('#profileTargetLabel'),
   profileSwitchUser: $('#profileSwitchUser'), profileSwitchPassword: $('#profileSwitchPassword'),
-  profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'), toastRegion: $('#toastRegion')
+  profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'),
+  supervisorEditDialog: $('#supervisorEditDialog'), supervisorEditForm: $('#supervisorEditForm'), supervisorEditTitle: $('#supervisorEditTitle'),
+  editTeam: $('#editTeam'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
+  editPg1: $('#editPg1'), editPg2: $('#editPg2'), editPg3: $('#editPg3'), editTransformerSection: $('#editTransformerSection'),
+  editRemovedTransformerCode: $('#editRemovedTransformerCode'), editRemovedTransformerCia: $('#editRemovedTransformerCia'),
+  editNewTransformerCode: $('#editNewTransformerCode'), editNewTransformerCia: $('#editNewTransformerCia'),
+  editServiceSearch: $('#editServiceSearch'), editServiceResults: $('#editServiceResults'), editServicesList: $('#editServicesList'),
+  editAddMaterialButton: $('#editAddMaterialButton'), editMaterialsList: $('#editMaterialsList'), editObservation: $('#editObservation'),
+  supervisorEditErrors: $('#supervisorEditErrors'), saveSupervisorEditButton: $('#saveSupervisorEditButton'), toastRegion: $('#toastRegion')
 };
 
 let session = readSession();
@@ -96,6 +105,10 @@ let dailyLoadTimer = 0;
 let profileSwitchTarget = '';
 let photoGallery = [];
 let photoGalleryIndex = 0;
+let supervisorEditRecord = null;
+let supervisorEditCatalogResults = [];
+let supervisorEditSearchTimer = 0;
+const supervisorPhotoFailures = new Map();
 
 function readSession() {
   try {
@@ -214,6 +227,17 @@ function bindEvents() {
   elements.approveButton.addEventListener('click', () => decideSupervisor('approve'));
   elements.rejectButton.addEventListener('click', () => decideSupervisor('reject'));
   elements.requestCorrectionButton.addEventListener('click', () => decideSupervisor('request_correction'));
+  elements.editOccurrenceButton.addEventListener('click', openSupervisorEditor);
+  elements.supervisorEditForm.addEventListener('submit', saveSupervisorCorrection);
+  $$('[data-close-supervisor-edit]').forEach((button) => button.addEventListener('click', () => elements.supervisorEditDialog.close()));
+  elements.editOccurrenceTypes.addEventListener('change', syncSupervisorEditorFromForm);
+  elements.editServiceSearch.addEventListener('input', searchSupervisorCatalog);
+  elements.editServiceResults.addEventListener('click', selectSupervisorCatalogItem);
+  elements.editServicesList.addEventListener('input', handleSupervisorServiceEdit);
+  elements.editServicesList.addEventListener('click', handleSupervisorServiceEdit);
+  elements.editAddMaterialButton.addEventListener('click', addSupervisorMaterial);
+  elements.editMaterialsList.addEventListener('input', handleSupervisorMaterialEdit);
+  elements.editMaterialsList.addEventListener('click', handleSupervisorMaterialEdit);
   elements.reviewDialogContent.addEventListener('click', handleZoomClick);
   elements.reviewSummary.addEventListener('click', handleZoomClick);
   elements.mineDetailContent.addEventListener('click', handleZoomClick);
@@ -638,11 +662,11 @@ function updatePhotoGrid() {
 }
 
 function serviceTable(services = []) {
-  return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td>${escapeHtml(service.code)}</td><td>${escapeHtml(service.catalogText)}</td><td>${escapeHtml(service.unit)}</td><td>${escapeHtml(formatNumber(service.quantity))}</td><td>${escapeHtml(formatCurrency(service.referenceValue))}</td><td>${escapeHtml(formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td data-label="Código">${escapeHtml(service.code)}</td><td data-label="Descrição">${escapeHtml(service.catalogText)}</td><td data-label="Unidade">${escapeHtml(service.unit)}</td><td data-label="QTD">${escapeHtml(formatNumber(service.quantity))}</td><td data-label="Unitário">${escapeHtml(formatCurrency(service.referenceValue))}</td><td data-label="Total">${escapeHtml(formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function materialTable(materials = []) {
-  return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => `<tr><td>${escapeHtml(material.description)}</td><td>${escapeHtml(formatNumber(material.quantity))}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => `<tr><td data-label="Material">${escapeHtml(material.description)}</td><td data-label="Quantidade">${escapeHtml(formatNumber(material.quantity))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function photoUrlsForRecord(record = {}) {
@@ -653,8 +677,21 @@ function photoUrlsForRecord(record = {}) {
 
 function photoMarkup(record) {
   return `<div class="review-photos">${photoUrlsForRecord(record).map((url, index) => url
-    ? `<figure class="review-photo"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>Foto ${index + 1}</span></figure>`
+    ? `<figure class="review-photo" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>Foto ${index + 1}</span></figure>`
     : `<figure class="review-photo review-photo--empty"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Foto ${index + 1} indisponível</span></div><span>Foto ${index + 1}</span></figure>`).join('')}</div>`;
+}
+
+function auditMarkup(record) {
+  const corrections = record?.audit?.supervisorCorrections;
+  if (!Array.isArray(corrections) || !corrections.length) return '';
+  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${corrections.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${(item.changes || []).map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`).join('')}</section>`;
+}
+
+function displayAuditValue(value) {
+  if (value == null || value === '') return '—';
+  const text = String(value);
+  try { const parsed = JSON.parse(text); return Array.isArray(parsed) ? parsed.map((item) => typeof item === 'object' ? JSON.stringify(item) : item).join(' · ') || '—' : typeof parsed === 'object' ? JSON.stringify(parsed) : String(parsed); }
+  catch { return text; }
 }
 
 function dailyDetailMarkup(record) {
@@ -668,7 +705,7 @@ function occurrenceDetails(record, includePhotos = true) {
   const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Retirado</dt><dd>${escapeHtml(record.transformer?.removedCode)} · CIA ${escapeHtml(record.transformer?.removedCia)}</dd></div><div><dt>Novo</dt><dd>${escapeHtml(record.transformer?.newCode)} · CIA ${escapeHtml(record.transformer?.newCia)}</dd></div></div></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${dailyDetailMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</dd></div><div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</dd></div><div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -755,7 +792,7 @@ async function testConnection(notify = true) {
 async function refreshMine(notify = false) {
   if (!session || session.role !== 'field') return; setBusy(elements.refreshMineButton, true, 'Atualizando…');
   try {
-    const localRecords = await getAllRecords(); let serverRecords = [];
+    const localRecords = (await getAllRecords()).filter((record) => String(record.user || '') === String(session.user || '')); let serverRecords = [];
     if (navigator.onLine && endpointConfigured()) { try { serverRecords = (await api.listMine(session.token)).records || []; } catch (error) { if (notify) toast(friendlyError(error), 'error'); } }
     mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); await refreshMineGoal(false);
   } finally { setBusy(elements.refreshMineButton, false); }
@@ -811,7 +848,8 @@ function renderMineList() {
 
 function recordCard(record, actionHtml = '') {
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []); const serviceQuantity = (record.services || []).reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · ') || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
+  const correction = record?.audit?.lastSupervisorCorrection;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · ') || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
 }
 
 async function handleMineAction(event) {
@@ -868,10 +906,12 @@ function renderSupervisorList(error = null) {
   elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !supervisorRecords.length;
   if (!supervisorRecords.length) { elements.supervisorList.innerHTML = emptyState(error ? 'Não foi possível carregar' : 'Nenhuma ocorrência aguardando', error ? friendlyError(error) : 'As ocorrências completas aparecerão aqui para conferência.'); updateSupervisorSelectionUi(); return; }
   elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
-    const checked = selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
-    const thumbs = urls.map((url, index) => url ? `<button type="button" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
+    const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const eligible = !issues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR;
+    const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
+    const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--warning">${record.photoCount}/5 fotos</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div><div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    const correction = record?.audit?.lastSupervisorCorrection;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${record.photoCount}/5 fotos</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
@@ -881,17 +921,112 @@ function handleSupervisorListClick(event) {
 }
 
 function handleSupervisorSelection(event) { const checkbox = event.target.closest('[data-supervisor-select]'); if (!checkbox) return; if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect); else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect); updateSupervisorSelectionUi(); }
-function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) supervisorRecords.forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
-function updateSupervisorSelectionUi() { const count = selectedSupervisorIds.size; elements.selectedCountLabel.textContent = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`; elements.approveSelectedButton.disabled = !count; elements.selectAllVisible.checked = Boolean(supervisorRecords.length && count === supervisorRecords.length); elements.selectAllVisible.indeterminate = count > 0 && count < supervisorRecords.length; }
+function selectableSupervisorRecords() { return supervisorRecords.filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length); }
+function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) selectableSupervisorRecords().forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
+function updateSupervisorSelectionUi() { const count = selectedSupervisorIds.size; const selectable = selectableSupervisorRecords(); elements.selectedCountLabel.textContent = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`; elements.approveSelectedButton.disabled = !count; elements.selectAllVisible.checked = Boolean(selectable.length && count === selectable.length); elements.selectAllVisible.indeterminate = count > 0 && count < selectable.length; }
 
-function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${activeSupervisorRecord.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); elements.reviewDialog.showModal(); }
+function activeSupervisorPhotoIssues() { return activeSupervisorRecord ? photoIssueIndexes(activeSupervisorRecord, supervisorPhotoFailures.get(activeSupervisorRecord.recordId) || []) : []; }
+function updateSupervisorReviewActions() {
+  const issues = activeSupervisorPhotoIssues(); const ready = !issues.length && activeSupervisorRecord?.status === RECORD_STATUS.WAITING_SUPERVISOR;
+  elements.requestCorrectionButton.hidden = !issues.length;
+  elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · Foto${issues.length > 1 ? 's' : ''} ${issues.join(', ')}` : 'Solicitar correção';
+  elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
+}
+function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${activeSupervisorRecord.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); }
+
+function openSupervisorEditor() {
+  if (!activeSupervisorRecord) return;
+  supervisorEditRecord = JSON.parse(JSON.stringify(activeSupervisorRecord));
+  supervisorEditRecord.services = (supervisorEditRecord.services || []).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
+  supervisorEditRecord.materials = (supervisorEditRecord.materials || []).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
+  elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
+  elements.editTeam.value = supervisorEditRecord.team || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
+  $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
+  elements.editPg1.value = supervisorEditRecord.pg1 || ''; elements.editPg2.value = supervisorEditRecord.pg2 || ''; elements.editPg3.value = supervisorEditRecord.pg3 || '';
+  elements.editRemovedTransformerCode.value = supervisorEditRecord.transformer?.removedCode || ''; elements.editRemovedTransformerCia.value = supervisorEditRecord.transformer?.removedCia || '';
+  elements.editNewTransformerCode.value = supervisorEditRecord.transformer?.newCode || ''; elements.editNewTransformerCia.value = supervisorEditRecord.transformer?.newCia || '';
+  elements.editObservation.value = supervisorEditRecord.observation || ''; elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; elements.supervisorEditErrors.textContent = '';
+  syncSupervisorEditorFromForm(); renderSupervisorEditServices(); renderSupervisorEditMaterials();
+  elements.reviewDialog.close(); elements.supervisorEditDialog.showModal();
+}
+
+function syncSupervisorEditorFromForm() {
+  if (!supervisorEditRecord) return null;
+  const occurrenceTypes = $$('input[type="checkbox"]', elements.editOccurrenceTypes).filter((input) => input.checked).map((input) => input.value);
+  const hasTransformer = occurrenceTypes.includes(TYPE_TRAFO); elements.editTransformerSection.hidden = !hasTransformer;
+  supervisorEditRecord = {
+    ...supervisorEditRecord, team: elements.editTeam.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
+    pg1: elements.editPg1.value.trim(), pg2: elements.editPg2.value.trim(), pg3: elements.editPg3.value.trim(), observation: elements.editObservation.value.trim(),
+    transformer: hasTransformer ? { removedCode: elements.editRemovedTransformerCode.value.trim(), removedCia: elements.editRemovedTransformerCia.value.trim(), newCode: elements.editNewTransformerCode.value.trim(), newCia: elements.editNewTransformerCia.value.trim() } : { removedCode: '', removedCia: '', newCode: '', newCia: '' }
+  };
+  return supervisorEditRecord;
+}
+
+function renderSupervisorEditServices() {
+  if (!supervisorEditRecord) return;
+  elements.editServicesList.innerHTML = supervisorEditRecord.services.length ? supervisorEditRecord.services.map((service, index) => `<article class="selected-service"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} · ${escapeHtml(formatCurrency(service.referenceValue))}</small></div><button class="icon-button delete-photo" type="button" data-edit-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div><div class="readonly-grid"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-edit-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div class="field"><span>Valor unitário</span><strong>${escapeHtml(formatCurrency(service.referenceValue))}</strong></div><div class="field field--wide"><span>Valor total</span><strong>${escapeHtml(formatCurrency(serviceTotal(service)))}</strong></div></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um serviço da aba Emergência.</div>';
+}
+
+function renderSupervisorEditMaterials() {
+  if (!supervisorEditRecord) return;
+  elements.editMaterialsList.innerHTML = supervisorEditRecord.materials.length ? supervisorEditRecord.materials.map((material, index) => `<article class="material-line"><span class="line-item__index">${index + 1}</span><label class="field"><span>Material *</span><input maxlength="180" data-edit-material-description="${escapeHtml(material.lineId)}" value="${escapeHtml(material.description)}" /></label><label class="field"><span>Quantidade *</span><input type="number" min="0.001" step="any" inputmode="decimal" data-edit-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /></label><button class="icon-button delete-photo" type="button" data-edit-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um material.</div>';
+}
+
+function searchSupervisorCatalog() {
+  clearTimeout(supervisorEditSearchTimer); const query = elements.editServiceSearch.value.trim();
+  if (query.length < 2) { elements.editServiceResults.hidden = true; return; }
+  supervisorEditSearchTimer = setTimeout(async () => {
+    try { supervisorEditCatalogResults = (await api.searchCatalog(session.token, query, 25)).results || []; elements.editServiceResults.innerHTML = supervisorEditCatalogResults.length ? supervisorEditCatalogResults.map((item, index) => `<button class="search-result" type="button" data-edit-catalog-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.catalogText)}</span><small>${escapeHtml(item.unit)} · ${escapeHtml(formatCurrency(item.referenceValue))}</small></button>`).join('') : '<p class="search-empty">Nenhum serviço encontrado.</p>'; elements.editServiceResults.hidden = false; }
+    catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
+  }, 260);
+}
+
+function selectSupervisorCatalogItem(event) {
+  const button = event.target.closest('[data-edit-catalog-index]'); if (!button || !supervisorEditRecord) return;
+  const item = supervisorEditCatalogResults[Number(button.dataset.editCatalogIndex)]; if (!item) return;
+  const existing = supervisorEditRecord.services.find((service) => service.catalogKey === item.catalogKey);
+  if (existing) existing.quantity = Math.max(1, Number(existing.quantity) || 1);
+  else supervisorEditRecord.services.push({ ...item, lineId: generateUuid(), quantity: 1, totalValue: Number(item.referenceValue) || 0 });
+  elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; renderSupervisorEditServices();
+}
+
+function handleSupervisorServiceEdit(event) {
+  if (!supervisorEditRecord) return;
+  const remove = event.target.closest('[data-edit-remove-service]'); if (remove) { supervisorEditRecord.services = supervisorEditRecord.services.filter((service) => service.lineId !== remove.dataset.editRemoveService); renderSupervisorEditServices(); return; }
+  const input = event.target.closest('[data-edit-service-quantity]'); if (!input) return;
+  const service = supervisorEditRecord.services.find((item) => item.lineId === input.dataset.editServiceQuantity); if (!service) return;
+  service.quantity = Number(input.value); if (event.type === 'input') { const total = input.closest('.selected-service')?.querySelector('.field--wide strong'); if (total) total.textContent = formatCurrency(serviceTotal(service)); }
+}
+
+function addSupervisorMaterial() { if (!supervisorEditRecord) return; supervisorEditRecord.materials.push({ lineId: generateUuid(), description: '', quantity: '' }); renderSupervisorEditMaterials(); }
+function handleSupervisorMaterialEdit(event) {
+  if (!supervisorEditRecord) return;
+  const remove = event.target.closest('[data-edit-remove-material]'); if (remove) { supervisorEditRecord.materials = supervisorEditRecord.materials.filter((material) => material.lineId !== remove.dataset.editRemoveMaterial); renderSupervisorEditMaterials(); return; }
+  const description = event.target.closest('[data-edit-material-description]'); const quantity = event.target.closest('[data-edit-material-quantity]'); const input = description || quantity; if (!input) return;
+  const lineId = description ? description.dataset.editMaterialDescription : quantity.dataset.editMaterialQuantity; const material = supervisorEditRecord.materials.find((item) => item.lineId === lineId); if (!material) return;
+  if (description) material.description = description.value; else material.quantity = Number(quantity.value);
+}
+
+async function saveSupervisorCorrection(event) {
+  event.preventDefault(); if (!supervisorEditRecord || !activeSupervisorRecord) return;
+  const draft = syncSupervisorEditorFromForm();
+  const errors = validateOccurrence(draft); if (errors.length) { elements.supervisorEditErrors.innerHTML = errors.map((error) => `• ${escapeHtml(error)}`).join('<br>'); return; }
+  if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }
+  setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
+  try {
+    const result = await api.supervisorCorrectRecord(session.token, draft); activeSupervisorRecord = result.record;
+    const index = supervisorRecords.findIndex((record) => record.recordId === result.record.recordId); if (index >= 0) supervisorRecords[index] = result.record;
+    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${result.record.occurrenceNumber} · ${result.record.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(result.record); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
+  } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
+  finally { setBusy(elements.saveSupervisorEditButton, false); }
+}
 
 async function decideSupervisor(decision) {
   if (!activeSupervisorRecord) return; let reason = ''; let note = '';
   if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
   else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); const label = decision === 'reject' ? 'reprovar' : 'solicitar correção para'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} a ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
   const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
-  try { await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção solicitada.', 'success'); await refreshSupervisor(false); }
+  try { await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note, decision === 'request_correction' ? activeSupervisorPhotoIssues() : []); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção de fotos solicitada.', 'success'); await refreshSupervisor(false); }
   catch (error) { toast(friendlyError(error), 'error'); }
   finally { setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false); }
 }
@@ -929,6 +1064,10 @@ function handlePhotoLoadError(event) {
   const fallback = image.dataset.fallbackSrc;
   if (!image.dataset.fallbackAttempted && fallback && image.src !== fallback) { image.dataset.fallbackAttempted = '1'; image.src = fallback; return; }
   image.removeAttribute('src'); image.alt = `${image.alt || 'Foto'} indisponível`; image.classList.add('is-photo-unavailable');
+  if (!image.closest('#reviewDialog, #supervisorList')) return;
+  const holder = image.closest('[data-photo-index]'); const recordId = image.closest('[data-record-photo-id]')?.dataset.recordPhotoId || '';
+  const photoIndex = Number(holder?.dataset.photoIndex);
+  if (recordId && photoIndex) { const failures = supervisorPhotoFailures.get(recordId) || new Set(); failures.add(photoIndex); supervisorPhotoFailures.set(recordId, failures); if (activeSupervisorRecord?.recordId === recordId) updateSupervisorReviewActions(); }
 }
 function galleryFromElement(target) {
   const container = target.closest('.review-photos, .supervisor-thumbs');
