@@ -1,11 +1,15 @@
-export const APP_VERSION = '2026.08.30.2';
+export const APP_VERSION = '2026.08.31.1';
 
 export const TEAM_GOAL = 6000;
 
 export const OCCURRENCE_TYPES = Object.freeze([
   'SUBSTITUIÇÃO DE TRAFO',
   'SUBSTITUIÇÃO DE POSTE',
-  'SUBSTITUIÇÃO DE CONDUTOR'
+  'SUBSTITUIÇÃO DE CONDUTOR',
+  'PODA',
+  'LINHA VIVA',
+  'CAVA & ROCHA',
+  'OUTRO'
 ]);
 
 export const RECORD_STATUS = Object.freeze({
@@ -171,14 +175,18 @@ export function validateOccurrence(record = {}) {
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
   if (!String(record.occurrenceNumber || '').trim()) errors.push('Informe o Nº da ocorrência.');
   if (!types.length || types.some((type) => !OCCURRENCE_TYPES.includes(type))) errors.push('Selecione pelo menos um tipo da ocorrência.');
+  if (types.includes('OUTRO') && !String(record.otherOccurrenceType || '').trim()) errors.push('Informe o tipo da ocorrência.');
   if (types.includes('SUBSTITUIÇÃO DE POSTE') || types.includes('SUBSTITUIÇÃO DE CONDUTOR')) {
-    if (![record.pg1, record.pg2, record.pg3].some((value) => String(value || '').trim())) errors.push('Informe pelo menos um PG.');
+    const informedPgs = [record.pg1, record.pg2, record.pg3].filter((value) => String(value || '').trim()).length;
+    if (informedPgs < 2) errors.push('Informe pelo menos 2 PGs para Poste/Condutor.');
   }
   if (types.includes('SUBSTITUIÇÃO DE TRAFO')) {
     if (!String(record.transformer?.removedCode || '').trim()) errors.push('Informe o código do trafo retirado ou 999999.');
     if (!String(record.transformer?.removedCia || '').trim()) errors.push('Informe a CIA do trafo retirado.');
+    if (!String(record.transformer?.removedBto || '').trim()) errors.push('Informe o BTO do transformador retirado.');
     if (!String(record.transformer?.newCode || '').trim() || String(record.transformer?.newCode || '').trim() === '999999') errors.push('Informe um código válido para o trafo novo.');
     if (!String(record.transformer?.newCia || '').trim()) errors.push('Informe a CIA do trafo novo.');
+    if (!String(record.transformer?.newBto || '').trim()) errors.push('Informe o BTO do transformador instalado.');
   }
   if (!Array.isArray(record.services) || !record.services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
   (record.services || []).forEach((service, index) => {
@@ -224,9 +232,10 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('Equipe', before.team, after.team);
   add('Nº da ocorrência', before.occurrenceNumber, after.occurrenceNumber);
   add('Tipo(s) da ocorrência', before.occurrenceTypes || [], after.occurrenceTypes || []);
+  add('Tipo de ocorrência avulso', before.otherOccurrenceType, after.otherOccurrenceType);
   add('PG 1', before.pg1, after.pg1); add('PG 2', before.pg2, after.pg2); add('PG 3', before.pg3, after.pg3);
-  add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia } : {});
-  add('Transformador novo', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia } : {});
+  add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
+  add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
   add('Serviços selecionados', (before.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), (after.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
   add('Materiais aplicados', (before.materials || []).map(({ description, quantity }) => ({ description, quantity })), (after.materials || []).map(({ description, quantity }) => ({ description, quantity })));
   add('Observação', before.observation, after.observation);
