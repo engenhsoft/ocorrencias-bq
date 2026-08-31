@@ -19,6 +19,7 @@ const LAST_TEAM_KEY = 'ocorrencias-bq-last-team-v1';
 const ACTIVE_DRAFT_META = 'activeDraftId';
 const LAST_SYNC_META = 'lastSyncAt';
 const TYPE_TRAFO = 'SUBSTITUIÇÃO DE TRAFO';
+const TYPE_OTHER = 'OUTRO';
 const SYNCABLE_STATUSES = new Set([
   RECORD_STATUS.PENDING, RECORD_STATUS.SYNCING_DATA, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.ERROR
 ]);
@@ -35,9 +36,11 @@ const elements = {
   resumeBannerText: $('#resumeBannerText'), resumeDraftButton: $('#resumeDraftButton'),
   discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), team: $('#team'),
   occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'), pgSection: $('#pgSection'),
+  otherTypeSection: $('#otherTypeSection'), otherOccurrenceType: $('#otherOccurrenceType'),
   pg1: $('#pg1'), pg2: $('#pg2'), pg3: $('#pg3'), transformerSection: $('#transformerSection'),
   removedTransformerCode: $('#removedTransformerCode'), removedTransformerCia: $('#removedTransformerCia'),
-  newTransformerCode: $('#newTransformerCode'), newTransformerCia: $('#newTransformerCia'),
+  removedTransformerBto: $('#removedTransformerBto'), newTransformerCode: $('#newTransformerCode'),
+  newTransformerCia: $('#newTransformerCia'), newTransformerBto: $('#newTransformerBto'),
   serviceSearch: $('#serviceSearch'), serviceResults: $('#serviceResults'), serviceSearchHint: $('#serviceSearchHint'),
   searchSpinner: $('#searchSpinner'), servicesList: $('#servicesList'), goalValue: $('#goalValue'),
   goalCard: $('#goalCard'), dailyTeamLabel: $('#dailyTeamLabel'), dailySentValue: $('#dailySentValue'),
@@ -73,9 +76,11 @@ const elements = {
   profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'),
   supervisorEditDialog: $('#supervisorEditDialog'), supervisorEditForm: $('#supervisorEditForm'), supervisorEditTitle: $('#supervisorEditTitle'),
   editTeam: $('#editTeam'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
+  editOtherTypeSection: $('#editOtherTypeSection'), editOtherOccurrenceType: $('#editOtherOccurrenceType'),
   editPg1: $('#editPg1'), editPg2: $('#editPg2'), editPg3: $('#editPg3'), editTransformerSection: $('#editTransformerSection'),
   editRemovedTransformerCode: $('#editRemovedTransformerCode'), editRemovedTransformerCia: $('#editRemovedTransformerCia'),
-  editNewTransformerCode: $('#editNewTransformerCode'), editNewTransformerCia: $('#editNewTransformerCia'),
+  editRemovedTransformerBto: $('#editRemovedTransformerBto'), editNewTransformerCode: $('#editNewTransformerCode'),
+  editNewTransformerCia: $('#editNewTransformerCia'), editNewTransformerBto: $('#editNewTransformerBto'),
   editServiceSearch: $('#editServiceSearch'), editServiceResults: $('#editServiceResults'), editServicesList: $('#editServicesList'),
   editAddMaterialButton: $('#editAddMaterialButton'), editMaterialsList: $('#editMaterialsList'), editObservation: $('#editObservation'),
   supervisorEditErrors: $('#supervisorEditErrors'), saveSupervisorEditButton: $('#saveSupervisorEditButton'), toastRegion: $('#toastRegion')
@@ -177,9 +182,10 @@ function bindEvents() {
     if (target) navigate(target.dataset.nav);
   });
   $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav)));
-  [elements.team, elements.occurrenceNumber, elements.pg1, elements.pg2, elements.pg3,
+  [elements.team, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pg1, elements.pg2, elements.pg3,
     elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
-    elements.newTransformerCia, elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
+    elements.removedTransformerBto, elements.newTransformerCia, elements.newTransformerBto,
+    elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
   elements.occurrenceTypes.addEventListener('change', handleFormInput);
   elements.serviceSearch.addEventListener('input', handleCatalogInput);
   elements.serviceSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.serviceResults.hidden = true; });
@@ -353,8 +359,8 @@ function blankRecord() {
   return {
     recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
     operationalDate: operationalDate(),
-    team: '', occurrenceNumber: '', occurrenceTypes: [], pg1: '', pg2: '', pg3: '',
-    transformer: { removedCode: '', removedCia: '', newCode: '', newCia: '' },
+    team: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '', pg1: '', pg2: '', pg3: '',
+    transformer: { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' },
     services: [], materials: [{ lineId: generateUuid(), description: '', quantity: '' }], observation: '',
     photoStates: Array.from({ length: 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: false, localReady: false, serverUrl: '', uploadKey: '', replacePending: false })),
     correctionMode: false, attempts: 0, lastError: '', createdAt: now, updatedAt: now, user: session?.user || ''
@@ -374,11 +380,13 @@ function syncFormToRecord() {
   activeRecord.team = elements.team.value.trim();
   activeRecord.occurrenceNumber = elements.occurrenceNumber.value.trim();
   activeRecord.occurrenceTypes = selectedTypes();
+  activeRecord.otherOccurrenceType = activeRecord.occurrenceTypes.includes(TYPE_OTHER) ? elements.otherOccurrenceType.value.trim() : '';
   activeRecord.pg1 = elements.pg1.value.trim(); activeRecord.pg2 = elements.pg2.value.trim(); activeRecord.pg3 = elements.pg3.value.trim();
-  activeRecord.transformer = {
+  activeRecord.transformer = activeRecord.occurrenceTypes.includes(TYPE_TRAFO) ? {
     removedCode: elements.removedTransformerCode.value.trim(), removedCia: elements.removedTransformerCia.value.trim(),
-    newCode: elements.newTransformerCode.value.trim(), newCia: elements.newTransformerCia.value.trim()
-  };
+    removedBto: elements.removedTransformerBto.value.trim(), newCode: elements.newTransformerCode.value.trim(),
+    newCia: elements.newTransformerCia.value.trim(), newBto: elements.newTransformerBto.value.trim()
+  } : { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' };
   activeRecord.observation = elements.observation.value.trim();
   activeRecord.totalServices = occurrenceTotal(activeRecord.services);
   activeRecord.goalPercentage = dailyGoalProjection(dailyProduction.totalExcludingRecord, activeRecord.totalServices).percentage;
@@ -387,6 +395,7 @@ function syncFormToRecord() {
 async function handleFormInput(event) {
   await ensureActiveRecord(); syncFormToRecord();
   elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
+  elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER);
   elements.observationCount.textContent = elements.observation.value.length;
   if (event?.target === elements.team) {
     localStorage.setItem(LAST_TEAM_KEY, elements.team.value.trim());
@@ -700,12 +709,19 @@ function dailyDetailMarkup(record) {
   return `<section class="daily-detail"><span class="live-indicator"><i></i> Ao vivo</span><div class="daily-detail__values"><div><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div><span>Produção da equipe no dia</span><strong>${escapeHtml(formatCurrency(totalSent))} / ${escapeHtml(formatCurrency(Number(daily?.goal) || TEAM_GOAL))}</strong></div><div><span>Percentual diário</span><strong>${escapeHtml(formatNumber(progress.percentage))}%</strong></div></div></section>`;
 }
 
+function occurrenceTypesText(record = {}) {
+  return (record.occurrenceTypes || []).map((type) => (
+    type === TYPE_OTHER && record.otherOccurrenceType ? `${TYPE_OTHER} — ${record.otherOccurrenceType}` : type
+  )).join(' · ');
+}
+
 function occurrenceDetails(record, includePhotos = true) {
   const total = occurrenceTotal(record.services || []);
-  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Retirado</dt><dd>${escapeHtml(record.transformer?.removedCode)} · CIA ${escapeHtml(record.transformer?.removedCia)}</dd></div><div><dt>Novo</dt><dd>${escapeHtml(record.transformer?.newCode)} · CIA ${escapeHtml(record.transformer?.newCia)}</dd></div></div></div>` : '';
+  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Código: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd></div><div><dt>Transformador instalado</dt><dd>Código: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd></div></div></div>` : '';
+  const otherType = record.occurrenceTypes?.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</dd></div><div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -740,7 +756,8 @@ async function syncSingleRecord(recordId, notify = true) {
     next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
     const submitResult = await api.submitRecord(session.token, {
       recordId: next.recordId, team: next.team, occurrenceNumber: next.occurrenceNumber,
-      occurrenceTypes: next.occurrenceTypes, pg1: next.pg1, pg2: next.pg2, pg3: next.pg3,
+      occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
+      pg1: next.pg1, pg2: next.pg2, pg3: next.pg3,
       transformer: next.transformer, services: next.services, materials: next.materials,
       totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyProduction.totalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
@@ -849,7 +866,7 @@ function renderMineList() {
 function recordCard(record, actionHtml = '') {
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []); const serviceQuantity = (record.services || []).reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
   const correction = record?.audit?.lastSupervisorCorrection;
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · ') || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
 }
 
 async function handleMineAction(event) {
@@ -876,20 +893,22 @@ async function loadRecordIntoForm(record) {
   elements.team.value = activeRecord.team || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
   if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); await loadDailyProduction(activeRecord.team, false); }
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
+  elements.otherOccurrenceType.value = activeRecord.otherOccurrenceType || '';
   elements.pg1.value = activeRecord.pg1 || ''; elements.pg2.value = activeRecord.pg2 || ''; elements.pg3.value = activeRecord.pg3 || '';
   elements.removedTransformerCode.value = activeRecord.transformer.removedCode || ''; elements.removedTransformerCia.value = activeRecord.transformer.removedCia || '';
-  elements.newTransformerCode.value = activeRecord.transformer.newCode || ''; elements.newTransformerCia.value = activeRecord.transformer.newCia || '';
-  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
+  elements.removedTransformerBto.value = activeRecord.transformer.removedBto || ''; elements.newTransformerCode.value = activeRecord.transformer.newCode || '';
+  elements.newTransformerCia.value = activeRecord.transformer.newCia || ''; elements.newTransformerBto.value = activeRecord.transformer.newBto || '';
+  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
   renderServices(); renderMaterials(); showDraftId(); validateStepOne(false); updatePhotoGrid(); goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1))); elements.resumeBanner.hidden = true; navigate('new');
 }
 
 function resetForm({ preserveTeam = false } = {}) {
   const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
   catalogSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
-  [elements.team, elements.occurrenceNumber, elements.pg1, elements.pg2, elements.pg3, elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode, elements.newTransformerCia, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
+  [elements.team, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pg1, elements.pg2, elements.pg3, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
   elements.team.value = team;
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
-  elements.transformerSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
+  elements.transformerSection.hidden = true; elements.otherTypeSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
   renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1); if (team) loadDailyProduction(team, false);
 }
 
@@ -911,7 +930,7 @@ function renderSupervisorList(error = null) {
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${record.photoCount}/5 fotos</span></header><p>${escapeHtml((record.occurrenceTypes || []).join(' · '))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${record.photoCount}/5 fotos</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
@@ -942,9 +961,11 @@ function openSupervisorEditor() {
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
   elements.editTeam.value = supervisorEditRecord.team || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
+  elements.editOtherOccurrenceType.value = supervisorEditRecord.otherOccurrenceType || '';
   elements.editPg1.value = supervisorEditRecord.pg1 || ''; elements.editPg2.value = supervisorEditRecord.pg2 || ''; elements.editPg3.value = supervisorEditRecord.pg3 || '';
   elements.editRemovedTransformerCode.value = supervisorEditRecord.transformer?.removedCode || ''; elements.editRemovedTransformerCia.value = supervisorEditRecord.transformer?.removedCia || '';
-  elements.editNewTransformerCode.value = supervisorEditRecord.transformer?.newCode || ''; elements.editNewTransformerCia.value = supervisorEditRecord.transformer?.newCia || '';
+  elements.editRemovedTransformerBto.value = supervisorEditRecord.transformer?.removedBto || ''; elements.editNewTransformerCode.value = supervisorEditRecord.transformer?.newCode || '';
+  elements.editNewTransformerCia.value = supervisorEditRecord.transformer?.newCia || ''; elements.editNewTransformerBto.value = supervisorEditRecord.transformer?.newBto || '';
   elements.editObservation.value = supervisorEditRecord.observation || ''; elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; elements.supervisorEditErrors.textContent = '';
   syncSupervisorEditorFromForm(); renderSupervisorEditServices(); renderSupervisorEditMaterials();
   elements.reviewDialog.close(); elements.supervisorEditDialog.showModal();
@@ -954,10 +975,12 @@ function syncSupervisorEditorFromForm() {
   if (!supervisorEditRecord) return null;
   const occurrenceTypes = $$('input[type="checkbox"]', elements.editOccurrenceTypes).filter((input) => input.checked).map((input) => input.value);
   const hasTransformer = occurrenceTypes.includes(TYPE_TRAFO); elements.editTransformerSection.hidden = !hasTransformer;
+  const hasOther = occurrenceTypes.includes(TYPE_OTHER); elements.editOtherTypeSection.hidden = !hasOther;
   supervisorEditRecord = {
     ...supervisorEditRecord, team: elements.editTeam.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
+    otherOccurrenceType: hasOther ? elements.editOtherOccurrenceType.value.trim() : '',
     pg1: elements.editPg1.value.trim(), pg2: elements.editPg2.value.trim(), pg3: elements.editPg3.value.trim(), observation: elements.editObservation.value.trim(),
-    transformer: hasTransformer ? { removedCode: elements.editRemovedTransformerCode.value.trim(), removedCia: elements.editRemovedTransformerCia.value.trim(), newCode: elements.editNewTransformerCode.value.trim(), newCia: elements.editNewTransformerCia.value.trim() } : { removedCode: '', removedCia: '', newCode: '', newCia: '' }
+    transformer: hasTransformer ? { removedCode: elements.editRemovedTransformerCode.value.trim(), removedCia: elements.editRemovedTransformerCia.value.trim(), removedBto: elements.editRemovedTransformerBto.value.trim(), newCode: elements.editNewTransformerCode.value.trim(), newCia: elements.editNewTransformerCia.value.trim(), newBto: elements.editNewTransformerBto.value.trim() } : { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' }
   };
   return supervisorEditRecord;
 }
