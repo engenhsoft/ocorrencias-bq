@@ -332,11 +332,11 @@ p { color: var(--muted); line-height: 1.55; }
 .modal--wide { width: min(calc(100% - 1.5rem), 960px); }
 .modal--compact { width: min(calc(100% - 1.5rem), 440px); }
 .modal::backdrop, .photo-modal::backdrop { background: rgba(4,20,35,0.72); backdrop-filter: blur(5px); }
-.modal__surface { width: 100%; max-width: 100%; min-width: 0; max-height: calc(100vh - 1.5rem); display: flex; flex-direction: column; overflow: hidden; background: #fff; }
-.modal__header { padding: 1rem 1.1rem; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.modal__surface { width: 100%; max-width: 100%; min-width: 0; min-height: 0; max-height: calc(100vh - 1.5rem); max-height: calc(100dvh - 1.5rem); display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+.modal__header { flex: 0 0 auto; position: relative; z-index: 2; padding: 1rem 1.1rem; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #fff; }
 .modal__header h2 { margin: 0; font-size: 1.35rem; }
-.modal__body { width: 100%; max-width: 100%; min-width: 0; padding: 1.05rem 1.1rem; overflow-x: hidden; overflow-y: auto; }
-.modal__footer { padding: 0.9rem 1.1rem calc(0.9rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.65rem; background: var(--surface-soft); }
+.modal__body { flex: 1 1 auto; width: 100%; max-width: 100%; min-width: 0; min-height: 0; padding: 1.05rem 1.1rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+.modal__footer { flex: 0 0 auto; position: relative; z-index: 2; padding: 0.9rem 1.1rem calc(0.9rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.65rem; background: var(--surface-soft); }
 .modal__footer--review { justify-content: space-between; }
 .detail-modal { width: min(calc(100% - 1.5rem), 960px); max-width: min(calc(100% - 1.5rem), 960px); overflow: hidden; }
 .detail-modal .modal__surface, .detail-modal .modal__header, .detail-modal .modal__body, .detail-modal .modal__footer { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
@@ -350,6 +350,8 @@ p { color: var(--muted); line-height: 1.55; }
 .detail-modal .detail-table { table-layout: fixed; }
 .detail-modal .review-photo, .detail-modal .review-photo img { max-width: 100%; min-width: 0; }
 .detail-modal .modal__footer { flex: 0 0 auto; }
+#mineDetailDialog .modal__surface { min-height: 0; }
+#mineDetailDialog .modal__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; }
 .confirm-body { display: grid; place-items: center; text-align: center; padding-top: 1.4rem; }
 .confirm-icon { width: 54px; height: 54px; margin-bottom: 0.9rem; border-radius: 18px; display: grid; place-items: center; color: #fff; background: var(--navy-900); font-size: 1.5rem; font-weight: 850; }
 .confirm-body p { margin-bottom: 0; }
@@ -444,10 +446,10 @@ p { color: var(--muted); line-height: 1.55; }
 .subsection-heading h4, .nested-card h5 { margin: 0 0 0.25rem; color: var(--navy-900); }
 .subsection-heading p { margin: 0; font-size: 0.8rem; }
 .choice-grid { display: grid; gap: 0.65rem; }
-.choice-card { min-height: 52px; padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 13px; display: flex; align-items: center; gap: 0.65rem; background: #fff; cursor: pointer; }
+.choice-card { min-width: 0; min-height: 52px; padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 13px; display: flex; align-items: center; gap: 0.65rem; overflow: hidden; background: #fff; cursor: pointer; }
 .choice-card:has(input:checked) { border-color: var(--teal-500); background: #effaf7; box-shadow: 0 0 0 3px rgba(11,156,159,0.09); }
 .choice-card input { width: 19px; height: 19px; accent-color: var(--teal-600); }
-.choice-card span { color: var(--navy-900); font-size: 0.84rem; font-weight: 760; }
+.choice-card span { min-width: 0; color: var(--navy-900); font-size: 0.84rem; font-weight: 760; overflow-wrap: anywhere; }
 .transformer-grid { display: grid; gap: 0.85rem; }
 .nested-card { padding: 0.9rem; border: 1px solid var(--line); border-radius: 14px; display: grid; gap: 0.75rem; background: #fff; }
 .service-book { background: #f1f8fc; }
