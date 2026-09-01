@@ -2,7 +2,7 @@ import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   dailyGoalProjection, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  occurrenceTotal, operationalDate, photoIssueIndexes, reconcilePhotoStates, serviceTotal,
+  occurrenceTotal, operationalDate, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, serviceTotal,
   supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
@@ -19,6 +19,8 @@ const LAST_TEAM_KEY = 'ocorrencias-bq-last-team-v1';
 const ACTIVE_DRAFT_META = 'activeDraftId';
 const LAST_SYNC_META = 'lastSyncAt';
 const TYPE_TRAFO = 'SUBSTITUIÇÃO DE TRAFO';
+const TYPE_POST = 'SUBSTITUIÇÃO DE POSTE';
+const TYPE_CONDUCTOR = 'SUBSTITUIÇÃO DE CONDUTOR';
 const TYPE_OTHER = 'OUTRO';
 const SYNCABLE_STATUSES = new Set([
   RECORD_STATUS.PENDING, RECORD_STATUS.SYNCING_DATA, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.ERROR
@@ -34,10 +36,13 @@ const elements = {
   logoutButton: $('#logoutButton'), mainNav: $('#mainNav'), supervisorNav: $('#supervisorNav'),
   supervisorNavCount: $('#supervisorNavCount'), syncNavCount: $('#syncNavCount'), resumeBanner: $('#resumeBanner'),
   resumeBannerText: $('#resumeBannerText'), resumeDraftButton: $('#resumeDraftButton'),
-  discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), team: $('#team'),
-  occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'), pgSection: $('#pgSection'),
+  discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), operationBase: $('#operationBase'), team: $('#team'),
+  crewLeader: $('#crewLeader'),
+  occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'),
   otherTypeSection: $('#otherTypeSection'), otherOccurrenceType: $('#otherOccurrenceType'),
-  pg1: $('#pg1'), pg2: $('#pg2'), pg3: $('#pg3'), transformerSection: $('#transformerSection'),
+  pgPostSection: $('#pgPostSection'), pgConductorSection: $('#pgConductorSection'),
+  pgPostRemoved: $('#pgPostRemoved'), pgPostInstalled: $('#pgPostInstalled'),
+  pgConductorStart: $('#pgConductorStart'), pgConductorEnd: $('#pgConductorEnd'), transformerSection: $('#transformerSection'),
   removedTransformerCode: $('#removedTransformerCode'), removedTransformerCia: $('#removedTransformerCia'),
   removedTransformerBto: $('#removedTransformerBto'), newTransformerCode: $('#newTransformerCode'),
   newTransformerCia: $('#newTransformerCia'), newTransformerBto: $('#newTransformerBto'),
@@ -75,9 +80,11 @@ const elements = {
   profileSwitchUser: $('#profileSwitchUser'), profileSwitchPassword: $('#profileSwitchPassword'),
   profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'),
   supervisorEditDialog: $('#supervisorEditDialog'), supervisorEditForm: $('#supervisorEditForm'), supervisorEditTitle: $('#supervisorEditTitle'),
-  editTeam: $('#editTeam'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
+  editOperationBase: $('#editOperationBase'), editTeam: $('#editTeam'), editCrewLeader: $('#editCrewLeader'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
   editOtherTypeSection: $('#editOtherTypeSection'), editOtherOccurrenceType: $('#editOtherOccurrenceType'),
-  editPg1: $('#editPg1'), editPg2: $('#editPg2'), editPg3: $('#editPg3'), editTransformerSection: $('#editTransformerSection'),
+  editPgPostSection: $('#editPgPostSection'), editPgConductorSection: $('#editPgConductorSection'),
+  editPgPostRemoved: $('#editPgPostRemoved'), editPgPostInstalled: $('#editPgPostInstalled'),
+  editPgConductorStart: $('#editPgConductorStart'), editPgConductorEnd: $('#editPgConductorEnd'), editTransformerSection: $('#editTransformerSection'),
   editRemovedTransformerCode: $('#editRemovedTransformerCode'), editRemovedTransformerCia: $('#editRemovedTransformerCia'),
   editRemovedTransformerBto: $('#editRemovedTransformerBto'), editNewTransformerCode: $('#editNewTransformerCode'),
   editNewTransformerCia: $('#editNewTransformerCia'), editNewTransformerBto: $('#editNewTransformerBto'),
@@ -182,7 +189,8 @@ function bindEvents() {
     if (target) navigate(target.dataset.nav);
   });
   $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav)));
-  [elements.team, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pg1, elements.pg2, elements.pg3,
+  [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType,
+    elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd,
     elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
     elements.removedTransformerBto, elements.newTransformerCia, elements.newTransformerBto,
     elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
@@ -207,6 +215,7 @@ function bindEvents() {
   elements.submitOccurrenceButton.addEventListener('click', submitOccurrence);
   elements.refreshDailyGoalButton.addEventListener('click', () => loadDailyProduction(elements.team.value, true));
   elements.photoGrid.addEventListener('click', handlePhotoGridClick);
+  elements.transformerSection.addEventListener('click', handlePhotoGridClick);
   elements.resumeDraftButton.addEventListener('click', resumeDraft);
   elements.discardDraftButton.addEventListener('click', discardDraft);
   elements.refreshMineButton.addEventListener('click', () => refreshMine(true));
@@ -359,10 +368,12 @@ function blankRecord() {
   return {
     recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
     operationalDate: operationalDate(),
-    team: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '', pg1: '', pg2: '', pg3: '',
+    base: '', team: '', crewLeader: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '',
+    pgPostRemoved: '', pgPostInstalled: '', pgConductorStart: '', pgConductorEnd: '',
     transformer: { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' },
     services: [], materials: [{ lineId: generateUuid(), description: '', quantity: '' }], observation: '',
-    photoStates: Array.from({ length: 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: false, localReady: false, serverUrl: '', uploadKey: '', replacePending: false })),
+    photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: false, localReady: false, serverUrl: '', uploadKey: '', replacePending: false })),
+    transformerPhotos: { removed: '', installed: '' },
     correctionMode: false, attempts: 0, lastError: '', createdAt: now, updatedAt: now, user: session?.user || ''
   };
 }
@@ -377,17 +388,26 @@ function selectedTypes() { return $$('input[type="checkbox"]:checked', elements.
 
 function syncFormToRecord() {
   if (!activeRecord) return;
+  activeRecord.base = elements.operationBase.value;
   activeRecord.team = elements.team.value.trim();
+  activeRecord.crewLeader = elements.crewLeader.value.trim();
   activeRecord.occurrenceNumber = elements.occurrenceNumber.value.trim();
   activeRecord.occurrenceTypes = selectedTypes();
   activeRecord.otherOccurrenceType = activeRecord.occurrenceTypes.includes(TYPE_OTHER) ? elements.otherOccurrenceType.value.trim() : '';
-  activeRecord.pg1 = elements.pg1.value.trim(); activeRecord.pg2 = elements.pg2.value.trim(); activeRecord.pg3 = elements.pg3.value.trim();
+  activeRecord.pgPostRemoved = activeRecord.occurrenceTypes.includes(TYPE_POST) ? elements.pgPostRemoved.value.trim() : '';
+  activeRecord.pgPostInstalled = activeRecord.occurrenceTypes.includes(TYPE_POST) ? elements.pgPostInstalled.value.trim() : '';
+  activeRecord.pgConductorStart = activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR) ? elements.pgConductorStart.value.trim() : '';
+  activeRecord.pgConductorEnd = activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR) ? elements.pgConductorEnd.value.trim() : '';
   activeRecord.transformer = activeRecord.occurrenceTypes.includes(TYPE_TRAFO) ? {
     removedCode: elements.removedTransformerCode.value.trim(), removedCia: elements.removedTransformerCia.value.trim(),
     removedBto: elements.removedTransformerBto.value.trim(), newCode: elements.newTransformerCode.value.trim(),
     newCia: elements.newTransformerCia.value.trim(), newBto: elements.newTransformerBto.value.trim()
   } : { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' };
   activeRecord.observation = elements.observation.value.trim();
+  activeRecord.transformerPhotos = {
+    removed: activeRecord.photoStates?.[5]?.serverUrl || activeRecord.transformerPhotos?.removed || '',
+    installed: activeRecord.photoStates?.[6]?.serverUrl || activeRecord.transformerPhotos?.installed || ''
+  };
   activeRecord.totalServices = occurrenceTotal(activeRecord.services);
   activeRecord.goalPercentage = dailyGoalProjection(dailyProduction.totalExcludingRecord, activeRecord.totalServices).percentage;
 }
@@ -395,6 +415,8 @@ function syncFormToRecord() {
 async function handleFormInput(event) {
   await ensureActiveRecord(); syncFormToRecord();
   elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
+  elements.pgPostSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_POST);
+  elements.pgConductorSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR);
   elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER);
   elements.observationCount.textContent = elements.observation.value.length;
   if (event?.target === elements.team) {
@@ -626,7 +648,7 @@ async function storeSelectedPhoto(photoIndex, file, replace) {
     activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.confirmed || state.serverUrl), error: '' };
     await putPhoto(activeRecord.recordId, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
     activePhotos.set(photoIndex, { blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
-    await saveActiveDraft(); updatePhotoGrid();
+    await saveActiveDraft(); updatePhotoGrid(); validateStepOne(false);
   } catch (error) { toast(error.message || 'Não foi possível preparar a foto.', 'error'); }
 }
 
@@ -648,7 +670,7 @@ async function removePhoto(photoIndex) {
   if (state.confirmed && !state.replacePending) { toast('Uma foto confirmada pode ser substituída, mas não removida isoladamente.', 'error'); return; }
   await deletePhoto(activeRecord.recordId, photoIndex); activePhotos.delete(photoIndex); revokePreviewUrl(photoIndex);
   activeRecord.photoStates[photoIndex - 1] = { photoIndex, confirmed: Boolean(state.serverUrl), localReady: false, serverUrl: state.serverUrl || '', uploadKey: '', replacePending: false };
-  await saveActiveDraft(); updatePhotoGrid();
+  await saveActiveDraft(); updatePhotoGrid(); validateStepOne(false);
 }
 
 function setPreviewUrl(index, url) { revokePreviewUrl(index); previewUrls.set(index, url); }
@@ -657,17 +679,18 @@ function clearPreviewUrls() { for (const index of [...previewUrls.keys()]) revok
 
 function updatePhotoGrid() {
   let ready = 0;
-  for (let index = 1; index <= 5; index += 1) {
+  for (let index = 1; index <= 7; index += 1) {
     const state = activeRecord?.photoStates?.[index - 1] || {}; const local = Boolean(state.localReady) || activePhotos.has(index);
-    const url = normalizePhotoUrl(previewUrls.get(index) || state.serverUrl || ''); const present = local || Boolean(url) || state.confirmed; if (present) ready += 1;
+    const url = normalizePhotoUrl(previewUrls.get(index) || state.serverUrl || ''); const present = local || Boolean(url) || state.confirmed; if (present && index <= 5) ready += 1;
     const card = $(`[data-photo-card="${index}"]`); const preview = $(`[data-photo-preview="${index}"]`); const status = $(`[data-photo-status="${index}"]`); const secondary = $(`[data-photo-secondary="${index}"]`);
     card?.classList.toggle('has-photo', present);
-    if (preview) preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="Foto ${index}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" />` : '<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>';
+    const label = index === 6 ? 'Evidência do transformador retirado' : index === 7 ? 'Evidência do transformador instalado' : `Foto ${index}`;
+    if (preview) preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" />` : '<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>';
     if (status) { status.textContent = state.confirmed && !state.replacePending ? 'Confirmada' : present ? 'Pronta' : 'Pendente'; status.className = `status-chip ${state.confirmed && !state.replacePending ? 'status-chip--success' : present ? 'status-chip--info' : 'status-chip--neutral'}`; }
     if (secondary) { secondary.hidden = !present; const button = $('[data-photo-delete]', secondary); if (button) button.hidden = Boolean(state.confirmed && !state.replacePending && !local); }
   }
-  elements.photoProgressChip.textContent = `${ready}/5 fotos`; elements.photoProgressChip.className = `status-chip ${ready === 5 ? 'status-chip--success' : 'status-chip--warning'}`;
-  elements.continueToReviewButton.disabled = ready !== 5;
+  elements.photoProgressChip.textContent = `${ready}/5 fotos`; elements.photoProgressChip.className = `status-chip ${ready >= 3 ? 'status-chip--success' : 'status-chip--warning'}`;
+  elements.continueToReviewButton.disabled = ready < 3;
 }
 
 function serviceTable(services = []) {
@@ -688,6 +711,15 @@ function photoMarkup(record) {
   return `<div class="review-photos">${photoUrlsForRecord(record).map((url, index) => url
     ? `<figure class="review-photo" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>Foto ${index + 1}</span></figure>`
     : `<figure class="review-photo review-photo--empty"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Foto ${index + 1} indisponível</span></div><span>Foto ${index + 1}</span></figure>`).join('')}</div>`;
+}
+
+function transformerPhotoMarkup(record, kind) {
+  const index = kind === 'removed' ? 6 : 7;
+  const label = kind === 'removed' ? 'Evidência do transformador retirado' : 'Evidência do transformador instalado';
+  const url = normalizePhotoUrl(record.transformerPhotos?.[kind] || record.photoStates?.[index - 1]?.serverUrl || record.photoStates?.[index - 1]?.url || previewUrls.get(index) || '');
+  return url
+    ? `<figure class="review-photo transformer-review-photo" data-photo-index="${index}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="${escapeHtml(label)}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>${escapeHtml(label)}</span></figure>`
+    : `<figure class="review-photo review-photo--empty transformer-review-photo"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Indisponível</span></div><span>${escapeHtml(label)}</span></figure>`;
 }
 
 function auditMarkup(record) {
@@ -717,17 +749,19 @@ function occurrenceTypesText(record = {}) {
 
 function occurrenceDetails(record, includePhotos = true) {
   const total = occurrenceTotal(record.services || []);
-  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Código: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd></div><div><dt>Transformador instalado</dt><dd>Código: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd></div></div></div>` : '';
+  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Código: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Código: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
+  const pgPost = record.occurrenceTypes?.includes(TYPE_POST) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
+  const pgConductor = record.occurrenceTypes?.includes(TYPE_CONDUCTOR) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
   const otherType = record.occurrenceTypes?.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>PG</dt><dd>${escapeHtml([record.pg1, record.pg2, record.pg3].filter(Boolean).join(' · ') || '—')}</dd></div><div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
 
 async function submitOccurrence() {
-  if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) !== 5) { toast('Complete os dados e as cinco fotos antes de enviar.', 'error'); return; }
+  if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) < 3) { toast('Complete os dados e adicione pelo menos 3 fotos da ocorrência.', 'error'); return; }
   if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
   syncFormToRecord(); activeRecord.status = RECORD_STATUS.PENDING; activeRecord.lastError = '';
   await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, null); const submittedId = activeRecord.recordId;
@@ -755,9 +789,10 @@ async function syncSingleRecord(recordId, notify = true) {
     }
     next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
     const submitResult = await api.submitRecord(session.token, {
-      recordId: next.recordId, team: next.team, occurrenceNumber: next.occurrenceNumber,
+      recordId: next.recordId, base: next.base, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
-      pg1: next.pg1, pg2: next.pg2, pg3: next.pg3,
+      pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
+      pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
       transformer: next.transformer, services: next.services, materials: next.materials,
       totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyProduction.totalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
@@ -765,11 +800,13 @@ async function syncSingleRecord(recordId, notify = true) {
     next = reconcilePhotoStates(next, submitResult); await cacheDailySummary(submitResult.dailyProduction || next.dailyProduction);
     next.status = RECORD_STATUS.SYNCING_PHOTOS; await putRecord(next);
     next = reconcilePhotoStates(next, await api.getRecordState(session.token, next.recordId)); await putRecord(next);
-    for (let index = 1; index <= 5; index += 1) {
+    const lastPhotoIndex = next.occurrenceTypes?.includes(TYPE_TRAFO) ? 7 : 5;
+    for (let index = 1; index <= lastPhotoIndex; index += 1) {
       const state = next.photoStates[index - 1] || {};
       if (state.confirmed && !state.replacePending) { await deletePhoto(next.recordId, index).catch(() => {}); continue; }
       const localPhoto = await getPhoto(next.recordId, index);
-      if (!localPhoto?.blob) throw new ApiError(`A Foto ${index} não está disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
+      if (!localPhoto?.blob && index <= 5) continue;
+      if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
       const photoResult = await api.uploadPhoto(session.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending) });
       next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
       await putRecord(next); if (photoResult.photoStates?.find((item) => item.photoIndex === index)?.confirmed) await deletePhoto(next.recordId, index); await updateQueueUi();
@@ -866,7 +903,7 @@ function renderMineList() {
 function recordCard(record, actionHtml = '') {
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []); const serviceQuantity = (record.services || []).reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
   const correction = record?.audit?.lastSupervisorCorrection;
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount * 20)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos</span>${actionHtml}</footer></article>`;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos gerais</span>${actionHtml}</footer></article>`;
 }
 
 async function handleMineAction(event) {
@@ -879,36 +916,37 @@ async function handleMineAction(event) {
     elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); elements.mineDetailDialog.showModal(); return;
   }
   if (button.dataset.mineAction === 'correct') {
-    const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, photoStates: Array.from({ length: 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: Boolean(record.photos?.[index]), localReady: false, serverUrl: record.photos?.[index] || '', uploadKey: '', replacePending: false })) };
+    const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, photoStates: Array.from({ length: 7 }, (_, index) => record.photoStates?.[index] || ({ photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false })) };
     await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId); return loadRecordIntoForm(correction);
   }
   await setMeta(ACTIVE_DRAFT_META, record.recordId); await loadRecordIntoForm(record);
 }
 
 async function loadRecordIntoForm(record) {
-  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, services: record.services || [], materials: record.materials?.length ? record.materials : [{ lineId: generateUuid(), description: '', quantity: '' }], photoStates: Array.from({ length: 5 }, (_, index) => record.photoStates?.[index] || { photoIndex: index + 1, confirmed: Boolean(record.photos?.[index]), localReady: false, serverUrl: record.photos?.[index] || '', uploadKey: '', replacePending: false }) };
+  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services: record.services || [], materials: record.materials?.length ? record.materials : [{ lineId: generateUuid(), description: '', quantity: '' }], photoStates: Array.from({ length: 7 }, (_, index) => record.photoStates?.[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
   const photos = await getPhotosForRecord(record.recordId);
   for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
   if (photos.length) await putRecord(activeRecord);
-  elements.team.value = activeRecord.team || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
+  elements.operationBase.value = activeRecord.base || ''; elements.team.value = activeRecord.team || ''; elements.crewLeader.value = activeRecord.crewLeader || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
   if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); await loadDailyProduction(activeRecord.team, false); }
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
   elements.otherOccurrenceType.value = activeRecord.otherOccurrenceType || '';
-  elements.pg1.value = activeRecord.pg1 || ''; elements.pg2.value = activeRecord.pg2 || ''; elements.pg3.value = activeRecord.pg3 || '';
+  elements.pgPostRemoved.value = activeRecord.pgPostRemoved || activeRecord.pg1 || ''; elements.pgPostInstalled.value = activeRecord.pgPostInstalled || activeRecord.pg2 || '';
+  elements.pgConductorStart.value = activeRecord.pgConductorStart || activeRecord.pg1 || ''; elements.pgConductorEnd.value = activeRecord.pgConductorEnd || activeRecord.pg2 || '';
   elements.removedTransformerCode.value = activeRecord.transformer.removedCode || ''; elements.removedTransformerCia.value = activeRecord.transformer.removedCia || '';
   elements.removedTransformerBto.value = activeRecord.transformer.removedBto || ''; elements.newTransformerCode.value = activeRecord.transformer.newCode || '';
   elements.newTransformerCia.value = activeRecord.transformer.newCia || ''; elements.newTransformerBto.value = activeRecord.transformer.newBto || '';
-  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
+  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.pgPostSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_POST); elements.pgConductorSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR); elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
   renderServices(); renderMaterials(); showDraftId(); validateStepOne(false); updatePhotoGrid(); goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1))); elements.resumeBanner.hidden = true; navigate('new');
 }
 
 function resetForm({ preserveTeam = false } = {}) {
   const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
   catalogSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
-  [elements.team, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pg1, elements.pg2, elements.pg3, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
+  [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
   elements.team.value = team;
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
-  elements.transformerSection.hidden = true; elements.otherTypeSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
+  elements.transformerSection.hidden = true; elements.pgPostSection.hidden = true; elements.pgConductorSection.hidden = true; elements.otherTypeSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
   renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1); if (team) loadDailyProduction(team, false);
 }
 
@@ -930,7 +968,7 @@ function renderSupervisorList(error = null) {
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${record.photoCount}/5 fotos</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${record.photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
@@ -948,7 +986,8 @@ function activeSupervisorPhotoIssues() { return activeSupervisorRecord ? photoIs
 function updateSupervisorReviewActions() {
   const issues = activeSupervisorPhotoIssues(); const ready = !issues.length && activeSupervisorRecord?.status === RECORD_STATUS.WAITING_SUPERVISOR;
   elements.requestCorrectionButton.hidden = !issues.length;
-  elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · Foto${issues.length > 1 ? 's' : ''} ${issues.join(', ')}` : 'Solicitar correção';
+  const issueLabels = issues.map((index) => index === 6 ? 'Trafo retirado' : index === 7 ? 'Trafo instalado' : `Foto ${index}`);
+  elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issueLabels.join(', ')}` : 'Solicitar correção';
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
 }
 function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${activeSupervisorRecord.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); }
@@ -959,10 +998,11 @@ function openSupervisorEditor() {
   supervisorEditRecord.services = (supervisorEditRecord.services || []).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
   supervisorEditRecord.materials = (supervisorEditRecord.materials || []).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
-  elements.editTeam.value = supervisorEditRecord.team || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
+  elements.editOperationBase.value = supervisorEditRecord.base || ''; elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
   elements.editOtherOccurrenceType.value = supervisorEditRecord.otherOccurrenceType || '';
-  elements.editPg1.value = supervisorEditRecord.pg1 || ''; elements.editPg2.value = supervisorEditRecord.pg2 || ''; elements.editPg3.value = supervisorEditRecord.pg3 || '';
+  elements.editPgPostRemoved.value = supervisorEditRecord.pgPostRemoved || supervisorEditRecord.pg1 || ''; elements.editPgPostInstalled.value = supervisorEditRecord.pgPostInstalled || supervisorEditRecord.pg2 || '';
+  elements.editPgConductorStart.value = supervisorEditRecord.pgConductorStart || supervisorEditRecord.pg1 || ''; elements.editPgConductorEnd.value = supervisorEditRecord.pgConductorEnd || supervisorEditRecord.pg2 || '';
   elements.editRemovedTransformerCode.value = supervisorEditRecord.transformer?.removedCode || ''; elements.editRemovedTransformerCia.value = supervisorEditRecord.transformer?.removedCia || '';
   elements.editRemovedTransformerBto.value = supervisorEditRecord.transformer?.removedBto || ''; elements.editNewTransformerCode.value = supervisorEditRecord.transformer?.newCode || '';
   elements.editNewTransformerCia.value = supervisorEditRecord.transformer?.newCia || ''; elements.editNewTransformerBto.value = supervisorEditRecord.transformer?.newBto || '';
@@ -975,11 +1015,14 @@ function syncSupervisorEditorFromForm() {
   if (!supervisorEditRecord) return null;
   const occurrenceTypes = $$('input[type="checkbox"]', elements.editOccurrenceTypes).filter((input) => input.checked).map((input) => input.value);
   const hasTransformer = occurrenceTypes.includes(TYPE_TRAFO); elements.editTransformerSection.hidden = !hasTransformer;
+  const hasPost = occurrenceTypes.includes(TYPE_POST); elements.editPgPostSection.hidden = !hasPost;
+  const hasConductor = occurrenceTypes.includes(TYPE_CONDUCTOR); elements.editPgConductorSection.hidden = !hasConductor;
   const hasOther = occurrenceTypes.includes(TYPE_OTHER); elements.editOtherTypeSection.hidden = !hasOther;
   supervisorEditRecord = {
-    ...supervisorEditRecord, team: elements.editTeam.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
+    ...supervisorEditRecord, base: elements.editOperationBase.value, team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
     otherOccurrenceType: hasOther ? elements.editOtherOccurrenceType.value.trim() : '',
-    pg1: elements.editPg1.value.trim(), pg2: elements.editPg2.value.trim(), pg3: elements.editPg3.value.trim(), observation: elements.editObservation.value.trim(),
+    pgPostRemoved: hasPost ? elements.editPgPostRemoved.value.trim() : '', pgPostInstalled: hasPost ? elements.editPgPostInstalled.value.trim() : '',
+    pgConductorStart: hasConductor ? elements.editPgConductorStart.value.trim() : '', pgConductorEnd: hasConductor ? elements.editPgConductorEnd.value.trim() : '', observation: elements.editObservation.value.trim(),
     transformer: hasTransformer ? { removedCode: elements.editRemovedTransformerCode.value.trim(), removedCia: elements.editRemovedTransformerCia.value.trim(), removedBto: elements.editRemovedTransformerBto.value.trim(), newCode: elements.editNewTransformerCode.value.trim(), newCia: elements.editNewTransformerCia.value.trim(), newBto: elements.editNewTransformerBto.value.trim() } : { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' }
   };
   return supervisorEditRecord;

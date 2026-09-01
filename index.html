@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b2d50" />
-    <meta name="description" content="Registro operacional de ocorrências B&Q com serviços, materiais, cinco evidências e conferência." />
+    <meta name="description" content="Registro operacional de ocorrências B&Q com serviços, materiais, evidências e conferência." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
@@ -73,13 +73,15 @@
 
         <main class="content-area">
           <section id="view-new" class="view is-active" aria-labelledby="newTitle">
-            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Registro operacional</p><h2 id="newTitle">Nova ocorrência</h2><p>Informe a equipe, os serviços executados, os materiais e as cinco evidências.</p></div><div class="heading-actions"><span id="draftIdBadge" class="id-badge" hidden></span><button id="modeSupervisorButton" class="button button--ghost button--small" type="button">Modo supervisor</button></div></div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Registro operacional</p><h2 id="newTitle">Nova ocorrência</h2><p>Informe os dados operacionais, os serviços, os materiais e pelo menos três evidências gerais.</p></div><div class="heading-actions"><span id="draftIdBadge" class="id-badge" hidden></span><button id="modeSupervisorButton" class="button button--ghost button--small" type="button">Modo supervisor</button></div></div>
             <ol class="stepper" aria-label="Etapas da ocorrência"><li class="is-active" data-step-indicator="1"><span>1</span><b>Dados</b></li><li data-step-indicator="2"><span>2</span><b>Evidências</b></li><li data-step-indicator="3"><span>3</span><b>Revisão</b></li></ol>
 
             <section class="step-panel card" data-step-panel="1">
               <div class="section-heading"><span class="section-number">01</span><div><h3>Identificação da ocorrência</h3><p>Os campos marcados são obrigatórios.</p></div></div>
-              <div class="form-grid form-grid--two">
+              <div class="form-grid form-grid--two initial-data-grid">
+                <label class="field"><span>Base *</span><select id="operationBase"><option value="">Selecionar base</option><option>ASSÚ</option><option>CAICÓ</option><option>CARAÚBAS</option><option>CURRAIS NOVOS</option><option>MOSSORÓ</option><option>PAU DOS FERROS</option></select></label>
                 <label class="field"><span>Equipe *</span><input id="team" type="text" maxlength="120" autocomplete="off" placeholder="Ex.: LM 01" /></label>
+                <label class="field"><span>Chefe de turma *</span><input id="crewLeader" type="text" maxlength="160" autocomplete="off" placeholder="Ex.: João Silva" /></label>
                 <label class="field"><span>Nº da ocorrência *</span><input id="occurrenceNumber" type="text" maxlength="120" autocomplete="off" placeholder="Digite o número" /></label>
               </div>
 
@@ -101,20 +103,27 @@
                 <label class="field"><span>Tipo de ocorrência avulso *</span><input id="otherOccurrenceType" type="text" maxlength="200" autocomplete="off" placeholder="Digite o tipo da ocorrência" /></label>
               </section>
 
-              <section id="pgSection" class="form-section">
-                <div class="subsection-heading"><div><h4>PG</h4><p>Para Poste ou Condutor, informe pelo menos 2 PGs.</p></div></div>
-                <div class="form-grid form-grid--three">
-                  <label class="field"><span>PG 1</span><input id="pg1" type="text" maxlength="80" /></label>
-                  <label class="field"><span>PG 2</span><input id="pg2" type="text" maxlength="80" /></label>
-                  <label class="field"><span>PG 3</span><input id="pg3" type="text" maxlength="80" /></label>
+              <section id="pgPostSection" class="form-section" hidden>
+                <div class="subsection-heading"><div><h4>PG do Poste</h4><p>Informe os dois PGs da substituição de poste.</p></div></div>
+                <div class="form-grid form-grid--two">
+                  <label class="field"><span>PG retirado *</span><input id="pgPostRemoved" type="text" maxlength="80" /></label>
+                  <label class="field"><span>PG instalado *</span><input id="pgPostInstalled" type="text" maxlength="80" /></label>
+                </div>
+              </section>
+
+              <section id="pgConductorSection" class="form-section" hidden>
+                <div class="subsection-heading"><div><h4>PG do Condutor</h4><p>Informe o início e o fim da substituição de condutor.</p></div></div>
+                <div class="form-grid form-grid--two">
+                  <label class="field"><span>PG inicial da substituição *</span><input id="pgConductorStart" type="text" maxlength="80" /></label>
+                  <label class="field"><span>PG final da substituição *</span><input id="pgConductorEnd" type="text" maxlength="80" /></label>
                 </div>
               </section>
 
               <section id="transformerSection" class="form-section transformer-section" hidden>
                 <div class="subsection-heading"><div><h4>Dados dos transformadores</h4><p>Obrigatório para substituição de trafo.</p></div></div>
                 <div class="transformer-grid">
-                  <div class="nested-card"><h5>Transformador retirado</h5><label class="field"><span>Código do trafo retirado *</span><input id="removedTransformerCode" type="text" maxlength="80" inputmode="numeric" placeholder="Use 999999 somente se não houver código" /></label><label class="field"><span>CIA do trafo retirado *</span><input id="removedTransformerCia" type="text" maxlength="80" /></label><label class="field"><span>BTO retirado *</span><input id="removedTransformerBto" type="text" maxlength="80" /></label></div>
-                  <div class="nested-card"><h5>Transformador instalado / novo</h5><label class="field"><span>Código do trafo instalado *</span><input id="newTransformerCode" type="text" maxlength="80" inputmode="numeric" /></label><label class="field"><span>CIA do trafo instalado *</span><input id="newTransformerCia" type="text" maxlength="80" /></label><label class="field"><span>BTO instalado *</span><input id="newTransformerBto" type="text" maxlength="80" /></label></div>
+                  <div class="nested-card"><h5>Transformador retirado</h5><label class="field"><span>Código do trafo retirado *</span><input id="removedTransformerCode" type="text" maxlength="80" inputmode="numeric" placeholder="Use 999999 somente se não houver código" /></label><label class="field"><span>CIA do trafo retirado *</span><input id="removedTransformerCia" type="text" maxlength="80" /></label><label class="field"><span>BTO retirado *</span><input id="removedTransformerBto" type="text" maxlength="80" /></label><article class="photo-card photo-card--embedded" data-photo-card="6"><div class="photo-card__header"><strong>Foto / evidência do transformador retirado *</strong><span class="status-chip status-chip--neutral" data-photo-status="6">Pendente</span></div><div class="photo-card__preview" data-photo-preview="6"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div></div><div class="photo-card__actions"><button class="button button--primary" type="button" data-photo-take="6">Tirar foto</button><button class="button button--ghost" type="button" data-photo-attach="6">Anexar foto</button></div><div class="photo-card__secondary" data-photo-secondary="6" hidden><button type="button" data-photo-replace="6">Substituir</button><button class="delete-photo" type="button" data-photo-delete="6">Excluir</button></div></article></div>
+                  <div class="nested-card"><h5>Transformador instalado / novo</h5><label class="field"><span>Código do trafo instalado *</span><input id="newTransformerCode" type="text" maxlength="80" inputmode="numeric" /></label><label class="field"><span>CIA do trafo instalado *</span><input id="newTransformerCia" type="text" maxlength="80" /></label><label class="field"><span>BTO instalado *</span><input id="newTransformerBto" type="text" maxlength="80" /></label><article class="photo-card photo-card--embedded" data-photo-card="7"><div class="photo-card__header"><strong>Foto / evidência do transformador instalado *</strong><span class="status-chip status-chip--neutral" data-photo-status="7">Pendente</span></div><div class="photo-card__preview" data-photo-preview="7"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div></div><div class="photo-card__actions"><button class="button button--primary" type="button" data-photo-take="7">Tirar foto</button><button class="button button--ghost" type="button" data-photo-attach="7">Anexar foto</button></div><div class="photo-card__secondary" data-photo-secondary="7" hidden><button type="button" data-photo-replace="7">Substituir</button><button class="delete-photo" type="button" data-photo-delete="7">Excluir</button></div></article></div>
                 </div>
               </section>
 
@@ -146,7 +155,7 @@
             </section>
 
             <section class="step-panel card" data-step-panel="2" hidden>
-              <div class="section-heading"><span class="section-number">02</span><div><h3>Evidências</h3><p>As cinco posições continuam obrigatórias para conferência.</p></div><span id="photoProgressChip" class="status-chip status-chip--warning">0/5 fotos</span></div>
+              <div class="section-heading"><span class="section-number">02</span><div><h3>Evidências gerais</h3><p>Adicione no mínimo 3 fotos. As posições 4 e 5 continuam opcionais e disponíveis.</p></div><span id="photoProgressChip" class="status-chip status-chip--warning">0/5 fotos</span></div>
               <div id="photoGrid" class="photo-grid"></div>
               <div class="panel-actions"><button class="button button--ghost" type="button" data-back-step="1">← Voltar</button><button id="continueToReviewButton" class="button button--primary" type="button" disabled>Revisar ocorrência →</button></div>
             </section>
@@ -172,7 +181,7 @@
           </section>
 
           <section id="view-supervisor" class="view" aria-labelledby="supervisorTitle" hidden>
-            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo supervisor</p><h2 id="supervisorTitle">Ocorrências aguardando conferência</h2><p>Aprovação e publicação somente para registros aptos com 5/5 fotos.</p></div><div class="heading-actions"><button id="registerOccurrenceButton" class="button button--ghost" type="button">Registrar ocorrência</button><button id="refreshSupervisorButton" class="button button--ghost" type="button">Atualizar</button></div></div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo supervisor</p><h2 id="supervisorTitle">Ocorrências aguardando conferência</h2><p>Aptas com pelo menos 3/5 fotos gerais e as evidências específicas exigidas.</p></div><div class="heading-actions"><button id="registerOccurrenceButton" class="button button--ghost" type="button">Registrar ocorrência</button><button id="refreshSupervisorButton" class="button button--ghost" type="button">Atualizar</button></div></div>
             <div class="supervisor-toolbar card"><label class="checkbox-label"><input id="selectAllVisible" type="checkbox" /><span>Selecionar todas as visíveis</span></label><strong id="selectedCountLabel">0 ocorrências selecionadas</strong><button id="approveSelectedButton" class="button button--success button--small" type="button" disabled>Aprovar selecionadas</button></div>
             <div id="supervisorList" class="record-list record-list--supervisor"></div>
             <div id="approveAllFooter" class="approve-all-footer" hidden><button id="approveAllButton" class="button button--primary" type="button">Aprovar todas as aptas</button></div>
@@ -188,10 +197,11 @@
         <header class="modal__header"><div><p class="eyebrow">Correção controlada</p><h2 id="supervisorEditTitle">Corrigir ocorrência</h2></div><button class="icon-button" type="button" data-close-supervisor-edit aria-label="Fechar">×</button></header>
         <div class="modal__body supervisor-editor">
           <div class="audit-protection-note"><strong>Dados técnicos protegidos</strong><span>UUID, usuário original, data/hora, histórico e fotos não podem ser alterados.</span></div>
-          <div class="form-grid form-grid--two"><label class="field"><span>Equipe *</span><input id="editTeam" maxlength="120" required /></label><label class="field"><span>Nº da ocorrência *</span><input id="editOccurrenceNumber" maxlength="120" required /></label></div>
+          <div class="form-grid form-grid--two"><label class="field"><span>Base *</span><select id="editOperationBase" required><option value="">Selecionar base</option><option>ASSÚ</option><option>CAICÓ</option><option>CARAÚBAS</option><option>CURRAIS NOVOS</option><option>MOSSORÓ</option><option>PAU DOS FERROS</option></select></label><label class="field"><span>Equipe *</span><input id="editTeam" maxlength="120" required /></label><label class="field"><span>Chefe de turma *</span><input id="editCrewLeader" maxlength="160" required /></label><label class="field"><span>Nº da ocorrência *</span><input id="editOccurrenceNumber" maxlength="120" required /></label></div>
           <fieldset class="form-section"><legend>Tipo(s) da ocorrência *</legend><div id="editOccurrenceTypes" class="choice-grid"><label class="choice-card"><input type="checkbox" value="SUBSTITUIÇÃO DE TRAFO" /><span>Substituição de Trafo</span></label><label class="choice-card"><input type="checkbox" value="SUBSTITUIÇÃO DE POSTE" /><span>Substituição de Poste</span></label><label class="choice-card"><input type="checkbox" value="SUBSTITUIÇÃO DE CONDUTOR" /><span>Substituição de Condutor</span></label><label class="choice-card"><input type="checkbox" value="PODA" /><span>Poda</span></label><label class="choice-card"><input type="checkbox" value="LINHA VIVA" /><span>Linha Viva</span></label><label class="choice-card"><input type="checkbox" value="CAVA &amp; ROCHA" /><span>Cava &amp; Rocha</span></label><label class="choice-card"><input type="checkbox" value="OUTRO" /><span>Outro</span></label></div></fieldset>
           <section id="editOtherTypeSection" class="form-section" hidden><label class="field"><span>Tipo de ocorrência avulso *</span><input id="editOtherOccurrenceType" maxlength="200" placeholder="Digite o tipo da ocorrência" /></label></section>
-          <div class="form-grid form-grid--three"><label class="field"><span>PG 1</span><input id="editPg1" maxlength="80" /></label><label class="field"><span>PG 2</span><input id="editPg2" maxlength="80" /></label><label class="field"><span>PG 3</span><input id="editPg3" maxlength="80" /></label></div>
+          <section id="editPgPostSection" class="form-section" hidden><h4>PG do Poste</h4><div class="form-grid form-grid--two"><label class="field"><span>PG retirado *</span><input id="editPgPostRemoved" maxlength="80" /></label><label class="field"><span>PG instalado *</span><input id="editPgPostInstalled" maxlength="80" /></label></div></section>
+          <section id="editPgConductorSection" class="form-section" hidden><h4>PG do Condutor</h4><div class="form-grid form-grid--two"><label class="field"><span>PG inicial *</span><input id="editPgConductorStart" maxlength="80" /></label><label class="field"><span>PG final *</span><input id="editPgConductorEnd" maxlength="80" /></label></div></section>
           <fieldset id="editTransformerSection" class="form-section" hidden><legend>Transformadores</legend><div class="transformer-grid"><div class="nested-card"><h5>Transformador retirado</h5><label class="field"><span>Código retirado *</span><input id="editRemovedTransformerCode" maxlength="80" /></label><label class="field"><span>CIA retirado *</span><input id="editRemovedTransformerCia" maxlength="80" /></label><label class="field"><span>BTO retirado *</span><input id="editRemovedTransformerBto" maxlength="80" /></label></div><div class="nested-card"><h5>Transformador instalado / novo</h5><label class="field"><span>Código instalado *</span><input id="editNewTransformerCode" maxlength="80" /></label><label class="field"><span>CIA instalado *</span><input id="editNewTransformerCia" maxlength="80" /></label><label class="field"><span>BTO instalado *</span><input id="editNewTransformerBto" maxlength="80" /></label></div></div></fieldset>
           <section class="form-section service-book"><div class="subsection-heading"><div><h4>Serviços selecionados</h4><p>Pesquise na mesma base Emergência e ajuste a QTD diretamente.</p></div></div><div class="catalog-search"><label class="field"><span>Pesquisar serviço</span><input id="editServiceSearch" autocomplete="off" placeholder="Código ou descrição" /></label><div id="editServiceResults" class="catalog-results" hidden></div></div><div id="editServicesList" class="line-items"></div></section>
           <section class="form-section"><div class="subsection-heading"><div><h4>Materiais aplicados</h4></div><button id="editAddMaterialButton" class="button button--ghost button--small" type="button">+ Adicionar material</button></div><div id="editMaterialsList" class="line-items"></div></section>

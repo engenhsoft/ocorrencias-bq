@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.08.31.1';
+export const APP_VERSION = '2026.09.01.1';
 
 export const TEAM_GOAL = 6000;
 
@@ -10,6 +10,10 @@ export const OCCURRENCE_TYPES = Object.freeze([
   'LINHA VIVA',
   'CAVA & ROCHA',
   'OUTRO'
+]);
+
+export const OPERATION_BASES = Object.freeze([
+  'ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'
 ]);
 
 export const RECORD_STATUS = Object.freeze({
@@ -172,13 +176,19 @@ export function goalProgress(total, goal = TEAM_GOAL) {
 export function validateOccurrence(record = {}) {
   const errors = [];
   const types = Array.isArray(record.occurrenceTypes) ? record.occurrenceTypes : [];
+  if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a base.');
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
+  if (!String(record.crewLeader || '').trim()) errors.push('Informe o chefe de turma.');
   if (!String(record.occurrenceNumber || '').trim()) errors.push('Informe o Nº da ocorrência.');
   if (!types.length || types.some((type) => !OCCURRENCE_TYPES.includes(type))) errors.push('Selecione pelo menos um tipo da ocorrência.');
   if (types.includes('OUTRO') && !String(record.otherOccurrenceType || '').trim()) errors.push('Informe o tipo da ocorrência.');
-  if (types.includes('SUBSTITUIÇÃO DE POSTE') || types.includes('SUBSTITUIÇÃO DE CONDUTOR')) {
-    const informedPgs = [record.pg1, record.pg2, record.pg3].filter((value) => String(value || '').trim()).length;
-    if (informedPgs < 2) errors.push('Informe pelo menos 2 PGs para Poste/Condutor.');
+  if (types.includes('SUBSTITUIÇÃO DE POSTE')) {
+    if (!String(record.pgPostRemoved || '').trim()) errors.push('Informe o PG do poste retirado.');
+    if (!String(record.pgPostInstalled || '').trim()) errors.push('Informe o PG do poste instalado.');
+  }
+  if (types.includes('SUBSTITUIÇÃO DE CONDUTOR')) {
+    if (!String(record.pgConductorStart || '').trim()) errors.push('Informe o PG inicial da substituição do condutor.');
+    if (!String(record.pgConductorEnd || '').trim()) errors.push('Informe o PG final da substituição do condutor.');
   }
   if (types.includes('SUBSTITUIÇÃO DE TRAFO')) {
     if (!String(record.transformer?.removedCode || '').trim()) errors.push('Informe o código do trafo retirado ou 999999.');
@@ -187,6 +197,8 @@ export function validateOccurrence(record = {}) {
     if (!String(record.transformer?.newCode || '').trim() || String(record.transformer?.newCode || '').trim() === '999999') errors.push('Informe um código válido para o trafo novo.');
     if (!String(record.transformer?.newCia || '').trim()) errors.push('Informe a CIA do trafo novo.');
     if (!String(record.transformer?.newBto || '').trim()) errors.push('Informe o BTO do transformador instalado.');
+    if (!transformerPhotoReady(record, 'removed')) errors.push('Adicione a evidência do transformador retirado.');
+    if (!transformerPhotoReady(record, 'installed')) errors.push('Adicione a evidência do transformador instalado.');
   }
   if (!Array.isArray(record.services) || !record.services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
   (record.services || []).forEach((service, index) => {
@@ -202,23 +214,44 @@ export function validateOccurrence(record = {}) {
 }
 
 export function countConfirmedPhotos(record) {
-  if (Array.isArray(record?.photoStates)) return record.photoStates.filter((state) => state?.confirmed).length;
+  if (Array.isArray(record?.photoStates)) return record.photoStates.slice(0, 5).filter((state) => state?.confirmed).length;
   if (Array.isArray(record?.photos)) return record.photos.filter(Boolean).length;
   return Number(record?.photoCount) || 0;
 }
 
 export function countReadyPhotoStates(record) {
   if (Array.isArray(record?.photoStates)) {
-    return record.photoStates.filter((state) => state?.confirmed || state?.serverUrl || state?.localReady).length;
+    return record.photoStates.slice(0, 5).filter((state) => state?.confirmed || state?.serverUrl || state?.localReady).length;
   }
   if (Array.isArray(record?.photos)) return record.photos.filter(Boolean).length;
   return Number(record?.photoCount) || 0;
 }
 
+export function transformerPhotoReady(record, kind) {
+  const index = kind === 'removed' ? 5 : 6;
+  const state = record?.photoStates?.[index] || {};
+  const url = kind === 'removed' ? record?.transformerPhotos?.removed : record?.transformerPhotos?.installed;
+  return Boolean(state.confirmed || state.serverUrl || state.url || state.localReady || url);
+}
+
+export function requiredPhotoDeficit(record) {
+  const general = Math.max(0, 3 - countReadyPhotoStates(record));
+  if (!record?.occurrenceTypes?.includes('SUBSTITUIÇÃO DE TRAFO')) return general;
+  return general + (transformerPhotoReady(record, 'removed') ? 0 : 1) + (transformerPhotoReady(record, 'installed') ? 0 : 1);
+}
+
 export function photoIssueIndexes(record, failedIndexes = []) {
+  const failed = new Set((failedIndexes || []).map(Number));
   const urls = Array.from({ length: 5 }, (_, index) => record?.photos?.[index] || record?.photoStates?.[index]?.serverUrl || record?.photoStates?.[index]?.url || '');
-  const issues = urls.map((url, index) => url ? 0 : index + 1).filter(Boolean);
-  for (const index of failedIndexes || []) if (Number.isInteger(Number(index)) && Number(index) >= 1 && Number(index) <= 5) issues.push(Number(index));
+  const validGeneral = urls.map((url, index) => Boolean(url) && !failed.has(index + 1));
+  const issues = [];
+  const missingGeneral = validGeneral.map((valid, index) => valid ? 0 : index + 1).filter(Boolean);
+  issues.push(...missingGeneral.slice(0, Math.max(0, 3 - validGeneral.filter(Boolean).length)));
+  if (record?.occurrenceTypes?.includes('SUBSTITUIÇÃO DE TRAFO')) {
+    if (!transformerPhotoReady(record, 'removed') || failed.has(6)) issues.push(6);
+    if (!transformerPhotoReady(record, 'installed') || failed.has(7)) issues.push(7);
+  }
+  for (const index of failed) if (index >= 1 && index <= 7 && index <= 5 && validGeneral.filter(Boolean).length < 3) issues.push(index);
   return [...new Set(issues)].sort((left, right) => left - right);
 }
 
@@ -229,11 +262,16 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
     const next = typeof newValue === 'string' ? newValue : JSON.stringify(newValue ?? '');
     if (previous !== next) changes.push({ field, previousValue: previous, newValue: next });
   };
+  add('Base', before.base, after.base);
   add('Equipe', before.team, after.team);
+  add('Chefe de turma', before.crewLeader, after.crewLeader);
   add('Nº da ocorrência', before.occurrenceNumber, after.occurrenceNumber);
   add('Tipo(s) da ocorrência', before.occurrenceTypes || [], after.occurrenceTypes || []);
   add('Tipo de ocorrência avulso', before.otherOccurrenceType, after.otherOccurrenceType);
-  add('PG 1', before.pg1, after.pg1); add('PG 2', before.pg2, after.pg2); add('PG 3', before.pg3, after.pg3);
+  add('PG do poste retirado', before.pgPostRemoved, after.pgPostRemoved);
+  add('PG do poste instalado', before.pgPostInstalled, after.pgPostInstalled);
+  add('PG inicial do condutor', before.pgConductorStart, after.pgConductorStart);
+  add('PG final do condutor', before.pgConductorEnd, after.pgConductorEnd);
   add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
   add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
   add('Serviços selecionados', (before.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), (after.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
@@ -250,10 +288,10 @@ export function summarizeQueue(records = []) {
     RECORD_STATUS.ERROR
   ]);
   const pendingRecords = records.filter((record) => pendingStatuses.has(record.status));
-  const pendingPhotos = pendingRecords.reduce((total, record) => total + Math.max(0, 5 - countConfirmedPhotos(record)), 0);
+  const pendingPhotos = pendingRecords.reduce((total, record) => total + requiredPhotoDeficit(record), 0);
   const syncingPhotos = records
     .filter((record) => record.status === RECORD_STATUS.SYNCING_PHOTOS)
-    .reduce((total, record) => total + Math.max(0, 5 - countConfirmedPhotos(record)), 0);
+    .reduce((total, record) => total + requiredPhotoDeficit(record), 0);
   return {
     pendingRecords,
     pendingPhotos,
@@ -264,7 +302,7 @@ export function summarizeQueue(records = []) {
 
 export function reconcilePhotoStates(localRecord, serverState) {
   const byIndex = new Map((serverState?.photoStates || []).map((state) => [Number(state.photoIndex), state]));
-  const localStates = Array.from({ length: 5 }, (_, index) => {
+  const localStates = Array.from({ length: 7 }, (_, index) => {
     const current = localRecord?.photoStates?.[index] || {};
     const server = byIndex.get(index + 1);
     if (current.replacePending) {
@@ -282,7 +320,7 @@ export function reconcilePhotoStates(localRecord, serverState) {
     serverStatus: serverState?.status || localRecord?.serverStatus || '',
     status: serverState?.status || localRecord?.status,
     photoStates: localStates,
-    photoCount: localStates.filter((state) => state.confirmed).length,
+    photoCount: localStates.slice(0, 5).filter((state) => state.confirmed).length,
     updatedAt: new Date().toISOString()
   };
 }
