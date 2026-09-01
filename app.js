@@ -982,7 +982,12 @@ async function refreshSupervisor(notify = false) {
       renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return supervisorRecords;
     } catch (error) {
       if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
-      else { renderSupervisorList(error); if (notify) toast(friendlyError(error), 'error'); }
+      else {
+        console.error('[Supervisor] Falha ao atualizar ocorrências.', error);
+        const message = 'Não foi possível atualizar as ocorrências. Tente novamente.';
+        renderSupervisorList(new ApiError(message, 'SUPERVISOR_REFRESH_ERROR'));
+        if (notify) toast(message, 'error');
+      }
       return null;
     } finally { setBusy(elements.refreshSupervisorButton, false); }
   })();

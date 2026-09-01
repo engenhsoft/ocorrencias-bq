@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.09.01.1';
+export const APP_VERSION = '2026.09.01.2';
 
 export const TEAM_GOAL = 6000;
 
@@ -240,8 +240,43 @@ export function requiredPhotoDeficit(record) {
   return general + (transformerPhotoReady(record, 'removed') ? 0 : 1) + (transformerPhotoReady(record, 'installed') ? 0 : 1);
 }
 
+export function normalizeFailedIndexes(value) {
+  if (value == null || value === '') return [];
+
+  let source;
+  if (Array.isArray(value)) source = value;
+  else if (value instanceof Set) source = [...value];
+  else if (typeof value === 'number') source = [value];
+  else if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) source = parsed;
+      else if (typeof parsed === 'number') source = [parsed];
+      else {
+        globalThis.console?.warn?.('[Supervisor] failedIndexes incompatível; usando [].', { type: typeof parsed });
+        return [];
+      }
+    } catch {
+      source = text.split(',').map((item) => item.trim()).filter(Boolean);
+    }
+  } else {
+    globalThis.console?.warn?.('[Supervisor] failedIndexes incompatível; usando [].', { type: typeof value });
+    return [];
+  }
+
+  const normalized = source
+    .map(Number)
+    .filter((index) => Number.isInteger(index) && index >= 1 && index <= 7);
+  if (normalized.length !== source.length) {
+    globalThis.console?.warn?.('[Supervisor] failedIndexes contém índices inválidos; valores incompatíveis foram ignorados.');
+  }
+  return normalized;
+}
+
 export function photoIssueIndexes(record, failedIndexes = []) {
-  const failed = new Set((failedIndexes || []).map(Number));
+  const failed = new Set(normalizeFailedIndexes(failedIndexes));
   const urls = Array.from({ length: 5 }, (_, index) => record?.photos?.[index] || record?.photoStates?.[index]?.serverUrl || record?.photoStates?.[index]?.url || '');
   const validGeneral = urls.map((url, index) => Boolean(url) && !failed.has(index + 1));
   const issues = [];
