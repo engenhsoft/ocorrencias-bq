@@ -8,7 +8,7 @@ import {
 } from './core.js';
 import {
   cacheCatalogResults, deletePhoto, deleteRecord, getAllRecords, getMeta, getPhoto,
-  getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhoto, putRecord,
+  getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
 } from './db.js';
 import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck } from './api.js';
@@ -109,6 +109,8 @@ let supervisorRecords = [];
 let selectedSupervisorIds = new Set();
 let activeSupervisorRecord = null;
 let syncRunning = false;
+let supervisorRefreshPromise = null;
+const recordSyncPromises = new Map();
 let deferredInstallPrompt = null;
 let supervisorRefreshTimer = 0;
 let dailyProduction = { team: '', date: operationalDate(), goal: TEAM_GOAL, totalSent: 0, totalExcludingRecord: 0, recordContribution: 0 };
@@ -310,7 +312,7 @@ async function enterApplication() {
   elements.supervisorNav.hidden = session.role !== 'supervisor';
   if (session.role === 'supervisor') {
     elements.resumeBanner.hidden = true;
-    navigate('supervisor'); await refreshSupervisor(false);
+    await navigate('supervisor');
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) refreshSupervisor(false);
@@ -359,8 +361,9 @@ function navigate(view) {
   if (view === 'new' && session?.role === 'field') loadDailyProduction(elements.team.value, false);
   if (view === 'mine') refreshMine(false);
   if (view === 'sync') updateQueueUi();
-  if (view === 'supervisor') refreshSupervisor(false);
+  const pendingNavigation = view === 'supervisor' ? refreshSupervisor(false) : null;
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  return pendingNavigation;
 }
 
 function blankRecord() {
@@ -646,7 +649,8 @@ async function storeSelectedPhoto(photoIndex, file, replace) {
     if (blob.size > 9 * 1024 * 1024) throw new Error('A foto ficou acima de 9 MB mesmo após a otimização.');
     const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
     activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.confirmed || state.serverUrl), error: '' };
-    await putPhoto(activeRecord.recordId, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
+    const stored = await putPhotoAndRecord(activeRecord, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
+    activeRecord = stored.record;
     activePhotos.set(photoIndex, { blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
     await saveActiveDraft(); updatePhotoGrid(); validateStepOne(false);
   } catch (error) { toast(error.message || 'Não foi possível preparar a foto.', 'error'); }
@@ -779,6 +783,18 @@ async function cacheDailySummary(summary) {
 }
 
 async function syncSingleRecord(recordId, notify = true) {
+  const running = recordSyncPromises.get(recordId);
+  if (running) {
+    if (notify) toast('Esta ocorrência já está sendo sincronizada.');
+    return running;
+  }
+  const task = performSyncSingleRecord(recordId, notify);
+  recordSyncPromises.set(recordId, task);
+  try { return await task; }
+  finally { if (recordSyncPromises.get(recordId) === task) recordSyncPromises.delete(recordId); }
+}
+
+async function performSyncSingleRecord(recordId, notify = true) {
   const record = await getRecord(recordId); if (!record || !session || session.role !== 'field') return null;
   if (!navigator.onLine) { record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet'; await putRecord(record); await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record; }
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
@@ -952,16 +968,36 @@ function resetForm({ preserveTeam = false } = {}) {
 
 async function refreshSupervisor(notify = false) {
   if (!session || session.role !== 'supervisor') return;
-  if (!navigator.onLine) { if (notify) toast('O painel do supervisor precisa de conexão.', 'error'); return; }
-  setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
-  try { supervisorRecords = (await api.listPending(session.token)).records || []; selectedSupervisorIds = new Set([...selectedSupervisorIds].filter((id) => supervisorRecords.some((record) => record.recordId === id))); renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); }
-  catch (error) { if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout(); else if (notify) toast(friendlyError(error), 'error'); renderSupervisorList(error); }
-  finally { setBusy(elements.refreshSupervisorButton, false); }
+  if (supervisorRefreshPromise) return supervisorRefreshPromise;
+  if (!navigator.onLine) {
+    const error = new ApiError('O painel do supervisor precisa de conexão.', 'OFFLINE');
+    renderSupervisorList(error); if (notify) toast(error.message, 'error'); return null;
+  }
+  supervisorRefreshPromise = (async () => {
+    setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
+    try {
+      const result = await api.listPending(session.token);
+      supervisorRecords = Array.isArray(result.records) ? result.records : [];
+      selectedSupervisorIds = new Set([...selectedSupervisorIds].filter((id) => supervisorRecords.some((record) => record.recordId === id)));
+      renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return supervisorRecords;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
+      else { renderSupervisorList(error); if (notify) toast(friendlyError(error), 'error'); }
+      return null;
+    } finally { setBusy(elements.refreshSupervisorButton, false); }
+  })();
+  try { return await supervisorRefreshPromise; }
+  finally { supervisorRefreshPromise = null; }
 }
 
 function renderSupervisorList(error = null) {
   elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !supervisorRecords.length;
-  if (!supervisorRecords.length) { elements.supervisorList.innerHTML = emptyState(error ? 'Não foi possível carregar' : 'Nenhuma ocorrência aguardando', error ? friendlyError(error) : 'As ocorrências completas aparecerão aqui para conferência.'); updateSupervisorSelectionUi(); return; }
+  if (!supervisorRecords.length) {
+    elements.supervisorList.innerHTML = error
+      ? `${emptyState('Não foi possível carregar', friendlyError(error))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`
+      : emptyState('Nenhuma ocorrência aguardando conferência.', 'As ocorrências completas aparecerão aqui para conferência.');
+    updateSupervisorSelectionUi(); return;
+  }
   elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
     const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const eligible = !issues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR;
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
@@ -973,6 +1009,8 @@ function renderSupervisorList(error = null) {
 }
 
 function handleSupervisorListClick(event) {
+  const retry = event.target.closest('[data-supervisor-retry]');
+  if (retry) return refreshSupervisor(true);
   const review = event.target.closest('[data-review-record]'); const zoom = event.target.closest('[data-zoom-src]');
   if (zoom) return openPhotoFromElement(zoom); if (review) openSupervisorReview(review.dataset.reviewRecord);
 }

@@ -69,11 +69,32 @@ async function storeTransaction(storeNames, mode = 'readonly') {
 }
 
 export async function putRecord(record) {
-  const next = { ...record, updatedAt: record.updatedAt || new Date().toISOString() };
+  const next = { ...record, updatedAt: new Date().toISOString() };
   const { transaction, store } = await storeTransaction([STORE.records], 'readwrite');
   store(STORE.records).put(next);
   await transactionDone(transaction);
   return next;
+}
+
+export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, metadata = {}) {
+  const now = new Date().toISOString();
+  const nextRecord = { ...record, updatedAt: now };
+  const photo = {
+    key: `${record.recordId}:${photoIndex}`,
+    recordId: record.recordId,
+    photoIndex,
+    blob,
+    uploadKey,
+    mimeType: blob?.type || metadata.mimeType || 'image/jpeg',
+    fileName: metadata.fileName || `FOTO_${photoIndex}.jpg`,
+    size: blob?.size || 0,
+    updatedAt: now
+  };
+  const { transaction, store } = await storeTransaction([STORE.records, STORE.photos], 'readwrite');
+  store(STORE.records).put(nextRecord);
+  store(STORE.photos).put(photo);
+  await transactionDone(transaction);
+  return { record: nextRecord, photo };
 }
 
 export async function getRecord(recordId) {

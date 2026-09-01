@@ -331,6 +331,7 @@ p { color: var(--muted); line-height: 1.55; }
 .empty-state { padding: 2.2rem 1rem; display: grid; place-items: center; text-align: center; }
 .empty-state > span { width: 52px; height: 52px; margin-bottom: 0.85rem; border-radius: 16px; display: grid; place-items: center; color: var(--blue-700); background: #e6f4fb; font-size: 1.5rem; }
 .empty-state p { max-width: 420px; margin-bottom: 0; }
+.empty-state-action { display: flex; justify-content: center; margin-top: -0.8rem; padding-bottom: 1rem; }
 
 .modal { width: min(calc(100% - 1.5rem), 600px); max-height: calc(100vh - 1.5rem); padding: 0; border: 0; border-radius: 22px; color: var(--ink); background: transparent; box-shadow: var(--shadow); }
 .modal--wide { width: min(calc(100% - 1.5rem), 960px); }

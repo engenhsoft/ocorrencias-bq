@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const CACHE_NAME = `${CACHE_PREFIX}2026.09.01.1-base-crew-pg-specific-trafo-photos-1`;
+const CACHE_NAME = `${CACHE_PREFIX}2026.09.01.1-offline-supervisor-hotfix-2`;
 const APP_SHELL = [
   './',
   './index.html',
