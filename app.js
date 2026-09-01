@@ -2,7 +2,7 @@ import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   dailyGoalProjection, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  occurrenceTotal, operationalDate, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, serviceTotal,
+  normalizeArray, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, occurrenceTotal, operationalDate, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, serviceTotal,
   supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
@@ -94,6 +94,7 @@ const elements = {
 };
 
 let session = readSession();
+let sessionRevision = 0;
 let activeRecord = null;
 let activePhotos = new Map();
 let previewUrls = new Map();
@@ -110,11 +111,15 @@ let selectedSupervisorIds = new Set();
 let activeSupervisorRecord = null;
 let syncRunning = false;
 let supervisorRefreshPromise = null;
+let supervisorRefreshRevision = -1;
+let mineRefreshPromise = null;
+let mineRefreshRevision = -1;
 const recordSyncPromises = new Map();
 let deferredInstallPrompt = null;
 let supervisorRefreshTimer = 0;
 let dailyProduction = { team: '', date: operationalDate(), goal: TEAM_GOAL, totalSent: 0, totalExcludingRecord: 0, recordContribution: 0 };
 let dailyRequestId = 0;
+let mineGoalRequestId = 0;
 let dailyLoadTimer = 0;
 let profileSwitchTarget = '';
 let photoGallery = [];
@@ -122,6 +127,7 @@ let photoGalleryIndex = 0;
 let supervisorEditRecord = null;
 let supervisorEditCatalogResults = [];
 let supervisorEditSearchTimer = 0;
+let supervisorEditCatalogRequestId = 0;
 const supervisorPhotoFailures = new Map();
 
 function readSession() {
@@ -132,9 +138,54 @@ function readSession() {
 }
 
 function persistSession(value) {
+  sessionRevision += 1;
   session = value;
   if (value) localStorage.setItem(SESSION_KEY, JSON.stringify(value));
   else localStorage.removeItem(SESSION_KEY);
+}
+
+function clearSessionUiState() {
+  clearInterval(supervisorRefreshTimer);
+  clearTimeout(catalogSearchTimer);
+  clearTimeout(dailyLoadTimer);
+  clearTimeout(supervisorEditSearchTimer);
+  catalogSearchRequestId += 1;
+  supervisorEditCatalogRequestId += 1;
+  dailyRequestId += 1;
+  mineGoalRequestId += 1;
+  activeRecord = null;
+  clearPreviewUrls();
+  mineRecords = [];
+  mineFilter = 'today';
+  mineTeam = '';
+  supervisorRecords = [];
+  selectedSupervisorIds.clear();
+  activeSupervisorRecord = null;
+  supervisorEditRecord = null;
+  supervisorEditCatalogResults = [];
+  supervisorPhotoFailures.clear();
+  photoGallery = [];
+  photoGalleryIndex = 0;
+  dailyProduction = emptyDailyProduction();
+  for (const dialog of [elements.reviewDialog, elements.mineDetailDialog, elements.supervisorEditDialog, elements.profileSwitchDialog, elements.decisionDialog, elements.confirmDialog, elements.photoDialog]) {
+    if (dialog?.open) dialog.close();
+  }
+  resetForm();
+  elements.resumeBanner.hidden = true;
+  elements.mineList.innerHTML = '';
+  elements.mineTeamSelect.innerHTML = '<option value="">Nenhuma equipe</option>';
+  elements.supervisorList.innerHTML = '';
+  elements.supervisorNavCount.hidden = true;
+  elements.selectAllVisible.checked = false;
+  elements.selectAllVisible.indeterminate = false;
+  elements.syncPendingRecords.textContent = '0';
+  elements.syncPendingPhotos.textContent = '0';
+  elements.syncPhotosSyncing.textContent = '0';
+  elements.syncErrors.textContent = '0';
+  elements.syncNavCount.hidden = true;
+  elements.syncQueueList.innerHTML = '';
+  setBusy(elements.refreshMineButton, false);
+  setBusy(elements.refreshSupervisorButton, false);
 }
 
 function toast(message, tone = 'default', duration = 3600) {
@@ -297,6 +348,7 @@ async function handleLogin(event) {
   setBusy(elements.loginButton, true, 'Entrando…');
   try {
     const result = await api.login(user, password, role);
+    clearSessionUiState();
     persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
     localStorage.setItem(LAST_USER_KEY, result.user);
     elements.loginPassword.value = '';
@@ -344,15 +396,16 @@ async function handleProfileSwitch(event) {
   setBusy(elements.profileSwitchSubmit, true, 'Autenticando…');
   try {
     const result = await api.login(user, password, profileSwitchTarget);
+    clearSessionUiState();
     persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
     localStorage.setItem(LAST_USER_KEY, result.user); elements.profileSwitchPassword.value = '';
-    elements.profileSwitchDialog.close(); clearInterval(supervisorRefreshTimer); await enterApplication();
+    clearInterval(supervisorRefreshTimer); await enterApplication();
     toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
   } catch (error) { elements.profileSwitchMessage.textContent = friendlyError(error); }
   finally { setBusy(elements.profileSwitchSubmit, false); }
 }
 
-function logout() { persistSession(null); activeRecord = null; clearPreviewUrls(); showLogin(); }
+function logout() { persistSession(null); clearSessionUiState(); showLogin(); }
 
 function navigate(view) {
   currentView = view;
@@ -438,14 +491,15 @@ function dailyCacheKey(team, date = operationalDate()) { return `dailyProduction
 
 async function loadDailyProduction(teamValue, notify = false) {
   const team = String(teamValue || '').trim(); const date = operationalDate(); const requestId = ++dailyRequestId;
+  const requestSession = session; const revision = sessionRevision;
   if (!team) { dailyProduction = emptyDailyProduction(); updateGoal(); return dailyProduction; }
   let cached = await getMeta(dailyCacheKey(team, date));
   if (requestId !== dailyRequestId) return dailyProduction;
   if (cached) { dailyProduction = { ...emptyDailyProduction(team), ...cached, team, date, totalExcludingRecord: Number(cached.totalSent) || 0 }; updateGoal(); }
-  if (!navigator.onLine || !endpointConfigured() || session?.role !== 'field') return dailyProduction;
+  if (!navigator.onLine || !endpointConfigured() || requestSession?.role !== 'field') return dailyProduction;
   try {
-    const result = await api.getDailyTeamProduction(session.token, team, date, activeRecord?.recordId || '');
-    if (requestId !== dailyRequestId || normalizeTeamKey(elements.team.value) !== normalizeTeamKey(team)) return dailyProduction;
+    const result = await api.getDailyTeamProduction(requestSession.token, team, date, activeRecord?.recordId || '');
+    if (requestId !== dailyRequestId || revision !== sessionRevision || normalizeTeamKey(elements.team.value) !== normalizeTeamKey(team)) return dailyProduction;
     dailyProduction = { ...emptyDailyProduction(team), ...result };
     await setMeta(dailyCacheKey(team, date), { team, date, goal: result.goal, totalSent: result.totalSent, percentage: result.percentage, status: result.status });
     updateGoal(); if (notify) toast('Produção diária atualizada.', 'success'); return dailyProduction;
@@ -475,11 +529,12 @@ async function detectDraft() {
 
 async function resumeDraft() {
   const recordId = await getMeta(ACTIVE_DRAFT_META); const record = recordId ? await getRecord(recordId) : null;
-  if (!record) return; await loadRecordIntoForm(record); elements.resumeBanner.hidden = true; navigate('new');
+  if (!record || (record.user && record.user !== session?.user)) return; await loadRecordIntoForm(record); elements.resumeBanner.hidden = true; navigate('new');
 }
 
 async function discardDraft() {
   const recordId = await getMeta(ACTIVE_DRAFT_META); if (!recordId) return;
+  const record = await getRecord(recordId); if (!record || (record.user && record.user !== session?.user)) return;
   if (!await confirmAction('Descartar rascunho?', 'O rascunho e as fotos guardadas somente neste aparelho serão removidos.', 'Descartar', 'danger')) return;
   await deleteRecord(recordId); await setMeta(ACTIVE_DRAFT_META, null); elements.resumeBanner.hidden = true;
   if (activeRecord?.recordId === recordId) resetForm(); toast('Rascunho descartado.');
@@ -492,7 +547,7 @@ function goToStep(step) {
     const number = Number(indicator.dataset.stepIndicator);
     indicator.classList.toggle('is-active', number === step); indicator.classList.toggle('is-complete', number < step);
   });
-  if (activeRecord) saveActiveDraft(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (activeRecord) void saveActiveDraft().catch((error) => { console.error('[Rascunho] Falha ao salvar etapa.', error); toast('Não foi possível salvar o rascunho neste aparelho.', 'error'); }); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function handleCatalogInput() {
@@ -507,12 +562,13 @@ async function handleCatalogInput() {
 }
 
 async function searchCatalog(query, requestId) {
+  const requestSession = session; const revision = sessionRevision;
   elements.searchSpinner.hidden = false;
   elements.serviceSearchHint.textContent = navigator.onLine ? 'Pesquisando na aba Emergência…' : 'Sem internet: pesquisando itens salvos neste aparelho.';
   try {
-    const results = navigator.onLine ? (await api.searchCatalog(session.token, query, 40)).results : await searchCachedCatalog(query, 40);
-    if (requestId !== catalogSearchRequestId || elements.serviceSearch.value.trim() !== query) return;
-    catalogResults = results || []; if (navigator.onLine) await cacheCatalogResults(catalogResults); renderCatalogResults();
+    const results = navigator.onLine ? (await api.searchCatalog(requestSession.token, query, 40)).results : await searchCachedCatalog(query, 40);
+    if (requestId !== catalogSearchRequestId || revision !== sessionRevision || elements.serviceSearch.value.trim() !== query) return;
+    catalogResults = normalizeArray(results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item)); if (navigator.onLine) await cacheCatalogResults(catalogResults); renderCatalogResults();
   } catch (error) {
     catalogResults = await searchCachedCatalog(query, 40);
     if (requestId === catalogSearchRequestId) renderCatalogResults(error);
@@ -543,7 +599,7 @@ async function selectCatalogItem(item) {
 }
 
 function renderServices() {
-  const services = activeRecord?.services || [];
+  const services = normalizeArray(activeRecord?.services, 'services');
   if (!services.length) {
     elements.servicesList.innerHTML = '<div class="line-items__empty">Nenhum serviço selecionado.</div>'; updateGoal(); return;
   }
@@ -589,7 +645,8 @@ async function addMaterial() {
 }
 
 function renderMaterials() {
-  const materials = activeRecord?.materials || [{ lineId: 'blank', description: '', quantity: '' }];
+  const storedMaterials = normalizeArray(activeRecord?.materials, 'materials');
+  const materials = storedMaterials.length ? storedMaterials : [{ lineId: 'blank', description: '', quantity: '' }];
   elements.materialsList.innerHTML = materials.map((material, index) => `<article class="line-item material-line" data-material-line="${escapeHtml(material.lineId)}">
     <span class="line-item__index">${index + 1}</span><label class="field"><span>Material *</span><input type="text" maxlength="180" data-material-description="${escapeHtml(material.lineId)}" value="${escapeHtml(material.description)}" placeholder="Ex.: Cabo 35mm" /></label><label class="field"><span>Quantidade *</span><input type="number" min="0.001" step="any" inputmode="decimal" data-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /></label>${materials.length > 1 ? `<button class="icon-button delete-photo" type="button" data-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button>` : ''}
   </article>`).join('');
@@ -698,10 +755,12 @@ function updatePhotoGrid() {
 }
 
 function serviceTable(services = []) {
+  services = normalizeArray(services, 'services');
   return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td data-label="Código">${escapeHtml(service.code)}</td><td data-label="Descrição">${escapeHtml(service.catalogText)}</td><td data-label="Unidade">${escapeHtml(service.unit)}</td><td data-label="QTD">${escapeHtml(formatNumber(service.quantity))}</td><td data-label="Unitário">${escapeHtml(formatCurrency(service.referenceValue))}</td><td data-label="Total">${escapeHtml(formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function materialTable(materials = []) {
+  materials = normalizeArray(materials, 'materials');
   return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => `<tr><td data-label="Material">${escapeHtml(material.description)}</td><td data-label="Quantidade">${escapeHtml(formatNumber(material.quantity))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
@@ -729,7 +788,7 @@ function transformerPhotoMarkup(record, kind) {
 function auditMarkup(record) {
   const corrections = record?.audit?.supervisorCorrections;
   if (!Array.isArray(corrections) || !corrections.length) return '';
-  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${corrections.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${(item.changes || []).map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`).join('')}</section>`;
+  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${corrections.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${normalizeArray(item.changes, 'audit.changes').map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`).join('')}</section>`;
 }
 
 function displayAuditValue(value) {
@@ -746,17 +805,18 @@ function dailyDetailMarkup(record) {
 }
 
 function occurrenceTypesText(record = {}) {
-  return (record.occurrenceTypes || []).map((type) => (
+  return normalizeOccurrenceTypes(record.occurrenceTypes).map((type) => (
     type === TYPE_OTHER && record.otherOccurrenceType ? `${TYPE_OTHER} — ${record.otherOccurrenceType}` : type
   )).join(' · ');
 }
 
 function occurrenceDetails(record, includePhotos = true) {
   const total = occurrenceTotal(record.services || []);
-  const transformer = record.occurrenceTypes?.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Código: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Código: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
-  const pgPost = record.occurrenceTypes?.includes(TYPE_POST) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
-  const pgConductor = record.occurrenceTypes?.includes(TYPE_CONDUCTOR) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
-  const otherType = record.occurrenceTypes?.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
+  const occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
+  const transformer = occurrenceTypes.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Código: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Código: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
+  const pgPost = occurrenceTypes.includes(TYPE_POST) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
+  const pgConductor = occurrenceTypes.includes(TYPE_CONDUCTOR) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
+  const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
   return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
@@ -776,10 +836,10 @@ async function submitOccurrence() {
   } finally { setBusy(elements.submitOccurrenceButton, false); resetForm({ preserveTeam: true }); navigate('mine'); }
 }
 
-async function cacheDailySummary(summary) {
+async function cacheDailySummary(summary, updateCurrentUi = true) {
   if (!summary?.team || !summary?.date) return;
   await setMeta(dailyCacheKey(summary.team, summary.date), { team: summary.team, date: summary.date, goal: summary.goal, totalSent: summary.totalSent, percentage: summary.percentage, status: summary.status });
-  if (normalizeTeamKey(elements.team.value) === normalizeTeamKey(summary.team)) { dailyProduction = { ...emptyDailyProduction(summary.team), ...summary }; updateGoal(); }
+  if (updateCurrentUi && normalizeTeamKey(elements.team.value) === normalizeTeamKey(summary.team)) { dailyProduction = { ...emptyDailyProduction(summary.team), ...summary }; updateGoal(); }
 }
 
 async function syncSingleRecord(recordId, notify = true) {
@@ -795,57 +855,81 @@ async function syncSingleRecord(recordId, notify = true) {
 }
 
 async function performSyncSingleRecord(recordId, notify = true) {
-  const record = await getRecord(recordId); if (!record || !session || session.role !== 'field') return null;
+  const requestSession = session; const revision = sessionRevision;
+  const storedRecord = await getRecord(recordId); if (!storedRecord || !requestSession || requestSession.role !== 'field') return null;
+  const record = normalizeOccurrenceRecord(storedRecord, 'localRecord');
+  if (record.user && String(record.user) !== String(requestSession.user)) {
+    console.warn('[Fila] Registro pertence a outro usuário; sincronização ignorada.', { recordId });
+    return null;
+  }
   if (!navigator.onLine) { record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet'; await putRecord(record); await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record; }
+  const dailyTotalExcludingRecord = Number(dailyProduction.totalExcludingRecord) || 0;
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
   try {
     if (next.serverConfirmed || next.attempts > 1) {
-      try { next = reconcilePhotoStates(next, await api.getRecordState(session.token, next.recordId)); await putRecord(next); }
+      try { next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await putRecord(next); }
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
     }
     next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
-    const submitResult = await api.submitRecord(session.token, {
+    const submitResult = await api.submitRecord(requestSession.token, {
       recordId: next.recordId, base: next.base, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
       pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
       pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
       transformer: next.transformer, services: next.services, materials: next.materials,
-      totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyProduction.totalExcludingRecord, occurrenceTotal(next.services)).percentage,
+      totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
     }, APP_VERSION);
-    next = reconcilePhotoStates(next, submitResult); await cacheDailySummary(submitResult.dailyProduction || next.dailyProduction);
+    next = reconcilePhotoStates(next, submitResult); await cacheDailySummary(submitResult.dailyProduction || next.dailyProduction, revision === sessionRevision && session?.token === requestSession.token);
     next.status = RECORD_STATUS.SYNCING_PHOTOS; await putRecord(next);
-    next = reconcilePhotoStates(next, await api.getRecordState(session.token, next.recordId)); await putRecord(next);
-    const lastPhotoIndex = next.occurrenceTypes?.includes(TYPE_TRAFO) ? 7 : 5;
+    next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await putRecord(next);
+    const lastPhotoIndex = normalizeOccurrenceTypes(next.occurrenceTypes).includes(TYPE_TRAFO) ? 7 : 5;
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
       const state = next.photoStates[index - 1] || {};
       if (state.confirmed && !state.replacePending) { await deletePhoto(next.recordId, index).catch(() => {}); continue; }
       const localPhoto = await getPhoto(next.recordId, index);
-      if (!localPhoto?.blob && index <= 5) continue;
+      if (!localPhoto?.blob && index <= 5) {
+        if (state.localReady) throw new ApiError(`A Foto ${index} não está mais disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
+        continue;
+      }
       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
-      const photoResult = await api.uploadPhoto(session.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending) });
+      const photoResult = await api.uploadPhoto(requestSession.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending) });
       next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
-      await putRecord(next); if (photoResult.photoStates?.find((item) => item.photoIndex === index)?.confirmed) await deletePhoto(next.recordId, index); await updateQueueUi();
+      await putRecord(next); if (next.photoStates[index - 1]?.confirmed) await deletePhoto(next.recordId, index); await updateQueueUi();
     }
-    const finalState = await api.getRecordState(session.token, next.recordId); next = reconcilePhotoStates(next, finalState);
+    const finalState = await api.getRecordState(requestSession.token, next.recordId); next = reconcilePhotoStates(next, finalState);
+    if (requiredPhotoDeficit(next) > 0) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
+    for (let index = 1; index <= lastPhotoIndex; index += 1) {
+      if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await deletePhoto(next.recordId, index).catch(() => {});
+    }
     next.status = finalState.status || RECORD_STATUS.WAITING_SUPERVISOR; next.lastError = ''; next.syncedAt = new Date().toISOString();
-    await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); await cacheDailySummary(finalState.dailyProduction || next.dailyProduction); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
+    await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); await cacheDailySummary(finalState.dailyProduction || next.dailyProduction, revision === sessionRevision && session?.token === requestSession.token); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
     next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await putRecord(next);
-    if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
-  } finally { await updateQueueUi(); if (currentView === 'mine') refreshMine(false); }
+    if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
+  } finally { await updateQueueUi(); if (currentView === 'mine' && session?.role === 'field') refreshMine(false); }
 }
 
 async function syncAll(notify = false) {
-  if (syncRunning || !session || session.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
-  try { const queue = (await getAllRecords()).filter((record) => SYNCABLE_STATUSES.has(record.status)); for (const record of queue) await syncSingleRecord(record.recordId, false); if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success'); }
-  finally { syncRunning = false; setBusy(elements.syncNowButton, false); await updateQueueUi(); }
+  const requestSession = session;
+  if (syncRunning || !requestSession || requestSession.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
+  try {
+    const queue = (await getAllRecords()).filter((record) => (!record.user || String(record.user) === String(requestSession.user)) && SYNCABLE_STATUSES.has(record.status));
+    for (const record of queue) await syncSingleRecord(record.recordId, false);
+    if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success');
+  } catch (error) {
+    console.error('[Fila] Falha ao verificar a fila.', error);
+    if (notify) toast('Não foi possível verificar a fila. Tente novamente.', 'error');
+  } finally { syncRunning = false; setBusy(elements.syncNowButton, false); await updateQueueUi().catch((error) => console.error('[Fila] Falha ao atualizar o painel.', error)); }
 }
 
 async function updateQueueUi() {
-  const summary = await getQueueSummary(); elements.syncPendingRecords.textContent = summary.pendingRecords.length; elements.syncPendingPhotos.textContent = summary.pendingPhotos;
+  const revision = sessionRevision; const owner = session?.role === 'field' ? session.user : '';
+  const summary = await getQueueSummary(owner); if (revision !== sessionRevision) return;
+  elements.syncPendingRecords.textContent = summary.pendingRecords.length; elements.syncPendingPhotos.textContent = summary.pendingPhotos;
   elements.syncPhotosSyncing.textContent = summary.syncingPhotos; elements.syncErrors.textContent = summary.errors; elements.syncNavCount.hidden = !summary.pendingRecords.length; elements.syncNavCount.textContent = summary.pendingRecords.length;
-  const lastSync = await getMeta(LAST_SYNC_META); elements.lastSyncAt.textContent = lastSync ? formatDateTime(lastSync) : 'Nenhuma sincronização concluída.'; renderSyncQueue(summary.pendingRecords);
+  const lastSync = await getMeta(LAST_SYNC_META); if (revision !== sessionRevision) return;
+  elements.lastSyncAt.textContent = lastSync ? formatDateTime(lastSync) : 'Nenhuma sincronização concluída.'; renderSyncQueue(summary.pendingRecords);
 }
 
 function renderSyncQueue(records) {
@@ -860,12 +944,37 @@ async function testConnection(notify = true) {
 }
 
 async function refreshMine(notify = false) {
-  if (!session || session.role !== 'field') return; setBusy(elements.refreshMineButton, true, 'Atualizando…');
-  try {
-    const localRecords = (await getAllRecords()).filter((record) => String(record.user || '') === String(session.user || '')); let serverRecords = [];
-    if (navigator.onLine && endpointConfigured()) { try { serverRecords = (await api.listMine(session.token)).records || []; } catch (error) { if (notify) toast(friendlyError(error), 'error'); } }
-    mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); await refreshMineGoal(false);
-  } finally { setBusy(elements.refreshMineButton, false); }
+  const requestSession = session; const revision = sessionRevision;
+  if (!requestSession || requestSession.role !== 'field') return null;
+  if (mineRefreshPromise && mineRefreshRevision === revision) return mineRefreshPromise;
+  setBusy(elements.refreshMineButton, true, 'Atualizando…');
+  const task = (async () => {
+    try {
+      const localRecords = normalizeOccurrenceRecords(await getAllRecords(), 'localRecords').filter((record) => String(record.user || '') === String(requestSession.user || ''));
+      if (revision !== sessionRevision) return null;
+      let serverRecords = [];
+      if (navigator.onLine && endpointConfigured()) {
+        try {
+          const result = await api.listMine(requestSession.token);
+          if (revision !== sessionRevision) return null;
+          serverRecords = normalizeOccurrenceRecords(result.records, 'listMine.records');
+        } catch (error) { if (revision === sessionRevision && notify) toast(friendlyError(error), 'error'); }
+      }
+      if (revision !== sessionRevision) return null;
+      mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); await refreshMineGoal(false); return mineRecords;
+    } catch (error) {
+      if (revision !== sessionRevision) return null;
+      console.error('[Minhas ocorrências] Falha ao atualizar.', error);
+      if (!mineRecords.length) elements.mineList.innerHTML = emptyState('Não foi possível carregar', 'Tente atualizar novamente.');
+      if (notify) toast('Não foi possível atualizar suas ocorrências. Tente novamente.', 'error');
+      return null;
+    }
+  })();
+  mineRefreshPromise = task; mineRefreshRevision = revision;
+  try { return await task; }
+  finally {
+    if (mineRefreshPromise === task) { mineRefreshPromise = null; mineRefreshRevision = -1; setBusy(elements.refreshMineButton, false); }
+  }
 }
 
 function setupMineTeams() {
@@ -879,14 +988,16 @@ function setupMineTeams() {
 
 async function refreshMineGoal(notify = false) {
   if (!mineTeam) { elements.mineGoalCard.hidden = true; return; }
-  elements.mineGoalCard.hidden = false; const date = operationalDate();
-  const fromRecord = mineRecords.find((record) => normalizeTeamKey(record.team) === normalizeTeamKey(mineTeam) && record.dailyProduction?.date === date)?.dailyProduction;
-  let summary = fromRecord || await getMeta(dailyCacheKey(mineTeam, date)) || emptyDailyProduction(mineTeam);
-  if (navigator.onLine && endpointConfigured() && session?.role === 'field') {
-    try { summary = await api.getDailyTeamProduction(session.token, mineTeam, date); await cacheDailySummary(summary); }
+  elements.mineGoalCard.hidden = false; const date = operationalDate(); const team = mineTeam;
+  const requestId = ++mineGoalRequestId; const revision = sessionRevision; const requestSession = session;
+  const fromRecord = mineRecords.find((record) => normalizeTeamKey(record.team) === normalizeTeamKey(team) && record.dailyProduction?.date === date)?.dailyProduction;
+  let summary = fromRecord || await getMeta(dailyCacheKey(team, date)) || emptyDailyProduction(team);
+  if (requestId !== mineGoalRequestId || revision !== sessionRevision || normalizeTeamKey(mineTeam) !== normalizeTeamKey(team)) return;
+  if (navigator.onLine && endpointConfigured() && requestSession?.role === 'field') {
+    try { summary = await api.getDailyTeamProduction(requestSession.token, team, date); if (requestId !== mineGoalRequestId || revision !== sessionRevision) return; await cacheDailySummary(summary); }
     catch (error) { if (notify) toast(friendlyError(error), 'error'); }
   }
-  renderMineGoal(summary);
+  if (requestId === mineGoalRequestId && revision === sessionRevision && normalizeTeamKey(mineTeam) === normalizeTeamKey(team)) renderMineGoal(summary);
 }
 
 function renderMineGoal(summary = emptyDailyProduction(mineTeam)) {
@@ -917,7 +1028,8 @@ function renderMineList() {
 }
 
 function recordCard(record, actionHtml = '') {
-  const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(record.services || []); const serviceQuantity = (record.services || []).reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
+  const services = normalizeArray(record.services, 'services');
+  const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(services); const serviceQuantity = services.reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
   const correction = record?.audit?.lastSupervisorCorrection;
   return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos gerais</span>${actionHtml}</footer></article>`;
 }
@@ -939,7 +1051,8 @@ async function handleMineAction(event) {
 }
 
 async function loadRecordIntoForm(record) {
-  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services: record.services || [], materials: record.materials?.length ? record.materials : [{ lineId: generateUuid(), description: '', quantity: '' }], photoStates: Array.from({ length: 7 }, (_, index) => record.photoStates?.[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
+  record = normalizeOccurrenceRecord(record); const services = record.services; const materials = record.materials; const photoStates = record.photoStates;
+  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, occurrenceTypes: normalizeOccurrenceTypes(record.occurrenceTypes), transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services, materials: materials.length ? materials : [{ lineId: generateUuid(), description: '', quantity: '' }], photoStates: Array.from({ length: 7 }, (_, index) => photoStates[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
   const photos = await getPhotosForRecord(record.recordId);
   for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
   if (photos.length) await putRecord(activeRecord);
@@ -967,20 +1080,23 @@ function resetForm({ preserveTeam = false } = {}) {
 }
 
 async function refreshSupervisor(notify = false) {
-  if (!session || session.role !== 'supervisor') return;
-  if (supervisorRefreshPromise) return supervisorRefreshPromise;
+  const requestSession = session; const revision = sessionRevision;
+  if (!requestSession || requestSession.role !== 'supervisor') return null;
+  if (supervisorRefreshPromise && supervisorRefreshRevision === revision) return supervisorRefreshPromise;
   if (!navigator.onLine) {
     const error = new ApiError('O painel do supervisor precisa de conexão.', 'OFFLINE');
     renderSupervisorList(error); if (notify) toast(error.message, 'error'); return null;
   }
-  supervisorRefreshPromise = (async () => {
-    setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
+  setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
+  const task = (async () => {
     try {
-      const result = await api.listPending(session.token);
-      supervisorRecords = Array.isArray(result.records) ? result.records : [];
-      selectedSupervisorIds = new Set([...selectedSupervisorIds].filter((id) => supervisorRecords.some((record) => record.recordId === id)));
+      const result = await api.listPending(requestSession.token);
+      if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
+      supervisorPhotoFailures.clear();
+      supervisorRecords = normalizeOccurrenceRecords(result.records, 'listPending.records');
       renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return supervisorRecords;
     } catch (error) {
+      if (revision !== sessionRevision) return null;
       if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
       else {
         console.error('[Supervisor] Falha ao atualizar ocorrências.', error);
@@ -989,10 +1105,13 @@ async function refreshSupervisor(notify = false) {
         if (notify) toast(message, 'error');
       }
       return null;
-    } finally { setBusy(elements.refreshSupervisorButton, false); }
+    }
   })();
-  try { return await supervisorRefreshPromise; }
-  finally { supervisorRefreshPromise = null; }
+  supervisorRefreshPromise = task; supervisorRefreshRevision = revision;
+  try { return await task; }
+  finally {
+    if (supervisorRefreshPromise === task) { supervisorRefreshPromise = null; supervisorRefreshRevision = -1; setBusy(elements.refreshSupervisorButton, false); }
+  }
 }
 
 function renderSupervisorList(error = null) {
@@ -1023,7 +1142,12 @@ function handleSupervisorListClick(event) {
 function handleSupervisorSelection(event) { const checkbox = event.target.closest('[data-supervisor-select]'); if (!checkbox) return; if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect); else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect); updateSupervisorSelectionUi(); }
 function selectableSupervisorRecords() { return supervisorRecords.filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length); }
 function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) selectableSupervisorRecords().forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
-function updateSupervisorSelectionUi() { const count = selectedSupervisorIds.size; const selectable = selectableSupervisorRecords(); elements.selectedCountLabel.textContent = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`; elements.approveSelectedButton.disabled = !count; elements.selectAllVisible.checked = Boolean(selectable.length && count === selectable.length); elements.selectAllVisible.indeterminate = count > 0 && count < selectable.length; }
+function updateSupervisorSelectionUi() {
+  const selectable = selectableSupervisorRecords(); const selectableIds = new Set(selectable.map((record) => record.recordId));
+  selectedSupervisorIds = new Set([...selectedSupervisorIds].filter((id) => selectableIds.has(id)));
+  $$('[data-supervisor-select]', elements.supervisorList).forEach((checkbox) => { const eligible = selectableIds.has(checkbox.dataset.supervisorSelect); checkbox.disabled = !eligible; checkbox.checked = eligible && selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); });
+  const count = selectedSupervisorIds.size; elements.selectedCountLabel.textContent = `${count} ${count === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`; elements.approveSelectedButton.disabled = !count; elements.selectAllVisible.checked = Boolean(selectable.length && count === selectable.length); elements.selectAllVisible.indeterminate = count > 0 && count < selectable.length;
+}
 
 function activeSupervisorPhotoIssues() { return activeSupervisorRecord ? photoIssueIndexes(activeSupervisorRecord, supervisorPhotoFailures.get(activeSupervisorRecord.recordId) || []) : []; }
 function updateSupervisorReviewActions() {
@@ -1038,8 +1162,9 @@ function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRec
 function openSupervisorEditor() {
   if (!activeSupervisorRecord) return;
   supervisorEditRecord = JSON.parse(JSON.stringify(activeSupervisorRecord));
-  supervisorEditRecord.services = (supervisorEditRecord.services || []).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
-  supervisorEditRecord.materials = (supervisorEditRecord.materials || []).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
+  supervisorEditRecord.occurrenceTypes = normalizeOccurrenceTypes(supervisorEditRecord.occurrenceTypes);
+  supervisorEditRecord.services = normalizeArray(supervisorEditRecord.services, 'services').map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
+  supervisorEditRecord.materials = normalizeArray(supervisorEditRecord.materials, 'materials').map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
   elements.editOperationBase.value = supervisorEditRecord.base || ''; elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
@@ -1083,10 +1208,14 @@ function renderSupervisorEditMaterials() {
 
 function searchSupervisorCatalog() {
   clearTimeout(supervisorEditSearchTimer); const query = elements.editServiceSearch.value.trim();
+  const requestId = ++supervisorEditCatalogRequestId; const revision = sessionRevision; const requestSession = session; const recordId = supervisorEditRecord?.recordId;
   if (query.length < 2) { elements.editServiceResults.hidden = true; return; }
   supervisorEditSearchTimer = setTimeout(async () => {
-    try { supervisorEditCatalogResults = (await api.searchCatalog(session.token, query, 25)).results || []; elements.editServiceResults.innerHTML = supervisorEditCatalogResults.length ? supervisorEditCatalogResults.map((item, index) => `<button class="search-result" type="button" data-edit-catalog-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.catalogText)}</span><small>${escapeHtml(item.unit)} · ${escapeHtml(formatCurrency(item.referenceValue))}</small></button>`).join('') : '<p class="search-empty">Nenhum serviço encontrado.</p>'; elements.editServiceResults.hidden = false; }
-    catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
+    try {
+      const result = await api.searchCatalog(requestSession.token, query, 25);
+      if (requestId !== supervisorEditCatalogRequestId || revision !== sessionRevision || supervisorEditRecord?.recordId !== recordId || elements.editServiceSearch.value.trim() !== query) return;
+      supervisorEditCatalogResults = normalizeArray(result.results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item)); elements.editServiceResults.innerHTML = supervisorEditCatalogResults.length ? supervisorEditCatalogResults.map((item, index) => `<button class="search-result" type="button" data-edit-catalog-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.catalogText)}</span><small>${escapeHtml(item.unit)} · ${escapeHtml(formatCurrency(item.referenceValue))}</small></button>`).join('') : '<p class="search-empty">Nenhum serviço encontrado.</p>'; elements.editServiceResults.hidden = false;
+    } catch (error) { if (requestId === supervisorEditCatalogRequestId && revision === sessionRevision) elements.supervisorEditErrors.textContent = friendlyError(error); }
   }, 260);
 }
 
@@ -1123,9 +1252,9 @@ async function saveSupervisorCorrection(event) {
   if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }
   setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
   try {
-    const result = await api.supervisorCorrectRecord(session.token, draft); activeSupervisorRecord = result.record;
-    const index = supervisorRecords.findIndex((record) => record.recordId === result.record.recordId); if (index >= 0) supervisorRecords[index] = result.record;
-    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${result.record.occurrenceNumber} · ${result.record.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(result.record); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
+    const result = await api.supervisorCorrectRecord(session.token, draft); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
+    const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
+    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${corrected.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
   } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
   finally { setBusy(elements.saveSupervisorEditButton, false); }
 }
@@ -1146,7 +1275,7 @@ function collectDecision(decision) {
 }
 
 async function approveSelected() {
-  const ids = [...selectedSupervisorIds]; if (!ids.length) return;
+  updateSupervisorSelectionUi(); const ids = [...selectedSupervisorIds]; if (!ids.length) return;
   if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas.`, 'Aprovar selecionadas', 'success')) return;
   setBusy(elements.approveSelectedButton, true, 'Aprovando…');
   try { const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} aprovada(s); ${result.skippedCount} ignorada(s).`, result.approvedCount ? 'success' : 'default'); selectedSupervisorIds.clear(); await refreshSupervisor(false); }
@@ -1176,7 +1305,7 @@ function handlePhotoLoadError(event) {
   if (!image.closest('#reviewDialog, #supervisorList')) return;
   const holder = image.closest('[data-photo-index]'); const recordId = image.closest('[data-record-photo-id]')?.dataset.recordPhotoId || '';
   const photoIndex = Number(holder?.dataset.photoIndex);
-  if (recordId && photoIndex) { const failures = supervisorPhotoFailures.get(recordId) || new Set(); failures.add(photoIndex); supervisorPhotoFailures.set(recordId, failures); if (activeSupervisorRecord?.recordId === recordId) updateSupervisorReviewActions(); }
+  if (recordId && photoIndex) { const failures = supervisorPhotoFailures.get(recordId) || new Set(); failures.add(photoIndex); supervisorPhotoFailures.set(recordId, failures); updateSupervisorSelectionUi(); if (activeSupervisorRecord?.recordId === recordId) updateSupervisorReviewActions(); }
 }
 function galleryFromElement(target) {
   const container = target.closest('.review-photos, .supervisor-thumbs');
@@ -1201,7 +1330,9 @@ function friendlyError(error) {
   if (error?.code === 'NETWORK_ERROR') return navigator.onLine ? 'Não foi possível falar com o servidor.' : 'Sem internet. Os dados continuam guardados neste aparelho.';
   if (error?.code === 'TIMEOUT') return 'A conexão demorou demais. A fila foi preservada para nova tentativa.';
   if (error?.code === 'ENDPOINT_NOT_CONFIGURED') return 'A publicação do backend ainda está sendo concluída.';
-  return error?.message || 'Ocorreu um erro inesperado.';
+  if (error instanceof ApiError) return error.message || 'Ocorreu um erro inesperado.';
+  console.error('[Aplicativo] Erro inesperado.', error);
+  return 'Ocorreu um erro inesperado.';
 }
 
 initialize().catch((error) => { elements.loginMessage.textContent = friendlyError(error); toast(friendlyError(error), 'error'); });

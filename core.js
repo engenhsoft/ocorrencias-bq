@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.09.01.2';
+export const APP_VERSION = '2026.09.01.3';
 
 export const TEAM_GOAL = 6000;
 
@@ -61,6 +61,49 @@ export function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+export function normalizeArray(value, label = 'valor') {
+  if (Array.isArray(value)) return value;
+  if (value == null || value === '') return [];
+  globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Array; usando [].`, { type: typeof value });
+  return [];
+}
+
+export function normalizeOccurrenceTypes(value) {
+  let source = value;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return [];
+    if (text.startsWith('[')) {
+      try { source = JSON.parse(text); }
+      catch { source = text.split('|'); }
+    } else source = text.split('|');
+  }
+  return [...new Set(normalizeArray(source, 'occurrenceTypes')
+    .map((type) => String(type ?? '').trim())
+    .filter(Boolean))];
+}
+
+export function normalizeOccurrenceRecord(value, label = 'record') {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  if (source !== value && value != null && value !== '') globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Object; usando objeto vazio.`, { type: typeof value });
+  return {
+    ...source,
+    occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
+    services: normalizeArray(source.services, `${label}.services`),
+    materials: normalizeArray(source.materials, `${label}.materials`),
+    photos: normalizeArray(source.photos, `${label}.photos`),
+    photoStates: normalizeArray(source.photoStates, `${label}.photoStates`),
+    transformer: source.transformer && typeof source.transformer === 'object' && !Array.isArray(source.transformer) ? source.transformer : {},
+    transformerPhotos: source.transformerPhotos && typeof source.transformerPhotos === 'object' && !Array.isArray(source.transformerPhotos) ? source.transformerPhotos : {}
+  };
+}
+
+export function normalizeOccurrenceRecords(value, label = 'records') {
+  return normalizeArray(value, label)
+    .filter((record) => record && typeof record === 'object' && !Array.isArray(record))
+    .map((record, index) => normalizeOccurrenceRecord(record, `${label}[${index}]`));
+}
+
 export function formatCurrency(value) {
   const number = Number(value);
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -104,7 +147,7 @@ export function serviceTotal(service) {
 }
 
 export function occurrenceTotal(services = []) {
-  return services.reduce((total, service) => total + serviceTotal(service), 0);
+  return normalizeArray(services, 'services').reduce((total, service) => total + serviceTotal(service), 0);
 }
 
 export function operationalDate(value = new Date(), timeZone = 'America/Bahia') {
@@ -175,7 +218,9 @@ export function goalProgress(total, goal = TEAM_GOAL) {
 
 export function validateOccurrence(record = {}) {
   const errors = [];
-  const types = Array.isArray(record.occurrenceTypes) ? record.occurrenceTypes : [];
+  const types = normalizeOccurrenceTypes(record.occurrenceTypes);
+  const services = normalizeArray(record.services, 'services');
+  const materials = normalizeArray(record.materials, 'materials');
   if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a base.');
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
   if (!String(record.crewLeader || '').trim()) errors.push('Informe o chefe de turma.');
@@ -200,13 +245,13 @@ export function validateOccurrence(record = {}) {
     if (!transformerPhotoReady(record, 'removed')) errors.push('Adicione a evidência do transformador retirado.');
     if (!transformerPhotoReady(record, 'installed')) errors.push('Adicione a evidência do transformador instalado.');
   }
-  if (!Array.isArray(record.services) || !record.services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
-  (record.services || []).forEach((service, index) => {
+  if (!services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
+  services.forEach((service, index) => {
     if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
     if (!(Number(service?.quantity) >= 1)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
   });
-  if (!Array.isArray(record.materials) || !record.materials.length) errors.push('Informe o material aplicado.');
-  (record.materials || []).forEach((material, index) => {
+  if (!materials.length) errors.push('Informe o material aplicado.');
+  materials.forEach((material, index) => {
     if (!String(material?.description || '').trim()) errors.push(`Informe o material aplicado no item ${index + 1}.`);
     if (!(Number(material?.quantity) > 0)) errors.push(`Informe a quantidade do material no item ${index + 1}.`);
   });
@@ -214,17 +259,16 @@ export function validateOccurrence(record = {}) {
 }
 
 export function countConfirmedPhotos(record) {
-  if (Array.isArray(record?.photoStates)) return record.photoStates.slice(0, 5).filter((state) => state?.confirmed).length;
-  if (Array.isArray(record?.photos)) return record.photos.filter(Boolean).length;
-  return Number(record?.photoCount) || 0;
+  const stateCount = normalizeArray(record?.photoStates, 'photoStates').slice(0, 5).filter((state) => state?.confirmed).length;
+  const urlCount = normalizeArray(record?.photos, 'photos').slice(0, 5).filter(Boolean).length;
+  return Math.max(stateCount, urlCount, Number(record?.photoCount) || 0);
 }
 
 export function countReadyPhotoStates(record) {
-  if (Array.isArray(record?.photoStates)) {
-    return record.photoStates.slice(0, 5).filter((state) => state?.confirmed || state?.serverUrl || state?.localReady).length;
-  }
-  if (Array.isArray(record?.photos)) return record.photos.filter(Boolean).length;
-  return Number(record?.photoCount) || 0;
+  const stateCount = normalizeArray(record?.photoStates, 'photoStates').slice(0, 5)
+    .filter((state) => state?.confirmed || state?.serverUrl || state?.localReady).length;
+  const urlCount = normalizeArray(record?.photos, 'photos').slice(0, 5).filter(Boolean).length;
+  return Math.max(stateCount, urlCount, Number(record?.photoCount) || 0);
 }
 
 export function transformerPhotoReady(record, kind) {
@@ -236,7 +280,7 @@ export function transformerPhotoReady(record, kind) {
 
 export function requiredPhotoDeficit(record) {
   const general = Math.max(0, 3 - countReadyPhotoStates(record));
-  if (!record?.occurrenceTypes?.includes('SUBSTITUIÇÃO DE TRAFO')) return general;
+  if (!normalizeOccurrenceTypes(record?.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO')) return general;
   return general + (transformerPhotoReady(record, 'removed') ? 0 : 1) + (transformerPhotoReady(record, 'installed') ? 0 : 1);
 }
 
@@ -282,7 +326,7 @@ export function photoIssueIndexes(record, failedIndexes = []) {
   const issues = [];
   const missingGeneral = validGeneral.map((valid, index) => valid ? 0 : index + 1).filter(Boolean);
   issues.push(...missingGeneral.slice(0, Math.max(0, 3 - validGeneral.filter(Boolean).length)));
-  if (record?.occurrenceTypes?.includes('SUBSTITUIÇÃO DE TRAFO')) {
+  if (normalizeOccurrenceTypes(record?.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO')) {
     if (!transformerPhotoReady(record, 'removed') || failed.has(6)) issues.push(6);
     if (!transformerPhotoReady(record, 'installed') || failed.has(7)) issues.push(7);
   }
@@ -301,7 +345,7 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('Equipe', before.team, after.team);
   add('Chefe de turma', before.crewLeader, after.crewLeader);
   add('Nº da ocorrência', before.occurrenceNumber, after.occurrenceNumber);
-  add('Tipo(s) da ocorrência', before.occurrenceTypes || [], after.occurrenceTypes || []);
+  add('Tipo(s) da ocorrência', normalizeOccurrenceTypes(before.occurrenceTypes), normalizeOccurrenceTypes(after.occurrenceTypes));
   add('Tipo de ocorrência avulso', before.otherOccurrenceType, after.otherOccurrenceType);
   add('PG do poste retirado', before.pgPostRemoved, after.pgPostRemoved);
   add('PG do poste instalado', before.pgPostInstalled, after.pgPostInstalled);
@@ -309,13 +353,14 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('PG final do condutor', before.pgConductorEnd, after.pgConductorEnd);
   add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
   add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
-  add('Serviços selecionados', (before.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), (after.services || []).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
-  add('Materiais aplicados', (before.materials || []).map(({ description, quantity }) => ({ description, quantity })), (after.materials || []).map(({ description, quantity }) => ({ description, quantity })));
+  add('Serviços selecionados', normalizeArray(before.services, 'services').map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), normalizeArray(after.services, 'services').map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
+  add('Materiais aplicados', normalizeArray(before.materials, 'materials').map(({ description, quantity }) => ({ description, quantity })), normalizeArray(after.materials, 'materials').map(({ description, quantity }) => ({ description, quantity })));
   add('Observação', before.observation, after.observation);
   return changes;
 }
 
 export function summarizeQueue(records = []) {
+  records = normalizeArray(records, 'records');
   const pendingStatuses = new Set([
     RECORD_STATUS.PENDING,
     RECORD_STATUS.SYNCING_DATA,
@@ -336,33 +381,39 @@ export function summarizeQueue(records = []) {
 }
 
 export function reconcilePhotoStates(localRecord, serverState) {
-  const byIndex = new Map((serverState?.photoStates || []).map((state) => [Number(state.photoIndex), state]));
+  const serverStates = normalizeArray(serverState?.photoStates, 'serverState.photoStates');
+  const serverRecord = serverState?.record && typeof serverState.record === 'object' && !Array.isArray(serverState.record) ? serverState.record : {};
+  const byIndex = new Map(serverStates.map((state) => [Number(state?.photoIndex), state]));
   const localStates = Array.from({ length: 7 }, (_, index) => {
     const current = localRecord?.photoStates?.[index] || {};
     const server = byIndex.get(index + 1);
     if (current.replacePending) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: server?.url || current.serverUrl || '' };
     }
-    if (!server?.confirmed) {
+    if (!server) {
+      return { ...current, photoIndex: index + 1, confirmed: Boolean(current.confirmed), localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
+    }
+    if (!server.confirmed) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
     }
     return { ...current, photoIndex: index + 1, confirmed: true, localReady: false, serverUrl: server.url || current.serverUrl || '', error: '' };
   });
-  return {
+  return normalizeOccurrenceRecord({
     ...localRecord,
-    ...(serverState?.record || {}),
+    ...serverRecord,
     serverConfirmed: true,
     serverStatus: serverState?.status || localRecord?.serverStatus || '',
     status: serverState?.status || localRecord?.status,
     photoStates: localStates,
     photoCount: localStates.slice(0, 5).filter((state) => state.confirmed).length,
     updatedAt: new Date().toISOString()
-  };
+  }, 'reconciledRecord');
 }
 
 export function dedupeCatalogResults(items) {
   const grouped = new Map();
-  for (const item of items || []) {
+  for (const item of normalizeArray(items, 'catalogResults')) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const key = [item.code, item.catalogText, item.unit, item.group, Number(item.referenceValue)].map(normalizeText).join('|');
     if (!grouped.has(key)) grouped.set(key, { ...item });
   }
@@ -371,16 +422,23 @@ export function dedupeCatalogResults(items) {
 
 export function mergeRecordCollections(localRecords, serverRecords) {
   const merged = new Map();
-  for (const record of localRecords || []) merged.set(record.recordId, { ...record });
-  for (const server of serverRecords || []) {
-    const local = merged.get(server.recordId) || {};
+  for (const record of normalizeOccurrenceRecords(localRecords, 'localRecords')) {
+    merged.set(record.recordId, { ...record });
+  }
+  for (const server of normalizeOccurrenceRecords(serverRecords, 'serverRecords')) {
+    const local = merged.get(server.recordId) || normalizeOccurrenceRecord({}, 'localRecord');
     merged.set(server.recordId, {
       ...local,
       ...server,
       localStatus: local.status,
       status: server.status || local.status,
-      photoStates: local.photoStates || server.photoStates,
-      photos: server.photos || local.photos
+      occurrenceTypes: server.occurrenceTypes.length ? server.occurrenceTypes : local.occurrenceTypes,
+      services: server.services.length ? server.services : local.services,
+      materials: server.materials.length ? server.materials : local.materials,
+      photoStates: Array.isArray(local.photoStates) && local.photoStates.length ? local.photoStates : server.photoStates,
+      photos: server.photos.length ? server.photos : local.photos,
+      transformer: Object.keys(server.transformer).length ? server.transformer : local.transformer,
+      transformerPhotos: Object.keys(server.transformerPhotos).length ? server.transformerPhotos : local.transformerPhotos
     });
   }
   return [...merged.values()].sort((a, b) => String(b.updatedAt || b.registeredAt || '').localeCompare(String(a.updatedAt || a.registeredAt || '')));

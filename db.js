@@ -196,8 +196,13 @@ export async function getMeta(key, fallback = null) {
   return row ? row.value : fallback;
 }
 
-export async function getQueueSummary() {
-  const records = await getAllRecords();
+export async function getQueueSummary(owner) {
+  const allRecords = await getAllRecords();
+  const records = owner === undefined
+    ? allRecords
+    : owner
+      ? allRecords.filter((record) => !String(record.user || '').trim() || String(record.user) === String(owner))
+      : [];
   const photos = [];
   for (const record of records) photos.push(...await getPhotosForRecord(record.recordId));
   const queue = summarizeQueue(records);

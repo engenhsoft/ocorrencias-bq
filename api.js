@@ -19,6 +19,9 @@ export async function parseResponse(response) {
   try { data = JSON.parse(text); } catch {
     throw new ApiError('O servidor retornou uma resposta inválida.', 'INVALID_SERVER_RESPONSE', { status: response.status, text: text.slice(0, 220) });
   }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new ApiError('O servidor retornou uma resposta inválida.', 'INVALID_SERVER_RESPONSE', { status: response.status, responseType: Array.isArray(data) ? 'array' : typeof data });
+  }
   if (!response.ok || data.ok === false || data.success === false) {
     throw new ApiError(data.message || `Falha no servidor (${response.status}).`, data.error || 'SERVER_ERROR', data);
   }
