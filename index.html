@@ -144,8 +144,13 @@
                 <strong id="goalStatus" class="goal-status goal-status--abaixo">ABAIXO DA META</strong>
               </section>
 
-              <section class="form-section">
-                <div class="subsection-heading"><div><h4>Material aplicado *</h4><p>Adicione todos os materiais e suas quantidades.</p></div><button id="addMaterialButton" class="button button--ghost button--small" type="button">+ Adicionar material</button></div>
+              <section class="form-section service-book">
+                <div class="subsection-heading"><div><p class="eyebrow">Base oficial</p><h4>Caderno de Materiais — Caderno de Obras</h4><p>Pesquise por código, parte do código ou palavras da descrição.</p></div><span class="status-chip status-chip--info">Somente Caderno de Obras</span></div>
+                <div class="catalog-search">
+                  <label class="field"><span>Pesquisar material</span><div class="input-with-icon"><span aria-hidden="true">⌕</span><input id="materialSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Ex.: 0210282, trafo 30 ou cabo" aria-controls="materialResults" /><span id="materialSearchSpinner" class="mini-spinner" hidden></span></div></label>
+                  <div id="materialResults" class="search-results" role="listbox" hidden></div>
+                  <p id="materialSearchHint" class="field-hint">Digite pelo menos 2 caracteres.</p>
+                </div>
                 <div id="materialsList" class="line-items"></div>
               </section>
 
@@ -204,7 +209,7 @@
           <section id="editPgConductorSection" class="form-section" hidden><h4>PG do Condutor</h4><div class="form-grid form-grid--two"><label class="field"><span>PG inicial *</span><input id="editPgConductorStart" maxlength="80" /></label><label class="field"><span>PG final *</span><input id="editPgConductorEnd" maxlength="80" /></label></div></section>
           <fieldset id="editTransformerSection" class="form-section" hidden><legend>Transformadores</legend><div class="transformer-grid"><div class="nested-card"><h5>Transformador retirado</h5><label class="field"><span>Código retirado *</span><input id="editRemovedTransformerCode" maxlength="80" /></label><label class="field"><span>CIA retirado *</span><input id="editRemovedTransformerCia" maxlength="80" /></label><label class="field"><span>BTO retirado *</span><input id="editRemovedTransformerBto" maxlength="80" /></label></div><div class="nested-card"><h5>Transformador instalado / novo</h5><label class="field"><span>Código instalado *</span><input id="editNewTransformerCode" maxlength="80" /></label><label class="field"><span>CIA instalado *</span><input id="editNewTransformerCia" maxlength="80" /></label><label class="field"><span>BTO instalado *</span><input id="editNewTransformerBto" maxlength="80" /></label></div></div></fieldset>
           <section class="form-section service-book"><div class="subsection-heading"><div><h4>Serviços selecionados</h4><p>Pesquise na mesma base Emergência e ajuste a QTD diretamente.</p></div></div><div class="catalog-search"><label class="field"><span>Pesquisar serviço</span><input id="editServiceSearch" autocomplete="off" placeholder="Código ou descrição" /></label><div id="editServiceResults" class="catalog-results" hidden></div></div><div id="editServicesList" class="line-items"></div></section>
-          <section class="form-section"><div class="subsection-heading"><div><h4>Materiais aplicados</h4></div><button id="editAddMaterialButton" class="button button--ghost button--small" type="button">+ Adicionar material</button></div><div id="editMaterialsList" class="line-items"></div></section>
+          <section class="form-section service-book"><div class="subsection-heading"><div><p class="eyebrow">Base oficial</p><h4>Caderno de Materiais — Caderno de Obras</h4><p>Pesquise e selecione o material; a unidade vem da planilha.</p></div><span class="status-chip status-chip--info">Somente Caderno de Obras</span></div><div class="catalog-search"><label class="field"><span>Pesquisar material</span><input id="editMaterialSearch" autocomplete="off" placeholder="Código ou descrição" aria-controls="editMaterialResults" /></label><div id="editMaterialResults" class="catalog-results" role="listbox" hidden></div></div><div id="editMaterialsList" class="line-items"></div></section>
           <label class="field"><span>Observação</span><textarea id="editObservation" rows="4" maxlength="1800"></textarea></label><div id="supervisorEditErrors" class="form-message" role="alert"></div>
         </div>
         <footer class="modal__footer"><button class="button button--ghost" type="button" data-close-supervisor-edit>Cancelar</button><button id="saveSupervisorEditButton" class="button button--success" type="submit">Salvar correção</button></footer>

@@ -64,7 +64,7 @@ test('contagem usa URLs quando photoStates está vazio', () => assert.equal(core
 test('fila tolera records malformado', () => assert.deepEqual(core.summarizeQueue('x').pendingRecords, []));
 
 let apiSource = await read('api.js');
-apiSource = apiSource.replace("from './config.js'", `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec';")}'`);
+apiSource = apiSource.replace("from './config.js'", `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'test',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
 Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, configurable: true });
 const apiModule = await import(dataUrl(apiSource));
 const response = (text, { ok = true, status = 200 } = {}) => ({ ok, status, text: async () => text });
@@ -162,8 +162,8 @@ function fakeElement() {
 
 async function loadAppHarness() {
   const dbStub = dataUrl(`
-    export const cacheCatalogResults=async()=>{}; export const deletePhoto=async(recordId,index)=>{globalThis.__deletedPhotos?.push([recordId,index])}; export const deleteRecord=async()=>{};
-    export const getAllRecords=async()=>globalThis.__dbRecords||[]; export const getMeta=async()=>null;
+    export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index)=>{globalThis.__deletedPhotos?.push([recordId,index])}; export const deleteRecord=async()=>{};
+    export const getAllRecords=async()=>globalThis.__dbRecords||[]; export const getCachedMaterialCatalog=async()=>[]; export const getMeta=async()=>null;
     export const getPhoto=async(recordId,index)=>globalThis.__photos?.get(index)||null; export const getPhotosForRecord=async()=>[];
     export const getQueueSummary=async()=>({pendingRecords:[],pendingPhotos:0,syncingPhotos:0,errors:0});
     export const getRecord=async()=>globalThis.__dbRecord||null; export const openDatabase=async()=>{};
@@ -174,7 +174,7 @@ async function loadAppHarness() {
     export class ApiError extends Error { constructor(message,code='API_ERROR'){super(message);this.code=code;} }
     const call=(name,...args)=>globalThis.__apiHandlers?.[name]?.(...args);
     export const api=new Proxy({}, {get:(_,name)=>(...args)=>call(name,...args)});
-    export const blobToDataUrl=async()=> 'data:image/jpeg;base64,AA=='; export const endpointConfigured=()=>true; export const healthCheck=async()=>({version:'test',timestamp:new Date().toISOString()});
+    export const blobToDataUrl=async()=> 'data:image/jpeg;base64,AA=='; export const endpointConfigured=()=>true; export const healthCheck=async()=>({version:'test',timestamp:new Date().toISOString()}); export const loadMaterialCatalog=async()=>[];
   `);
   let source = await read('app.js');
   source = source.replace("from './core.js'", `from '${coreUrl}'`).replace("from './db.js'", `from '${dbStub}'`).replace("from './api.js'", `from '${apiStub}'`);

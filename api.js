@@ -1,4 +1,4 @@
-import { API_ENDPOINT } from './config.js';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -69,6 +69,54 @@ export async function apiRequest(action, payload = {}, options = {}) {
     });
     return parseResponse(response);
   }, options.timeoutMs || 35000);
+}
+
+export function loadMaterialCatalog(options = {}) {
+  const timeoutMs = options.timeoutMs || 25000;
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      reject(new ApiError('O catálogo de materiais não está disponível neste ambiente.', 'MATERIAL_CATALOG_UNAVAILABLE'));
+      return;
+    }
+    const callbackName = `__ocbqMaterialCatalog_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement('script');
+    const url = new URL(`https://docs.google.com/spreadsheets/d/${MATERIAL_CATALOG_SOURCE.spreadsheetId}/gviz/tq`);
+    url.searchParams.set('tqx', `out:json;responseHandler:${callbackName}`);
+    url.searchParams.set('sheet', MATERIAL_CATALOG_SOURCE.sheetName);
+    url.searchParams.set('range', MATERIAL_CATALOG_SOURCE.range);
+    url.searchParams.set('tq', 'select A,B,C where A is not null');
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      script.remove();
+      try { delete globalThis[callbackName]; } catch { globalThis[callbackName] = undefined; }
+    };
+    const finish = (handler) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      handler();
+    };
+    globalThis[callbackName] = (response) => finish(() => {
+      if (!response || response.status !== 'ok' || !Array.isArray(response.table?.rows)) {
+        reject(new ApiError('Não foi possível carregar o Caderno de Obras.', 'MATERIAL_CATALOG_ERROR', response));
+        return;
+      }
+      const cellText = (cell) => String(cell?.f ?? cell?.v ?? '').trim();
+      const rows = response.table.rows.map((row) => ({
+        code: cellText(row?.c?.[0]),
+        description: cellText(row?.c?.[1]),
+        unit: cellText(row?.c?.[2]),
+        origin: 'Caderno de Obras'
+      }));
+      resolve(rows);
+    });
+    script.onerror = () => finish(() => reject(new ApiError('Não foi possível carregar o Caderno de Obras.', 'MATERIAL_CATALOG_ERROR')));
+    const timer = setTimeout(() => finish(() => reject(new ApiError('Tempo esgotado ao carregar o Caderno de Obras.', 'TIMEOUT'))), timeoutMs);
+    script.src = url.toString();
+    script.async = true;
+    document.head.append(script);
+  });
 }
 
 export const api = Object.freeze({

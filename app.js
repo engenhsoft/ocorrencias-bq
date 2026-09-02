@@ -1,17 +1,17 @@
 import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
-  dailyGoalProjection, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
+  dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  normalizeArray, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, occurrenceTotal, operationalDate, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, serviceTotal,
+  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
   supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
 import {
-  cacheCatalogResults, deletePhoto, deleteRecord, getAllRecords, getMeta, getPhoto,
+  cacheCatalogResults, cacheMaterialCatalog, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
 } from './db.js';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck } from './api.js';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -51,7 +51,8 @@ const elements = {
   goalCard: $('#goalCard'), dailyTeamLabel: $('#dailyTeamLabel'), dailySentValue: $('#dailySentValue'),
   currentValue: $('#currentValue'), projectedValue: $('#projectedValue'), goalPercentage: $('#goalPercentage'), goalBar: $('#goalBar'),
   refreshDailyGoalButton: $('#refreshDailyGoalButton'),
-  goalStatus: $('#goalStatus'), addMaterialButton: $('#addMaterialButton'), materialsList: $('#materialsList'),
+  goalStatus: $('#goalStatus'), materialSearch: $('#materialSearch'), materialResults: $('#materialResults'),
+  materialSearchHint: $('#materialSearchHint'), materialSearchSpinner: $('#materialSearchSpinner'), materialsList: $('#materialsList'),
   observation: $('#observation'), observationCount: $('#observationCount'), stepOneErrors: $('#stepOneErrors'),
   continueToPhotosButton: $('#continueToPhotosButton'), continueToReviewButton: $('#continueToReviewButton'),
   submitOccurrenceButton: $('#submitOccurrenceButton'), photoGrid: $('#photoGrid'), photoProgressChip: $('#photoProgressChip'),
@@ -89,7 +90,7 @@ const elements = {
   editRemovedTransformerBto: $('#editRemovedTransformerBto'), editNewTransformerCode: $('#editNewTransformerCode'),
   editNewTransformerCia: $('#editNewTransformerCia'), editNewTransformerBto: $('#editNewTransformerBto'),
   editServiceSearch: $('#editServiceSearch'), editServiceResults: $('#editServiceResults'), editServicesList: $('#editServicesList'),
-  editAddMaterialButton: $('#editAddMaterialButton'), editMaterialsList: $('#editMaterialsList'), editObservation: $('#editObservation'),
+  editMaterialSearch: $('#editMaterialSearch'), editMaterialResults: $('#editMaterialResults'), editMaterialsList: $('#editMaterialsList'), editObservation: $('#editObservation'),
   supervisorEditErrors: $('#supervisorEditErrors'), saveSupervisorEditButton: $('#saveSupervisorEditButton'), toastRegion: $('#toastRegion')
 };
 
@@ -103,6 +104,12 @@ let currentView = 'new';
 let catalogResults = [];
 let catalogSearchTimer = 0;
 let catalogSearchRequestId = 0;
+let materialCatalog = [];
+let materialCatalogPromise = null;
+let materialCatalogOnlineLoaded = false;
+let materialResults = [];
+let materialSearchTimer = 0;
+let materialSearchRequestId = 0;
 let mineRecords = [];
 let mineFilter = 'today';
 let mineTeam = '';
@@ -128,6 +135,9 @@ let supervisorEditRecord = null;
 let supervisorEditCatalogResults = [];
 let supervisorEditSearchTimer = 0;
 let supervisorEditCatalogRequestId = 0;
+let supervisorEditMaterialResults = [];
+let supervisorEditMaterialSearchTimer = 0;
+let supervisorEditMaterialRequestId = 0;
 const supervisorPhotoFailures = new Map();
 
 function readSession() {
@@ -147,10 +157,14 @@ function persistSession(value) {
 function clearSessionUiState() {
   clearInterval(supervisorRefreshTimer);
   clearTimeout(catalogSearchTimer);
+  clearTimeout(materialSearchTimer);
   clearTimeout(dailyLoadTimer);
   clearTimeout(supervisorEditSearchTimer);
+  clearTimeout(supervisorEditMaterialSearchTimer);
   catalogSearchRequestId += 1;
+  materialSearchRequestId += 1;
   supervisorEditCatalogRequestId += 1;
+  supervisorEditMaterialRequestId += 1;
   dailyRequestId += 1;
   mineGoalRequestId += 1;
   activeRecord = null;
@@ -163,6 +177,7 @@ function clearSessionUiState() {
   activeSupervisorRecord = null;
   supervisorEditRecord = null;
   supervisorEditCatalogResults = [];
+  supervisorEditMaterialResults = [];
   supervisorPhotoFailures.clear();
   photoGallery = [];
   photoGalleryIndex = 0;
@@ -254,10 +269,19 @@ function bindEvents() {
     const button = event.target.closest('[data-catalog-index]');
     if (button) selectCatalogItem(catalogResults[Number(button.dataset.catalogIndex)]);
   });
-  document.addEventListener('click', (event) => { if (!event.target.closest('.catalog-search')) elements.serviceResults.hidden = true; });
+  elements.materialSearch.addEventListener('input', handleMaterialCatalogInput);
+  elements.materialSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.materialResults.hidden = true; });
+  elements.materialResults.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-material-index]');
+    if (button) selectMaterialCatalogItem(materialResults[Number(button.dataset.materialIndex)]);
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('.catalog-search')) return;
+    elements.serviceResults.hidden = true; elements.materialResults.hidden = true;
+    elements.editServiceResults.hidden = true; elements.editMaterialResults.hidden = true;
+  });
   elements.servicesList.addEventListener('input', handleServiceChange);
   elements.servicesList.addEventListener('click', handleServiceChange);
-  elements.addMaterialButton.addEventListener('click', addMaterial);
   elements.materialsList.addEventListener('input', handleMaterialChange);
   elements.materialsList.addEventListener('click', handleMaterialChange);
   elements.continueToPhotosButton.addEventListener('click', () => {
@@ -303,7 +327,8 @@ function bindEvents() {
   elements.editServiceResults.addEventListener('click', selectSupervisorCatalogItem);
   elements.editServicesList.addEventListener('input', handleSupervisorServiceEdit);
   elements.editServicesList.addEventListener('click', handleSupervisorServiceEdit);
-  elements.editAddMaterialButton.addEventListener('click', addSupervisorMaterial);
+  elements.editMaterialSearch.addEventListener('input', searchSupervisorMaterials);
+  elements.editMaterialResults.addEventListener('click', selectSupervisorMaterial);
   elements.editMaterialsList.addEventListener('input', handleSupervisorMaterialEdit);
   elements.editMaterialsList.addEventListener('click', handleSupervisorMaterialEdit);
   elements.reviewDialogContent.addEventListener('click', handleZoomClick);
@@ -427,7 +452,7 @@ function blankRecord() {
     base: '', team: '', crewLeader: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '',
     pgPostRemoved: '', pgPostInstalled: '', pgConductorStart: '', pgConductorEnd: '',
     transformer: { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' },
-    services: [], materials: [{ lineId: generateUuid(), description: '', quantity: '' }], observation: '',
+    services: [], materials: [], observation: '',
     photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: false, localReady: false, serverUrl: '', uploadKey: '', replacePending: false })),
     transformerPhotos: { removed: '', installed: '' },
     correctionMode: false, attempts: 0, lastError: '', createdAt: now, updatedAt: now, user: session?.user || ''
@@ -639,28 +664,107 @@ function updateGoal() {
   elements.goalCard.classList.toggle('is-achieved', progress.state === 'atingida'); elements.goalCard.classList.toggle('is-exceeded', progress.state === 'superada');
 }
 
-async function addMaterial() {
-  await ensureActiveRecord(); activeRecord.materials.push({ lineId: generateUuid(), description: '', quantity: '' });
-  renderMaterials(); await saveActiveDraft();
+async function ensureMaterialCatalog(refreshOnline = false) {
+  if (!materialCatalog.length) materialCatalog = dedupeMaterialCatalog(await getCachedMaterialCatalog());
+  if (!navigator.onLine || (materialCatalogOnlineLoaded && !refreshOnline)) return materialCatalog;
+  if (!materialCatalogPromise) {
+    materialCatalogPromise = (async () => {
+      try {
+        const loaded = dedupeMaterialCatalog(await loadMaterialCatalog());
+        if (loaded.length) {
+          materialCatalog = loaded;
+          materialCatalogOnlineLoaded = true;
+          await cacheMaterialCatalog(loaded);
+        }
+      } catch (error) {
+        if (!materialCatalog.length) throw error;
+        console.warn('[Materiais] Caderno de Obras indisponível; usando catálogo local.', error);
+      }
+      return materialCatalog;
+    })().finally(() => { materialCatalogPromise = null; });
+  }
+  return materialCatalogPromise;
+}
+
+async function handleMaterialCatalogInput() {
+  const query = elements.materialSearch.value.trim();
+  if (query) await ensureActiveRecord();
+  clearTimeout(materialSearchTimer); const requestId = ++materialSearchRequestId;
+  if (query.length < 2) {
+    elements.materialSearchSpinner.hidden = true; elements.materialResults.hidden = true;
+    elements.materialSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; return;
+  }
+  materialSearchTimer = setTimeout(() => searchMaterials(query, requestId), 220);
+}
+
+async function searchMaterials(query, requestId) {
+  const revision = sessionRevision;
+  elements.materialSearchSpinner.hidden = false;
+  elements.materialSearchHint.textContent = navigator.onLine ? 'Carregando o Caderno de Obras…' : 'Sem internet: pesquisando materiais salvos neste aparelho.';
+  let error = null;
+  try { await ensureMaterialCatalog(); }
+  catch (caught) {
+    error = caught;
+    try { materialCatalog = dedupeMaterialCatalog(await getCachedMaterialCatalog()); }
+    catch (cacheError) { console.error('[Materiais] Falha ao ler o catálogo local.', cacheError); materialCatalog = []; }
+  }
+  if (requestId !== materialSearchRequestId || revision !== sessionRevision || elements.materialSearch.value.trim() !== query) return;
+  materialResults = searchMaterialCatalog(materialCatalog, query, 40); renderMaterialResults(error);
+  elements.materialSearchSpinner.hidden = true;
+}
+
+function renderMaterialResults(error = null) {
+  elements.materialResults.hidden = false;
+  if (!materialResults.length) {
+    elements.materialResults.innerHTML = `<div class="search-empty">${escapeHtml(error ? 'Catálogo indisponível e nenhum resultado salvo.' : 'Nenhum material encontrado no Caderno de Obras.')}</div>`;
+    elements.materialSearchHint.textContent = error ? friendlyError(error) : 'Tente outro código ou palavra.'; return;
+  }
+  elements.materialResults.innerHTML = materialResults.map((item, index) => `<button class="search-result" type="button" role="option" data-material-index="${index}">
+    <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Caderno de Obras</small></span>
+    <span>${escapeHtml(item.description)}</span>
+    <span class="search-result__meta"><b>${escapeHtml(item.unit)}</b></span>
+  </button>`).join('');
+  elements.materialSearchHint.textContent = `${materialResults.length} resultado(s). Toque para adicionar.`;
+}
+
+async function selectMaterialCatalogItem(item) {
+  if (!item) return; await ensureActiveRecord();
+  const key = materialKey(item);
+  if (normalizeMaterials(activeRecord.materials).some((material) => materialKey(material) === key)) {
+    toast('Este material já foi adicionado.', 'error'); return;
+  }
+  activeRecord.materials.push({ ...item, lineId: generateUuid(), materialKey: key, quantity: 1, origin: 'Caderno de Obras' });
+  elements.materialSearch.value = ''; elements.materialResults.hidden = true; materialResults = [];
+  renderMaterials(); validateStepOne(false); await saveActiveDraft();
+}
+
+function materialQuantityMarkup(material) {
+  const integer = String(material.unit || '').trim().toUpperCase() === 'UN';
+  return `<label class="field material-quantity"><span>QTD *</span><div class="quantity-with-unit"><input type="text" inputmode="${integer ? 'numeric' : 'decimal'}" data-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" aria-label="Quantidade de ${escapeHtml(material.description)}" /><strong>${escapeHtml(material.unit || '')}</strong></div></label>`;
 }
 
 function renderMaterials() {
-  const storedMaterials = normalizeArray(activeRecord?.materials, 'materials');
-  const materials = storedMaterials.length ? storedMaterials : [{ lineId: 'blank', description: '', quantity: '' }];
-  elements.materialsList.innerHTML = materials.map((material, index) => `<article class="line-item material-line" data-material-line="${escapeHtml(material.lineId)}">
-    <span class="line-item__index">${index + 1}</span><label class="field"><span>Material *</span><input type="text" maxlength="180" data-material-description="${escapeHtml(material.lineId)}" value="${escapeHtml(material.description)}" placeholder="Ex.: Cabo 35mm" /></label><label class="field"><span>Quantidade *</span><input type="number" min="0.001" step="any" inputmode="decimal" data-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /></label>${materials.length > 1 ? `<button class="icon-button delete-photo" type="button" data-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button>` : ''}
+  const materials = normalizeMaterials(activeRecord?.materials);
+  if (!materials.length) { elements.materialsList.innerHTML = '<div class="line-items__empty">Nenhum material selecionado.</div>'; return; }
+  elements.materialsList.innerHTML = materials.map((material, index) => `<article class="line-item material-row" data-material-line="${escapeHtml(material.lineId)}">
+    <div class="line-item__main"><div><span class="line-item__index">${index + 1}</span>${material.code ? `<strong>${escapeHtml(material.code)}</strong>` : ''}<p>${escapeHtml(material.description)}</p>${material.unit ? `<small>Unidade: ${escapeHtml(material.unit)}</small>` : '<small>Registro histórico sem código/unidade</small>'}</div><button class="icon-button delete-photo" type="button" data-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button></div>
+    <div class="line-item__fields">${materialQuantityMarkup(material)}</div>
   </article>`).join('');
 }
 
 async function handleMaterialChange(event) {
-  if (!activeRecord) { await ensureActiveRecord(); renderMaterials(); }
+  if (!activeRecord) return;
   const remove = event.target.closest('[data-remove-material]');
-  const description = event.target.closest('[data-material-description]');
   const quantity = event.target.closest('[data-material-quantity]');
-  if (remove) activeRecord.materials = activeRecord.materials.filter((item) => item.lineId !== remove.dataset.removeMaterial);
-  if (description) { const item = activeRecord.materials.find((row) => row.lineId === description.dataset.materialDescription) || activeRecord.materials[0]; if (item) item.description = description.value; }
-  if (quantity) { const item = activeRecord.materials.find((row) => row.lineId === quantity.dataset.materialQuantity) || activeRecord.materials[0]; if (item) item.quantity = quantity.value; }
-  if (remove) renderMaterials(); validateStepOne(false); await saveActiveDraft();
+  if (remove) {
+    activeRecord.materials = normalizeMaterials(activeRecord.materials).filter((item) => item.lineId !== remove.dataset.removeMaterial);
+    renderMaterials();
+  }
+  if (quantity) {
+    const item = activeRecord.materials.find((row) => row.lineId === quantity.dataset.materialQuantity);
+    if (item) item.quantity = quantity.value;
+  }
+  validateStepOne(false); await saveActiveDraft();
 }
 
 function validateStepOne(showErrors = false) {
@@ -760,8 +864,12 @@ function serviceTable(services = []) {
 }
 
 function materialTable(materials = []) {
-  materials = normalizeArray(materials, 'materials');
-  return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => `<tr><td data-label="Material">${escapeHtml(material.description)}</td><td data-label="Quantidade">${escapeHtml(formatNumber(material.quantity))}</td></tr>`).join('')}</tbody></table></div></div>`;
+  materials = normalizeMaterials(materials);
+  return `<div class="detail-section"><h4>Materiais aplicados</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Unidade</th><th>Quantidade</th></tr></thead><tbody>${materials.map((material) => {
+    const quantity = parseMaterialQuantity(material.quantity);
+    const quantityText = Number.isFinite(quantity) ? formatNumber(quantity) : String(material.quantity || '').trim();
+    return `<tr><td data-label="Código">${escapeHtml(material.code || '')}</td><td data-label="Descrição">${escapeHtml(material.description)}</td><td data-label="Unidade">${escapeHtml(material.unit || '')}</td><td data-label="Quantidade">${escapeHtml(quantityText)}${quantityText && material.unit ? ` ${escapeHtml(material.unit)}` : ''}</td></tr>`;
+  }).join('')}</tbody></table></div></div>`;
 }
 
 function photoUrlsForRecord(record = {}) {
@@ -876,7 +984,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
       pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
       pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
-      transformer: next.transformer, services: next.services, materials: next.materials,
+      transformer: next.transformer, services: next.services, materials: serializeMaterialsForBackend(next.materials),
       totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
     }, APP_VERSION);
@@ -1051,8 +1159,8 @@ async function handleMineAction(event) {
 }
 
 async function loadRecordIntoForm(record) {
-  record = normalizeOccurrenceRecord(record); const services = record.services; const materials = record.materials; const photoStates = record.photoStates;
-  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, occurrenceTypes: normalizeOccurrenceTypes(record.occurrenceTypes), transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services, materials: materials.length ? materials : [{ lineId: generateUuid(), description: '', quantity: '' }], photoStates: Array.from({ length: 7 }, (_, index) => photoStates[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
+  record = normalizeOccurrenceRecord(record); const services = record.services; const materials = record.materials.map((material) => ({ ...material, lineId: material.lineId || generateUuid() })); const photoStates = record.photoStates;
+  clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, occurrenceTypes: normalizeOccurrenceTypes(record.occurrenceTypes), transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services, materials, photoStates: Array.from({ length: 7 }, (_, index) => photoStates[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
   const photos = await getPhotosForRecord(record.recordId);
   for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
   if (photos.length) await putRecord(activeRecord);
@@ -1071,11 +1179,11 @@ async function loadRecordIntoForm(record) {
 
 function resetForm({ preserveTeam = false } = {}) {
   const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
-  catalogSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
-  [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.observation].forEach((input) => { input.value = ''; });
+  catalogSearchRequestId += 1; materialSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearTimeout(materialSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
+  [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.materialSearch, elements.observation].forEach((input) => { input.value = ''; });
   elements.team.value = team;
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
-  elements.transformerSection.hidden = true; elements.pgPostSection.hidden = true; elements.pgConductorSection.hidden = true; elements.otherTypeSection.hidden = true; elements.serviceResults.hidden = true; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
+  elements.transformerSection.hidden = true; elements.pgPostSection.hidden = true; elements.pgConductorSection.hidden = true; elements.otherTypeSection.hidden = true; elements.serviceResults.hidden = true; elements.materialResults.hidden = true; elements.materialSearchSpinner.hidden = true; elements.materialSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
   renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1); if (team) loadDailyProduction(team, false);
 }
 
@@ -1164,7 +1272,7 @@ function openSupervisorEditor() {
   supervisorEditRecord = JSON.parse(JSON.stringify(activeSupervisorRecord));
   supervisorEditRecord.occurrenceTypes = normalizeOccurrenceTypes(supervisorEditRecord.occurrenceTypes);
   supervisorEditRecord.services = normalizeArray(supervisorEditRecord.services, 'services').map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
-  supervisorEditRecord.materials = normalizeArray(supervisorEditRecord.materials, 'materials').map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
+  supervisorEditRecord.materials = normalizeMaterials(supervisorEditRecord.materials).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
   elements.editOperationBase.value = supervisorEditRecord.base || ''; elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
@@ -1174,7 +1282,7 @@ function openSupervisorEditor() {
   elements.editRemovedTransformerCode.value = supervisorEditRecord.transformer?.removedCode || ''; elements.editRemovedTransformerCia.value = supervisorEditRecord.transformer?.removedCia || '';
   elements.editRemovedTransformerBto.value = supervisorEditRecord.transformer?.removedBto || ''; elements.editNewTransformerCode.value = supervisorEditRecord.transformer?.newCode || '';
   elements.editNewTransformerCia.value = supervisorEditRecord.transformer?.newCia || ''; elements.editNewTransformerBto.value = supervisorEditRecord.transformer?.newBto || '';
-  elements.editObservation.value = supervisorEditRecord.observation || ''; elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; elements.supervisorEditErrors.textContent = '';
+  elements.editObservation.value = supervisorEditRecord.observation || ''; elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; elements.editMaterialSearch.value = ''; elements.editMaterialResults.hidden = true; elements.supervisorEditErrors.textContent = '';
   syncSupervisorEditorFromForm(); renderSupervisorEditServices(); renderSupervisorEditMaterials();
   elements.reviewDialog.close(); elements.supervisorEditDialog.showModal();
 }
@@ -1203,7 +1311,7 @@ function renderSupervisorEditServices() {
 
 function renderSupervisorEditMaterials() {
   if (!supervisorEditRecord) return;
-  elements.editMaterialsList.innerHTML = supervisorEditRecord.materials.length ? supervisorEditRecord.materials.map((material, index) => `<article class="material-line"><span class="line-item__index">${index + 1}</span><label class="field"><span>Material *</span><input maxlength="180" data-edit-material-description="${escapeHtml(material.lineId)}" value="${escapeHtml(material.description)}" /></label><label class="field"><span>Quantidade *</span><input type="number" min="0.001" step="any" inputmode="decimal" data-edit-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /></label><button class="icon-button delete-photo" type="button" data-edit-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um material.</div>';
+  elements.editMaterialsList.innerHTML = supervisorEditRecord.materials.length ? normalizeMaterials(supervisorEditRecord.materials).map((material, index) => `<article class="line-item material-row"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span>${material.code ? `<strong>${escapeHtml(material.code)}</strong>` : ''}<p>${escapeHtml(material.description)}</p>${material.unit ? `<small>Unidade: ${escapeHtml(material.unit)}</small>` : '<small>Registro histórico sem código/unidade</small>'}</div><button class="icon-button delete-photo" type="button" data-edit-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button></div><div class="line-item__fields"><label class="field material-quantity"><span>QTD *</span><div class="quantity-with-unit"><input type="text" inputmode="${normalizeText(material.unit) === 'UN' ? 'numeric' : 'decimal'}" data-edit-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /><strong>${escapeHtml(material.unit || '')}</strong></div></label></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um material do Caderno de Obras.</div>';
 }
 
 function searchSupervisorCatalog() {
@@ -1236,13 +1344,37 @@ function handleSupervisorServiceEdit(event) {
   service.quantity = Number(input.value); if (event.type === 'input') { const total = input.closest('.selected-service')?.querySelector('.field--wide strong'); if (total) total.textContent = formatCurrency(serviceTotal(service)); }
 }
 
-function addSupervisorMaterial() { if (!supervisorEditRecord) return; supervisorEditRecord.materials.push({ lineId: generateUuid(), description: '', quantity: '' }); renderSupervisorEditMaterials(); }
+function searchSupervisorMaterials() {
+  clearTimeout(supervisorEditMaterialSearchTimer); const query = elements.editMaterialSearch.value.trim();
+  const requestId = ++supervisorEditMaterialRequestId; const revision = sessionRevision; const recordId = supervisorEditRecord?.recordId;
+  if (query.length < 2) { elements.editMaterialResults.hidden = true; return; }
+  supervisorEditMaterialSearchTimer = setTimeout(async () => {
+    try {
+      await ensureMaterialCatalog();
+      if (requestId !== supervisorEditMaterialRequestId || revision !== sessionRevision || supervisorEditRecord?.recordId !== recordId || elements.editMaterialSearch.value.trim() !== query) return;
+      supervisorEditMaterialResults = searchMaterialCatalog(materialCatalog, query, 40);
+      elements.editMaterialResults.innerHTML = supervisorEditMaterialResults.length ? supervisorEditMaterialResults.map((item, index) => `<button class="search-result" type="button" data-edit-material-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.description)}</span><small>${escapeHtml(item.unit)}</small></button>`).join('') : '<p class="search-empty">Nenhum material encontrado no Caderno de Obras.</p>';
+      elements.editMaterialResults.hidden = false;
+    } catch (error) { if (requestId === supervisorEditMaterialRequestId && revision === sessionRevision) elements.supervisorEditErrors.textContent = friendlyError(error); }
+  }, 220);
+}
+
+function selectSupervisorMaterial(event) {
+  const button = event.target.closest('[data-edit-material-index]'); if (!button || !supervisorEditRecord) return;
+  const item = supervisorEditMaterialResults[Number(button.dataset.editMaterialIndex)]; if (!item) return;
+  const key = materialKey(item);
+  const existing = normalizeMaterials(supervisorEditRecord.materials).find((material) => materialKey(material) === key);
+  if (existing) { toast('Este material já foi adicionado.', 'error'); return; }
+  supervisorEditRecord.materials.push({ ...item, lineId: generateUuid(), materialKey: key, quantity: 1, origin: 'Caderno de Obras' });
+  elements.editMaterialSearch.value = ''; elements.editMaterialResults.hidden = true; supervisorEditMaterialResults = []; renderSupervisorEditMaterials();
+}
+
 function handleSupervisorMaterialEdit(event) {
   if (!supervisorEditRecord) return;
   const remove = event.target.closest('[data-edit-remove-material]'); if (remove) { supervisorEditRecord.materials = supervisorEditRecord.materials.filter((material) => material.lineId !== remove.dataset.editRemoveMaterial); renderSupervisorEditMaterials(); return; }
-  const description = event.target.closest('[data-edit-material-description]'); const quantity = event.target.closest('[data-edit-material-quantity]'); const input = description || quantity; if (!input) return;
-  const lineId = description ? description.dataset.editMaterialDescription : quantity.dataset.editMaterialQuantity; const material = supervisorEditRecord.materials.find((item) => item.lineId === lineId); if (!material) return;
-  if (description) material.description = description.value; else material.quantity = Number(quantity.value);
+  const quantity = event.target.closest('[data-edit-material-quantity]'); if (!quantity) return;
+  const material = supervisorEditRecord.materials.find((item) => item.lineId === quantity.dataset.editMaterialQuantity); if (!material) return;
+  material.quantity = quantity.value;
 }
 
 async function saveSupervisorCorrection(event) {
@@ -1252,7 +1384,7 @@ async function saveSupervisorCorrection(event) {
   if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }
   setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
   try {
-    const result = await api.supervisorCorrectRecord(session.token, draft); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
+    const result = await api.supervisorCorrectRecord(session.token, { ...draft, materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
     const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
     elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${corrected.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
   } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }

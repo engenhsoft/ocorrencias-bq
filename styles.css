@@ -488,8 +488,10 @@ p { color: var(--muted); line-height: 1.55; }
 .line-item__total strong { color: var(--navy-900); }
 .remove-item { min-width: 34px; min-height: 34px; padding: 0.25rem; border: 1px solid #f2c6cb; border-radius: 9px; color: var(--red-600); background: var(--red-100); font-weight: 800; cursor: pointer; }
 .material-row { grid-template-columns: minmax(0,1fr); }
-.material-row .line-item__fields { grid-template-columns: minmax(0,1fr) minmax(110px,0.32fr) auto; }
+.material-row .line-item__fields { grid-template-columns: minmax(140px,240px); }
 .material-line { grid-template-columns: auto minmax(0,1fr) minmax(110px,0.32fr) auto; align-items: end; }
+.quantity-with-unit { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 0.55rem; }
+.quantity-with-unit strong { min-width: 2.3rem; color: var(--navy-900); text-align: center; }
 .goal-card { width: 100%; max-width: 100%; min-width: 0; margin: 1.15rem 0; padding: 1rem; border: 1px solid #b9dae8; border-radius: 17px; overflow: hidden; background: linear-gradient(135deg,#eef8fc,#f6fbfd); }
 .goal-card__heading { margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.65rem; }
 .goal-card__heading > div { min-width: 0; display: grid; gap: 0.25rem; }
@@ -561,7 +563,7 @@ p { color: var(--muted); line-height: 1.55; }
   .subsection-heading .button { width: 100%; }
   .goal-card__values, .goal-card__values--daily { grid-template-columns: 1fr 1fr; }
   .goal-card__values div:first-child { grid-column: 1 / -1; }
-  .line-item__fields, .material-row .line-item__fields, .line-item__values, .material-line { grid-template-columns: 1fr; }
+  .line-item__fields, .material-row .line-item__fields, .line-item__values, .material-line { grid-template-columns: minmax(0,1fr); }
   .material-row .remove-item { width: 100%; }
   .detail-table-wrap { overflow-x: hidden; }
   .detail-table, .detail-table tbody, .detail-table tr, .detail-table td { width: 100%; max-width: 100%; display: block; }

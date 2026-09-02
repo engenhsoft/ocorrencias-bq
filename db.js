@@ -1,4 +1,4 @@
-import { summarizeQueue } from './core.js';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue } from './core.js';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;
@@ -165,7 +165,7 @@ export async function cacheCatalogResults(results) {
     const keys = result.catalogKeys?.length ? result.catalogKeys : [result.catalogKey];
     for (const key of keys) {
       if (!key) continue;
-      store(STORE.catalog).put({ ...result, catalogKey: key, cachedAt: new Date().toISOString() });
+      store(STORE.catalog).put({ ...result, kind: 'service', catalogKey: key, cachedAt: new Date().toISOString() });
     }
   }
   await transactionDone(transaction);
@@ -177,11 +177,41 @@ export async function searchCachedCatalog(query, limit = 25) {
   const { store } = await storeTransaction([STORE.catalog]);
   const rows = await requestResult(store(STORE.catalog).getAll());
   return rows
-    .filter((item) => [item.code, item.catalogText, item.group]
+    .filter((item) => item.kind !== 'material' && [item.code, item.catalogText, item.group]
       .some((value) => String(value || '').toUpperCase().normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '').includes(normalized)))
     .sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt-BR'))
     .slice(0, limit);
+}
+
+export async function cacheMaterialCatalog(results) {
+  const materials = dedupeMaterialCatalog(results);
+  if (!materials.length) return [];
+  const { transaction, store } = await storeTransaction([STORE.catalog], 'readwrite');
+  const catalogStore = store(STORE.catalog);
+  const existingRows = await requestResult(catalogStore.getAll());
+  for (const existing of existingRows) {
+    if (existing.kind === 'material' && existing.catalogKey) catalogStore.delete(existing.catalogKey);
+  }
+  for (const material of materials) {
+    const key = material.materialKey || materialKey(material);
+    if (!key) continue;
+    catalogStore.put({
+      ...material,
+      kind: 'material',
+      materialKey: key,
+      catalogKey: `material:${key}`,
+      cachedAt: new Date().toISOString()
+    });
+  }
+  await transactionDone(transaction);
+  return materials;
+}
+
+export async function getCachedMaterialCatalog() {
+  const { store } = await storeTransaction([STORE.catalog]);
+  const rows = await requestResult(store(STORE.catalog).getAll());
+  return dedupeMaterialCatalog(rows.filter((item) => item.kind === 'material'));
 }
 
 export async function setMeta(key, value) {

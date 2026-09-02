@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.09.01.3';
+export const APP_VERSION = '2026.09.02.1';
 
 export const TEAM_GOAL = 6000;
 
@@ -83,6 +83,96 @@ export function normalizeOccurrenceTypes(value) {
     .filter(Boolean))];
 }
 
+const STRUCTURED_MATERIAL_PATTERN = /^\[MATERIAL:([^\]]+)\]\s*(.*?)\s*\[UNIDADE:([^\]]+)\]$/i;
+
+export function parseMaterialQuantity(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const text = String(value ?? '').trim();
+  if (!/^\d+(?:[.,]\d+)?$/.test(text)) return NaN;
+  return Number(text.replace(',', '.'));
+}
+
+export function materialKey(value = {}) {
+  const material = normalizeMaterial(value);
+  if (!material.code || !material.description || !material.unit) return '';
+  return [material.code, material.description, material.unit].map(normalizeText).join('|');
+}
+
+export function normalizeMaterial(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  let code = String(source.code ?? source.codigo ?? source.materialCode ?? source.codigoMaterial ?? source['Código do Material'] ?? '').trim();
+  let description = String(source.catalogDescription ?? source.descricao ?? source.textoBreve ?? source['Texto breve'] ?? source.text ?? source.description ?? source.material ?? source.MATERIAL ?? '').trim();
+  let unit = String(source.unit ?? source.unidade ?? source.Unidade ?? '').trim();
+  const encoded = description.match(STRUCTURED_MATERIAL_PATTERN);
+  if (encoded) {
+    code ||= encoded[1].trim();
+    description = encoded[2].trim();
+    unit ||= encoded[3].trim();
+  }
+  return {
+    ...source,
+    lineId: String(source.lineId || ''),
+    code,
+    description,
+    unit,
+    quantity: source.quantity ?? source.quantidade ?? source.QUANTIDADE ?? '',
+    origin: source.origin || (code && unit ? 'Caderno de Obras' : 'Histórico')
+  };
+}
+
+export function normalizeMaterials(value, label = 'materials') {
+  return normalizeArray(value, label)
+    .filter((material) => material && typeof material === 'object' && !Array.isArray(material))
+    .map(normalizeMaterial);
+}
+
+export function isMaterialQuantityValid(value = {}) {
+  const material = normalizeMaterial(value);
+  const quantity = parseMaterialQuantity(material.quantity);
+  if (!(quantity > 0)) return false;
+  return normalizeText(material.unit) !== 'UN' || Number.isInteger(quantity);
+}
+
+export function encodeMaterialDescription(value = {}) {
+  const material = normalizeMaterial(value);
+  if (!material.code || !material.unit) return material.description;
+  return `[MATERIAL:${material.code}] ${material.description} [UNIDADE:${material.unit}]`;
+}
+
+export function serializeMaterialsForBackend(value) {
+  return normalizeMaterials(value).map((item) => {
+    const quantity = parseMaterialQuantity(item.quantity);
+    return {
+      ...item,
+      catalogDescription: item.description,
+      description: encodeMaterialDescription(item),
+      quantity: Number.isFinite(quantity) ? quantity : item.quantity
+    };
+  });
+}
+
+export function dedupeMaterialCatalog(value) {
+  const grouped = new Map();
+  for (const raw of normalizeArray(value, 'materialCatalog')) {
+    const material = normalizeMaterial(raw);
+    const key = materialKey(material);
+    if (!key || normalizeText(material.code) === 'CODIGO DO MATERIAL' || grouped.has(key)) continue;
+    grouped.set(key, { ...material, materialKey: key, origin: 'Caderno de Obras' });
+  }
+  return [...grouped.values()].sort((left, right) => String(left.code).localeCompare(String(right.code), 'pt-BR'));
+}
+
+export function searchMaterialCatalog(value, query, limit = 40) {
+  const tokens = normalizeText(query).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return [];
+  return dedupeMaterialCatalog(value)
+    .filter((material) => {
+      const searchable = normalizeText(`${material.code} ${material.description}`);
+      return tokens.every((token) => searchable.includes(token));
+    })
+    .slice(0, Math.max(0, Number(limit) || 0));
+}
+
 export function normalizeOccurrenceRecord(value, label = 'record') {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   if (source !== value && value != null && value !== '') globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Object; usando objeto vazio.`, { type: typeof value });
@@ -90,7 +180,7 @@ export function normalizeOccurrenceRecord(value, label = 'record') {
     ...source,
     occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
     services: normalizeArray(source.services, `${label}.services`),
-    materials: normalizeArray(source.materials, `${label}.materials`),
+    materials: normalizeMaterials(source.materials, `${label}.materials`),
     photos: normalizeArray(source.photos, `${label}.photos`),
     photoStates: normalizeArray(source.photoStates, `${label}.photoStates`),
     transformer: source.transformer && typeof source.transformer === 'object' && !Array.isArray(source.transformer) ? source.transformer : {},
@@ -220,7 +310,7 @@ export function validateOccurrence(record = {}) {
   const errors = [];
   const types = normalizeOccurrenceTypes(record.occurrenceTypes);
   const services = normalizeArray(record.services, 'services');
-  const materials = normalizeArray(record.materials, 'materials');
+  const materials = normalizeMaterials(record.materials, 'materials');
   if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a base.');
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
   if (!String(record.crewLeader || '').trim()) errors.push('Informe o chefe de turma.');
@@ -250,10 +340,15 @@ export function validateOccurrence(record = {}) {
     if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
     if (!(Number(service?.quantity) >= 1)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
   });
-  if (!materials.length) errors.push('Informe o material aplicado.');
+  if (!materials.length) errors.push('Adicione pelo menos um material aplicado.');
   materials.forEach((material, index) => {
     if (!String(material?.description || '').trim()) errors.push(`Informe o material aplicado no item ${index + 1}.`);
-    if (!(Number(material?.quantity) > 0)) errors.push(`Informe a quantidade do material no item ${index + 1}.`);
+    if (material.code && !material.unit) errors.push(`Unidade ausente no material ${index + 1}.`);
+    if (!isMaterialQuantityValid(material)) {
+      errors.push(normalizeText(material.unit) === 'UN'
+        ? `Informe uma quantidade inteira positiva no material ${index + 1}.`
+        : `Informe uma quantidade positiva no material ${index + 1}.`);
+    }
   });
   return [...new Set(errors)];
 }
@@ -354,7 +449,7 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
   add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
   add('Serviços selecionados', normalizeArray(before.services, 'services').map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), normalizeArray(after.services, 'services').map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
-  add('Materiais aplicados', normalizeArray(before.materials, 'materials').map(({ description, quantity }) => ({ description, quantity })), normalizeArray(after.materials, 'materials').map(({ description, quantity }) => ({ description, quantity })));
+  add('Materiais aplicados', normalizeMaterials(before.materials).map(({ code, description, unit, quantity }) => ({ code, description, unit, quantity })), normalizeMaterials(after.materials).map(({ code, description, unit, quantity }) => ({ code, description, unit, quantity })));
   add('Observação', before.observation, after.observation);
   return changes;
 }
