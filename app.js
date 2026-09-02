@@ -2,7 +2,7 @@ import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
+  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
   supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
@@ -117,6 +117,7 @@ let supervisorRecords = [];
 let selectedSupervisorIds = new Set();
 let activeSupervisorRecord = null;
 let syncRunning = false;
+let occurrenceSubmissionRunning = false;
 let supervisorRefreshPromise = null;
 let supervisorRefreshRevision = -1;
 let mineRefreshPromise = null;
@@ -139,6 +140,8 @@ let supervisorEditMaterialResults = [];
 let supervisorEditMaterialSearchTimer = 0;
 let supervisorEditMaterialRequestId = 0;
 const supervisorPhotoFailures = new Map();
+let confirmDialogPromise = null;
+let supervisorMutationRunning = false;
 
 function readSession() {
   try {
@@ -179,6 +182,8 @@ function clearSessionUiState() {
   supervisorEditCatalogResults = [];
   supervisorEditMaterialResults = [];
   supervisorPhotoFailures.clear();
+  occurrenceSubmissionRunning = false;
+  supervisorMutationRunning = false;
   photoGallery = [];
   photoGalleryIndex = 0;
   dailyProduction = emptyDailyProduction();
@@ -624,7 +629,7 @@ async function selectCatalogItem(item) {
 }
 
 function renderServices() {
-  const services = normalizeArray(activeRecord?.services, 'services');
+  const services = normalizeServices(activeRecord?.services);
   if (!services.length) {
     elements.servicesList.innerHTML = '<div class="line-items__empty">Nenhum serviço selecionado.</div>'; updateGoal(); return;
   }
@@ -807,18 +812,18 @@ function choosePhoto(photoIndex, capture, replace = false) {
 async function storeSelectedPhoto(photoIndex, file, replace) {
   try {
     await ensureActiveRecord(); const blob = await optimizePhoto(file);
-    if (blob.size > 9 * 1024 * 1024) throw new Error('A foto ficou acima de 9 MB mesmo após a otimização.');
+    if (blob.size > 9 * 1024 * 1024) throw new ApiError('A foto ficou acima de 9 MB mesmo após a otimização.', 'PHOTO_TOO_LARGE');
     const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
     activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.confirmed || state.serverUrl), error: '' };
     const stored = await putPhotoAndRecord(activeRecord, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
     activeRecord = stored.record;
     activePhotos.set(photoIndex, { blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
     await saveActiveDraft(); updatePhotoGrid(); validateStepOne(false);
-  } catch (error) { toast(error.message || 'Não foi possível preparar a foto.', 'error'); }
+  } catch (error) { toast(friendlyError(error), 'error'); }
 }
 
 async function optimizePhoto(file) {
-  if (!file.type.startsWith('image/')) throw new Error('Escolha um arquivo de imagem.');
+  if (!file.type.startsWith('image/')) throw new ApiError('Escolha um arquivo de imagem.', 'INVALID_PHOTO_TYPE');
   const sourceUrl = URL.createObjectURL(file);
   try {
     const image = new Image(); image.decoding = 'async'; image.src = sourceUrl; await image.decode();
@@ -826,7 +831,7 @@ async function optimizePhoto(file) {
     const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext('2d', { alpha: false }); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0, canvas.width, canvas.height);
     return await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84)) || file;
-  } catch { if (file.size <= 9 * 1024 * 1024) return file; throw new Error('Este formato não pôde ser otimizado neste aparelho. Use JPG ou PNG.'); }
+  } catch { if (file.size <= 9 * 1024 * 1024) return file; throw new ApiError('Este formato não pôde ser otimizado neste aparelho. Use JPG ou PNG.', 'PHOTO_OPTIMIZATION_FAILED'); }
   finally { URL.revokeObjectURL(sourceUrl); }
 }
 
@@ -859,7 +864,7 @@ function updatePhotoGrid() {
 }
 
 function serviceTable(services = []) {
-  services = normalizeArray(services, 'services');
+  services = normalizeServices(services);
   return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td data-label="Código">${escapeHtml(service.code)}</td><td data-label="Descrição">${escapeHtml(service.catalogText)}</td><td data-label="Unidade">${escapeHtml(service.unit)}</td><td data-label="QTD">${escapeHtml(formatNumber(service.quantity))}</td><td data-label="Unitário">${escapeHtml(formatCurrency(service.referenceValue))}</td><td data-label="Total">${escapeHtml(formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
@@ -894,9 +899,14 @@ function transformerPhotoMarkup(record, kind) {
 }
 
 function auditMarkup(record) {
-  const corrections = record?.audit?.supervisorCorrections;
-  if (!Array.isArray(corrections) || !corrections.length) return '';
-  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${corrections.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${normalizeArray(item.changes, 'audit.changes').map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`).join('')}</section>`;
+  const corrections = normalizeArray(record?.audit?.supervisorCorrections, 'audit.supervisorCorrections')
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+  if (!corrections.length) return '';
+  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${corrections.map((item) => {
+    const changes = normalizeArray(item.changes, 'audit.changes')
+      .filter((change) => change && typeof change === 'object' && !Array.isArray(change));
+    return `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${changes.map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`;
+  }).join('')}</section>`;
 }
 
 function displayAuditValue(value) {
@@ -933,15 +943,24 @@ function occurrenceDetails(record, includePhotos = true) {
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
 
 async function submitOccurrence() {
+  if (occurrenceSubmissionRunning) return;
   if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) < 3) { toast('Complete os dados e adicione pelo menos 3 fotos da ocorrência.', 'error'); return; }
-  if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
-  syncFormToRecord(); activeRecord.status = RECORD_STATUS.PENDING; activeRecord.lastError = '';
-  await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, null); const submittedId = activeRecord.recordId;
-  setBusy(elements.submitOccurrenceButton, true, 'Enviando…');
+  occurrenceSubmissionRunning = true;
+  let locallyQueued = false;
   try {
+    if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
+    syncFormToRecord(); activeRecord.status = RECORD_STATUS.PENDING; activeRecord.lastError = '';
+    await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, null); const submittedId = activeRecord.recordId; locallyQueued = true;
+    setBusy(elements.submitOccurrenceButton, true, 'Enviando…');
     const result = await syncSingleRecord(submittedId, false);
     toast(result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'Ocorrência enviada para conferência.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.', result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'success' : 'default');
-  } finally { setBusy(elements.submitOccurrenceButton, false); resetForm({ preserveTeam: true }); navigate('mine'); }
+  } catch (error) {
+    console.error('[Envio] Não foi possível guardar a ocorrência na fila.', error);
+    toast('Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
+  } finally {
+    occurrenceSubmissionRunning = false; setBusy(elements.submitOccurrenceButton, false);
+    if (locallyQueued) { resetForm({ preserveTeam: true }); navigate('mine'); }
+  }
 }
 
 async function cacheDailySummary(summary, updateCurrentUi = true) {
@@ -1136,7 +1155,7 @@ function renderMineList() {
 }
 
 function recordCard(record, actionHtml = '') {
-  const services = normalizeArray(record.services, 'services');
+  const services = normalizeServices(record.services);
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(services); const serviceQuantity = services.reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
   const correction = record?.audit?.lastSupervisorCorrection;
   return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos gerais</span>${actionHtml}</footer></article>`;
@@ -1231,12 +1250,12 @@ function renderSupervisorList(error = null) {
     updateSupervisorSelectionUi(); return;
   }
   elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
-    const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const eligible = !issues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR;
+    const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const eligible = !issues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${record.photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
@@ -1265,13 +1284,13 @@ function updateSupervisorReviewActions() {
   elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issueLabels.join(', ')}` : 'Solicitar correção';
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
 }
-function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${activeSupervisorRecord.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); }
+function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; const photoCount = Math.max(countConfirmedPhotos(activeSupervisorRecord), countReadyPhotoStates(activeSupervisorRecord)); elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); }
 
 function openSupervisorEditor() {
   if (!activeSupervisorRecord) return;
   supervisorEditRecord = JSON.parse(JSON.stringify(activeSupervisorRecord));
   supervisorEditRecord.occurrenceTypes = normalizeOccurrenceTypes(supervisorEditRecord.occurrenceTypes);
-  supervisorEditRecord.services = normalizeArray(supervisorEditRecord.services, 'services').map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
+  supervisorEditRecord.services = normalizeServices(supervisorEditRecord.services).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
   supervisorEditRecord.materials = normalizeMaterials(supervisorEditRecord.materials).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
   elements.editOperationBase.value = supervisorEditRecord.base || ''; elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
@@ -1378,54 +1397,72 @@ function handleSupervisorMaterialEdit(event) {
 }
 
 async function saveSupervisorCorrection(event) {
-  event.preventDefault(); if (!supervisorEditRecord || !activeSupervisorRecord) return;
+  event.preventDefault(); if (!supervisorEditRecord || !activeSupervisorRecord || supervisorMutationRunning) return;
   const draft = syncSupervisorEditorFromForm();
   const errors = validateOccurrence(draft); if (errors.length) { elements.supervisorEditErrors.innerHTML = errors.map((error) => `• ${escapeHtml(error)}`).join('<br>'); return; }
   if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }
+  supervisorMutationRunning = true;
   setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
   try {
     const result = await api.supervisorCorrectRecord(session.token, { ...draft, materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
     const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
-    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${corrected.photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
+    const photoCount = Math.max(countConfirmedPhotos(corrected), countReadyPhotoStates(corrected));
+    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
   } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
-  finally { setBusy(elements.saveSupervisorEditButton, false); }
+  finally { setBusy(elements.saveSupervisorEditButton, false); supervisorMutationRunning = false; updateSupervisorReviewActions(); }
 }
 
 async function decideSupervisor(decision) {
-  if (!activeSupervisorRecord) return; let reason = ''; let note = '';
-  if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
-  else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); const label = decision === 'reject' ? 'reprovar' : 'solicitar correção para'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} a ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
-  const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
-  try { await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note, decision === 'request_correction' ? activeSupervisorPhotoIssues() : []); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção de fotos solicitada.', 'success'); await refreshSupervisor(false); }
-  catch (error) { toast(friendlyError(error), 'error'); }
-  finally { setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false); }
+  if (!activeSupervisorRecord || supervisorMutationRunning) return;
+  supervisorMutationRunning = true;
+  let reason = ''; let note = '';
+  try {
+    if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
+    else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); const label = decision === 'reject' ? 'reprovar' : 'solicitar correção para'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} a ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
+    const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
+    await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note, decision === 'request_correction' ? activeSupervisorPhotoIssues() : []); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção de fotos solicitada.', 'success'); await refreshSupervisor(false);
+  } catch (error) { toast(friendlyError(error), 'error'); }
+  finally {
+    setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false);
+    supervisorMutationRunning = false; updateSupervisorReviewActions();
+  }
 }
 
 function collectDecision(decision) {
-  elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção'; elements.decisionReason.value = ''; elements.decisionNote.value = ''; elements.decisionDialog.showModal();
-  return new Promise((resolve) => { const handler = () => { elements.decisionDialog.removeEventListener('close', handler); if (elements.decisionDialog.returnValue === 'cancel' || !elements.decisionReason.value.trim()) resolve(null); else resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim() }); }; elements.decisionDialog.addEventListener('close', handler); });
+  elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção'; elements.decisionReason.value = ''; elements.decisionNote.value = ''; elements.decisionDialog.returnValue = ''; elements.decisionDialog.showModal();
+  return new Promise((resolve) => { const handler = () => { elements.decisionDialog.removeEventListener('close', handler); if (elements.decisionDialog.returnValue !== 'default' || !elements.decisionReason.value.trim()) resolve(null); else resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim() }); }; elements.decisionDialog.addEventListener('close', handler); });
 }
 
 async function approveSelected() {
   updateSupervisorSelectionUi(); const ids = [...selectedSupervisorIds]; if (!ids.length) return;
-  if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas.`, 'Aprovar selecionadas', 'success')) return;
-  setBusy(elements.approveSelectedButton, true, 'Aprovando…');
-  try { const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} aprovada(s); ${result.skippedCount} ignorada(s).`, result.approvedCount ? 'success' : 'default'); selectedSupervisorIds.clear(); await refreshSupervisor(false); }
-  catch (error) { toast(friendlyError(error), 'error'); } finally { setBusy(elements.approveSelectedButton, false); }
+  if (supervisorMutationRunning) return; supervisorMutationRunning = true;
+  try {
+    if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas.`, 'Aprovar selecionadas', 'success')) return;
+    setBusy(elements.approveSelectedButton, true, 'Aprovando…');
+    const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} aprovada(s); ${result.skippedCount} ignorada(s).`, result.approvedCount ? 'success' : 'default'); selectedSupervisorIds.clear(); await refreshSupervisor(false);
+  } catch (error) { toast(friendlyError(error), 'error'); }
+  finally { setBusy(elements.approveSelectedButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
 }
 
 async function approveAll() {
-  if (!await confirmAction('Aprovar todas?', 'Você tem certeza que deseja aprovar todas as ocorrências aptas?', 'Sim, aprovar todas', 'success')) return;
-  setBusy(elements.approveAllButton, true, 'Aprovando…');
-  try { const result = await api.approveBatch(session.token, [], true); toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success'); selectedSupervisorIds.clear(); await refreshSupervisor(false); }
-  catch (error) { toast(friendlyError(error), 'error'); } finally { setBusy(elements.approveAllButton, false); }
+  if (supervisorMutationRunning) return; supervisorMutationRunning = true;
+  try {
+    if (!await confirmAction('Aprovar todas?', 'Você tem certeza que deseja aprovar todas as ocorrências aptas?', 'Sim, aprovar todas', 'success')) return;
+    setBusy(elements.approveAllButton, true, 'Aprovando…');
+    const result = await api.approveBatch(session.token, [], true); toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success'); selectedSupervisorIds.clear(); await refreshSupervisor(false);
+  } catch (error) { toast(friendlyError(error), 'error'); }
+  finally { setBusy(elements.approveAllButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
 }
 
 function confirmAction(title, message, actionLabel = 'Confirmar', tone = 'default') {
+  if (confirmDialogPromise || elements.confirmDialog.open) return Promise.resolve(false);
   elements.confirmTitle.textContent = title; elements.confirmMessage.textContent = message; elements.confirmActionButton.textContent = actionLabel;
   elements.confirmActionButton.className = `button ${tone === 'danger' ? 'button--danger' : tone === 'success' ? 'button--success' : tone === 'warning' ? 'button--warning' : 'button--primary'}`;
-  elements.confirmIcon.textContent = tone === 'danger' ? '!' : tone === 'success' ? '✓' : '?'; elements.confirmDialog.showModal();
-  return new Promise((resolve) => { const handler = () => { elements.confirmDialog.removeEventListener('close', handler); resolve(elements.confirmDialog.returnValue === 'confirm'); }; elements.confirmDialog.addEventListener('close', handler); });
+  elements.confirmIcon.textContent = tone === 'danger' ? '!' : tone === 'success' ? '✓' : '?'; elements.confirmDialog.returnValue = ''; elements.confirmDialog.showModal();
+  let task;
+  task = new Promise((resolve) => { const handler = () => { elements.confirmDialog.removeEventListener('close', handler); if (confirmDialogPromise === task) confirmDialogPromise = null; resolve(elements.confirmDialog.returnValue === 'confirm'); }; elements.confirmDialog.addEventListener('close', handler); });
+  confirmDialogPromise = task;
+  return task;
 }
 
 function photoFallbackUrl(value) { const id = driveFileId(value); return id ? `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}` : ''; }
@@ -1456,13 +1493,21 @@ function renderPhotoDialog() {
 function movePhotoGallery(direction) { if (photoGallery.length < 2) return; photoGalleryIndex = (photoGalleryIndex + direction + photoGallery.length) % photoGallery.length; renderPhotoDialog(); }
 function emptyState(title, message) { return `<div class="empty-state card"><span aria-hidden="true">◇</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>`; }
 
+function isTechnicalErrorMessage(value) {
+  const message = String(value || '').trim();
+  return /\b(?:TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError)\b|\.(?:map|filter|find|forEach)\s+is\s+not\s+a\s+function|\b(?:undefined|null)\b|Unexpected token|JSON\.parse|\n\s*at\s+/i.test(message);
+}
+
 function friendlyError(error) {
   if (error?.code === 'INVALID_CREDENTIALS') return 'Nome, perfil ou senha inválidos.';
   if (error?.code === 'AUTH_REQUIRED') return 'Sua sessão expirou. Entre novamente.';
   if (error?.code === 'NETWORK_ERROR') return navigator.onLine ? 'Não foi possível falar com o servidor.' : 'Sem internet. Os dados continuam guardados neste aparelho.';
   if (error?.code === 'TIMEOUT') return 'A conexão demorou demais. A fila foi preservada para nova tentativa.';
   if (error?.code === 'ENDPOINT_NOT_CONFIGURED') return 'A publicação do backend ainda está sendo concluída.';
-  if (error instanceof ApiError) return error.message || 'Ocorreu um erro inesperado.';
+  if (error instanceof ApiError) {
+    if (isTechnicalErrorMessage(error.message)) { console.error('[Aplicativo] Resposta técnica ocultada do usuário.', error); return 'Ocorreu um erro inesperado.'; }
+    return error.message || 'Ocorreu um erro inesperado.';
+  }
   console.error('[Aplicativo] Erro inesperado.', error);
   return 'Ocorreu um erro inesperado.';
 }

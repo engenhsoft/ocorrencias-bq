@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const CACHE_NAME = `${CACHE_PREFIX}2026.09.02.1-material-catalog-1`;
+const CACHE_NAME = `${CACHE_PREFIX}2026.09.02.2-scroll-stability-1`;
 const APP_SHELL = [
   './',
   './index.html',

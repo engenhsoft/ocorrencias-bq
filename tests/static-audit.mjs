@@ -49,6 +49,7 @@ test('service worker limpa caches antigos do mesmo app', () => assert.match(serv
 test('navegação usa rede com fallback offline', () => { assert.match(serviceWorker, /request\.mode === 'navigate'/); assert.match(serviceWorker, /caches\.match\('\.\/index\.html'\)/); });
 test('versões de app e config são coerentes', () => {
   const appVersion = core.match(/APP_VERSION = '([^']+)'/)?.[1]; const cacheVersion = config.match(/CACHE_VERSION = '([^']+)'/)?.[1]; assert.equal(appVersion, cacheVersion); assert.ok(serviceWorker.includes(cacheVersion));
+  assert.ok(html.includes(`v${appVersion}`));
 });
 
 let passed = 0; const failures = [];

@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.09.02.1';
+export const APP_VERSION = '2026.09.02.2';
 
 export const TEAM_GOAL = 6000;
 
@@ -66,6 +66,11 @@ export function normalizeArray(value, label = 'valor') {
   if (value == null || value === '') return [];
   globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Array; usando [].`, { type: typeof value });
   return [];
+}
+
+export function normalizeServices(value, label = 'services') {
+  return normalizeArray(value, label)
+    .filter((service) => service && typeof service === 'object' && !Array.isArray(service));
 }
 
 export function normalizeOccurrenceTypes(value) {
@@ -179,7 +184,7 @@ export function normalizeOccurrenceRecord(value, label = 'record') {
   return {
     ...source,
     occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
-    services: normalizeArray(source.services, `${label}.services`),
+    services: normalizeServices(source.services, `${label}.services`),
     materials: normalizeMaterials(source.materials, `${label}.materials`),
     photos: normalizeArray(source.photos, `${label}.photos`),
     photoStates: normalizeArray(source.photoStates, `${label}.photoStates`),
@@ -237,7 +242,7 @@ export function serviceTotal(service) {
 }
 
 export function occurrenceTotal(services = []) {
-  return normalizeArray(services, 'services').reduce((total, service) => total + serviceTotal(service), 0);
+  return normalizeServices(services).reduce((total, service) => total + serviceTotal(service), 0);
 }
 
 export function operationalDate(value = new Date(), timeZone = 'America/Bahia') {
@@ -309,7 +314,7 @@ export function goalProgress(total, goal = TEAM_GOAL) {
 export function validateOccurrence(record = {}) {
   const errors = [];
   const types = normalizeOccurrenceTypes(record.occurrenceTypes);
-  const services = normalizeArray(record.services, 'services');
+  const services = normalizeServices(record.services);
   const materials = normalizeMaterials(record.materials, 'materials');
   if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a base.');
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
@@ -377,6 +382,12 @@ export function requiredPhotoDeficit(record) {
   const general = Math.max(0, 3 - countReadyPhotoStates(record));
   if (!normalizeOccurrenceTypes(record?.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO')) return general;
   return general + (transformerPhotoReady(record, 'removed') ? 0 : 1) + (transformerPhotoReady(record, 'installed') ? 0 : 1);
+}
+
+export function countPendingPhotoUploads(record) {
+  return normalizeArray(record?.photoStates, 'photoStates').slice(0, 7)
+    .filter((state) => state && typeof state === 'object' && !Array.isArray(state))
+    .filter((state) => Boolean(state.localReady) && (!state.confirmed || state.replacePending)).length;
 }
 
 export function normalizeFailedIndexes(value) {
@@ -448,7 +459,7 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('PG final do condutor', before.pgConductorEnd, after.pgConductorEnd);
   add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
   add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
-  add('Serviços selecionados', normalizeArray(before.services, 'services').map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), normalizeArray(after.services, 'services').map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
+  add('Serviços selecionados', normalizeServices(before.services).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), normalizeServices(after.services).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
   add('Materiais aplicados', normalizeMaterials(before.materials).map(({ code, description, unit, quantity }) => ({ code, description, unit, quantity })), normalizeMaterials(after.materials).map(({ code, description, unit, quantity }) => ({ code, description, unit, quantity })));
   add('Observação', before.observation, after.observation);
   return changes;
@@ -463,10 +474,10 @@ export function summarizeQueue(records = []) {
     RECORD_STATUS.ERROR
   ]);
   const pendingRecords = records.filter((record) => pendingStatuses.has(record.status));
-  const pendingPhotos = pendingRecords.reduce((total, record) => total + requiredPhotoDeficit(record), 0);
+  const pendingPhotos = pendingRecords.reduce((total, record) => total + countPendingPhotoUploads(record), 0);
   const syncingPhotos = records
     .filter((record) => record.status === RECORD_STATUS.SYNCING_PHOTOS)
-    .reduce((total, record) => total + requiredPhotoDeficit(record), 0);
+    .reduce((total, record) => total + countPendingPhotoUploads(record), 0);
   return {
     pendingRecords,
     pendingPhotos,

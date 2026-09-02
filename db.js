@@ -30,6 +30,7 @@ export function openDatabase() {
   if (connectionPromise) return connectionPromise;
   connectionPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+    let invalidated = false;
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE.records)) {
@@ -50,14 +51,25 @@ export function openDatabase() {
       }
     };
     request.onsuccess = () => {
-      request.result.onversionchange = () => request.result.close();
+      if (invalidated) {
+        request.result.close();
+        return;
+      }
+      request.result.onversionchange = () => {
+        request.result.close();
+        connectionPromise = null;
+      };
       resolve(request.result);
     };
     request.onerror = () => {
       connectionPromise = null;
       reject(request.error || new Error('Não foi possível abrir o armazenamento local.'));
     };
-    request.onblocked = () => reject(new Error('Feche outras versões do aplicativo para atualizar o armazenamento local.'));
+    request.onblocked = () => {
+      invalidated = true;
+      connectionPromise = null;
+      reject(new Error('Feche outras versões do aplicativo para atualizar o armazenamento local.'));
+    };
   });
   return connectionPromise;
 }
