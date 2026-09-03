@@ -121,7 +121,7 @@ export function loadMaterialCatalog(options = {}) {
 
 export const api = Object.freeze({
   login: (user, password, role) => apiRequest('login', { user, password, role }),
-  searchCatalog: (token, query, limit = 25) => apiRequest('searchCatalog', { token, query, limit }),
+  searchCatalog: (token, query, limit = 25, contract = '') => apiRequest('searchCatalog', { token, query, limit, contract }),
   submitRecord: (token, record, clientVersion) => apiRequest('submitRecord', { token, record, clientVersion }),
   uploadPhoto: (token, photo, options = {}) => apiRequest('uploadPhoto', {
     token,

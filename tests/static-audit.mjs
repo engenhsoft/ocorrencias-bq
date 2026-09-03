@@ -26,7 +26,7 @@ test('HTML não possui IDs duplicados', () => assert.equal(new Set(ids).size, id
 test('todos os labels apontam para IDs existentes', () => assert.deepEqual(labels.filter((id) => !ids.includes(id)), []));
 test('todas as referências de elementos do app existem', () => assert.deepEqual([...new Set(appRefs)].filter((id) => !ids.includes(id)), []));
 test('viewport inclui viewport-fit para iOS', () => assert.match(html, /viewport-fit=cover/));
-test('modal de Minhas possui corpo rolável', () => { assert.match(css, /#mineDetailDialog \.modal__body[\s\S]*?overflow-y:\s*auto/); assert.match(css, /-webkit-overflow-scrolling:\s*touch/); });
+test('modais detalhados compartilham um corpo rolável', () => { assert.match(css, /\.detail-modal \.modal__body[\s\S]*?overflow-y:\s*scroll/); assert.match(css, /-webkit-overflow-scrolling:\s*touch/); });
 test('layout impede overflow horizontal global', () => assert.match(css, /body[\s\S]*?overflow-x:\s*hidden/));
 test('layout possui correções para 360 px', () => assert.match(css, /@media \(max-width:\s*360px\)/));
 test('layout possui breakpoint mobile 640 px', () => assert.match(css, /@media \(max-width:\s*640px\)/));

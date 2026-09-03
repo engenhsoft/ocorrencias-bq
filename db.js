@@ -189,7 +189,7 @@ export async function searchCachedCatalog(query, limit = 25) {
   const { store } = await storeTransaction([STORE.catalog]);
   const rows = await requestResult(store(STORE.catalog).getAll());
   return rows
-    .filter((item) => item.kind !== 'material' && [item.code, item.catalogText, item.group]
+    .filter((item) => item.kind !== 'material' && item.contractValues && typeof item.contractValues === 'object' && [item.code, item.catalogText, item.group]
       .some((value) => String(value || '').toUpperCase().normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '').includes(normalized)))
     .sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt-BR'))

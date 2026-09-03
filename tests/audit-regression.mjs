@@ -13,9 +13,9 @@ const core = await import(coreUrl);
 
 const realPost = {
   recordId: '11111111-1111-4111-8111-111111111111',
-  base: 'MOSSORÓ', team: 'EQUIPE TESTE', crewLeader: 'ENCARREGADO TESTE', occurrenceNumber: 'TESTE POSTE 3 FOTOS',
+  base: 'MOSSORÓ', contract: '4600080939', team: 'EQUIPE TESTE', crewLeader: 'ENCARREGADO TESTE', occurrenceNumber: 'TESTE POSTE 3 FOTOS',
   occurrenceTypes: ['SUBSTITUIÇÃO DE POSTE'], pgPostRemoved: 'PG-RET-TESTE', pgPostInstalled: 'PG-INS-TESTE',
-  services: [{ catalogKey: 'k', code: 'SDEVU4024II', quantity: 1, referenceValue: 144.26 }],
+  services: [{ catalogKey: 'k', code: 'SDEVU4024II', quantity: 1, referenceValue: 144.26, contract: '4600080939' }],
   materials: [{ description: 'poste', quantity: 1 }], photos: ['a', 'b', 'c', '', '']
 };
 

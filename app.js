@@ -1,9 +1,9 @@
 import {
   APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
-  dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
+  contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
-  supervisorCorrectionChanges,
+  priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
 import {
@@ -36,7 +36,7 @@ const elements = {
   logoutButton: $('#logoutButton'), mainNav: $('#mainNav'), supervisorNav: $('#supervisorNav'),
   supervisorNavCount: $('#supervisorNavCount'), syncNavCount: $('#syncNavCount'), resumeBanner: $('#resumeBanner'),
   resumeBannerText: $('#resumeBannerText'), resumeDraftButton: $('#resumeDraftButton'),
-  discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), operationBase: $('#operationBase'), team: $('#team'),
+  discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), operationBase: $('#operationBase'), operationContract: $('#operationContract'), team: $('#team'),
   crewLeader: $('#crewLeader'),
   occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'),
   otherTypeSection: $('#otherTypeSection'), otherOccurrenceType: $('#otherOccurrenceType'),
@@ -81,7 +81,7 @@ const elements = {
   profileSwitchUser: $('#profileSwitchUser'), profileSwitchPassword: $('#profileSwitchPassword'),
   profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'),
   supervisorEditDialog: $('#supervisorEditDialog'), supervisorEditForm: $('#supervisorEditForm'), supervisorEditTitle: $('#supervisorEditTitle'),
-  editOperationBase: $('#editOperationBase'), editTeam: $('#editTeam'), editCrewLeader: $('#editCrewLeader'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
+  editOperationBase: $('#editOperationBase'), editOperationContract: $('#editOperationContract'), editTeam: $('#editTeam'), editCrewLeader: $('#editCrewLeader'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
   editOtherTypeSection: $('#editOtherTypeSection'), editOtherOccurrenceType: $('#editOtherOccurrenceType'),
   editPgPostSection: $('#editPgPostSection'), editPgConductorSection: $('#editPgConductorSection'),
   editPgPostRemoved: $('#editPgPostRemoved'), editPgPostInstalled: $('#editPgPostInstalled'),
@@ -262,11 +262,12 @@ function bindEvents() {
     if (target) navigate(target.dataset.nav);
   });
   $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav)));
-  [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType,
+  [elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType,
     elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd,
     elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
     elements.removedTransformerBto, elements.newTransformerCia, elements.newTransformerBto,
     elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
+  elements.operationBase.addEventListener('change', handleFormInput);
   elements.occurrenceTypes.addEventListener('change', handleFormInput);
   elements.serviceSearch.addEventListener('input', handleCatalogInput);
   elements.serviceSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.serviceResults.hidden = true; });
@@ -328,6 +329,7 @@ function bindEvents() {
   elements.supervisorEditForm.addEventListener('submit', saveSupervisorCorrection);
   $$('[data-close-supervisor-edit]').forEach((button) => button.addEventListener('click', () => elements.supervisorEditDialog.close()));
   elements.editOccurrenceTypes.addEventListener('change', syncSupervisorEditorFromForm);
+  elements.editOperationBase.addEventListener('change', handleSupervisorBaseChange);
   elements.editServiceSearch.addEventListener('input', searchSupervisorCatalog);
   elements.editServiceResults.addEventListener('click', selectSupervisorCatalogItem);
   elements.editServicesList.addEventListener('input', handleSupervisorServiceEdit);
@@ -454,7 +456,7 @@ function blankRecord() {
   return {
     recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
     operationalDate: operationalDate(),
-    base: '', team: '', crewLeader: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '',
+    base: '', contract: '', team: '', crewLeader: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '',
     pgPostRemoved: '', pgPostInstalled: '', pgConductorStart: '', pgConductorEnd: '',
     transformer: { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' },
     services: [], materials: [], observation: '',
@@ -475,6 +477,7 @@ function selectedTypes() { return $$('input[type="checkbox"]:checked', elements.
 function syncFormToRecord() {
   if (!activeRecord) return;
   activeRecord.base = elements.operationBase.value;
+  activeRecord.contract = contractForBase(activeRecord.base);
   activeRecord.team = elements.team.value.trim();
   activeRecord.crewLeader = elements.crewLeader.value.trim();
   activeRecord.occurrenceNumber = elements.occurrenceNumber.value.trim();
@@ -498,8 +501,35 @@ function syncFormToRecord() {
   activeRecord.goalPercentage = dailyGoalProjection(dailyProduction.totalExcludingRecord, activeRecord.totalServices).percentage;
 }
 
+function updateContractOutput(output, base) {
+  if (output) output.textContent = contractForBase(base) || 'Selecione a Sub-base';
+}
+
+function applyContractToRecord(record) {
+  const result = repriceServicesForBase(record?.services, record?.base);
+  record.contract = result.contract;
+  record.services = result.services;
+  record.totalServices = occurrenceTotal(record.services);
+  return result;
+}
+
+function servicePriceText(service) {
+  return service?.referenceValue == null || !Number.isFinite(Number(service.referenceValue))
+    ? 'Sem valor para o contrato'
+    : formatCurrency(service.referenceValue);
+}
+
 async function handleFormInput(event) {
-  await ensureActiveRecord(); syncFormToRecord();
+  await ensureActiveRecord();
+  const previousBase = activeRecord.base;
+  syncFormToRecord();
+  if (event?.target === elements.operationBase && activeRecord.base !== previousBase) {
+    const result = applyContractToRecord(activeRecord);
+    renderServices();
+    if (result.missingCodes.length && activeRecord.services.length && result.contract) toast(`Serviço sem valor cadastrado para o contrato ${result.contract}.`, 'error');
+    if (!elements.serviceResults.hidden) renderCatalogResults();
+  }
+  updateContractOutput(elements.operationContract, activeRecord.base);
   elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
   elements.pgPostSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_POST);
   elements.pgConductorSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR);
@@ -588,6 +618,10 @@ async function handleCatalogInput() {
     elements.searchSpinner.hidden = true; elements.serviceResults.hidden = true;
     elements.serviceSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; return;
   }
+  if (!contractForBase(elements.operationBase.value)) {
+    elements.searchSpinner.hidden = true; elements.serviceResults.hidden = true;
+    elements.serviceSearchHint.textContent = 'Selecione a Sub-base para definir o contrato e os valores dos serviços.'; return;
+  }
   catalogSearchTimer = setTimeout(() => searchCatalog(query, requestId), 260);
 }
 
@@ -596,7 +630,7 @@ async function searchCatalog(query, requestId) {
   elements.searchSpinner.hidden = false;
   elements.serviceSearchHint.textContent = navigator.onLine ? 'Pesquisando na aba Emergência…' : 'Sem internet: pesquisando itens salvos neste aparelho.';
   try {
-    const results = navigator.onLine ? (await api.searchCatalog(requestSession.token, query, 40)).results : await searchCachedCatalog(query, 40);
+    const results = navigator.onLine ? (await api.searchCatalog(requestSession.token, query, 40, contractForBase(elements.operationBase.value))).results : await searchCachedCatalog(query, 40);
     if (requestId !== catalogSearchRequestId || revision !== sessionRevision || elements.serviceSearch.value.trim() !== query) return;
     catalogResults = normalizeArray(results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item)); if (navigator.onLine) await cacheCatalogResults(catalogResults); renderCatalogResults();
   } catch (error) {
@@ -606,24 +640,38 @@ async function searchCatalog(query, requestId) {
 }
 
 function renderCatalogResults(error = null) {
+  const contract = contractForBase(elements.operationBase.value);
+  if (!contract) {
+    elements.serviceResults.hidden = true;
+    elements.serviceSearchHint.textContent = 'Selecione a Sub-base para definir o contrato e os valores dos serviços.';
+    return;
+  }
   elements.serviceResults.hidden = false;
   if (!catalogResults.length) {
     elements.serviceResults.innerHTML = `<div class="search-empty">${escapeHtml(error ? 'Servidor indisponível e nenhum resultado salvo.' : 'Nenhum serviço encontrado na aba Emergência.')}</div>`;
     elements.serviceSearchHint.textContent = error ? friendlyError(error) : 'Tente outro código ou palavra.'; return;
   }
-  elements.serviceResults.innerHTML = catalogResults.map((item, index) => `<button class="search-result" type="button" role="option" data-catalog-index="${index}">
+  elements.serviceResults.innerHTML = catalogResults.map((item, index) => {
+    const priced = priceServiceForContract(item, contract);
+    return `<button class="search-result" type="button" role="option" data-catalog-index="${index}">
     <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Emergência</small></span>
     <span>${escapeHtml(item.catalogText || 'Sem descrição')}</span>
-    <span class="search-result__meta"><b>${escapeHtml(item.unit || '—')}</b><span>${escapeHtml(item.group || '')}</span><span>${escapeHtml(formatCurrency(item.referenceValue))}</span></span>
-  </button>`).join('');
+    <span class="search-result__meta"><b>${escapeHtml(item.unit || '—')}</b><span>${escapeHtml(item.group || '')}</span><span>Contrato ${escapeHtml(contract)}</span><span>${escapeHtml(servicePriceText(priced))}</span></span>
+  </button>`;
+  }).join('');
   elements.serviceSearchHint.textContent = `${catalogResults.length} resultado(s). Toque para adicionar.`;
 }
 
 async function selectCatalogItem(item) {
   if (!item) return; await ensureActiveRecord();
+  const contract = contractForBase(elements.operationBase.value);
+  if (!contract) { toast('Selecione a Sub-base para definir o contrato e os valores dos serviços.', 'error'); return; }
+  const priced = priceServiceForContract(item, contract);
+  if (priced.referenceValue == null) { toast(`Serviço sem valor cadastrado para o contrato ${contract}.`, 'error'); return; }
   const catalogKey = item.catalogKey || item.catalogKeys?.[0] || '';
   if (activeRecord.services.some((service) => service.catalogKey === catalogKey)) { toast('Este serviço já foi adicionado.', 'error'); return; }
-  activeRecord.services.push({ lineId: generateUuid(), catalogKey, code: item.code, catalogText: item.catalogText || '', unit: item.unit || '', group: item.group || '', referenceValue: Number(item.referenceValue) || 0, quantity: 1, origin: 'Emergência' });
+  activeRecord.contract = contract;
+  activeRecord.services.push({ ...priced, lineId: generateUuid(), catalogKey, code: item.code, catalogText: item.catalogText || '', unit: item.unit || '', group: item.group || '', quantity: 1, origin: 'Emergência' });
   elements.serviceSearch.value = ''; elements.serviceResults.hidden = true; catalogResults = [];
   renderServices(); validateStepOne(false); await saveActiveDraft();
 }
@@ -634,8 +682,8 @@ function renderServices() {
     elements.servicesList.innerHTML = '<div class="line-items__empty">Nenhum serviço selecionado.</div>'; updateGoal(); return;
   }
   elements.servicesList.innerHTML = services.map((service, index) => `<article class="line-item" data-service-line="${escapeHtml(service.lineId)}">
-    <div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} ${service.group ? `· ${escapeHtml(service.group)}` : ''}</small></div><button class="icon-button delete-photo" type="button" data-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div>
-    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(formatCurrency(service.referenceValue))}</strong></div><div><span>Valor total</span><strong data-service-total="${escapeHtml(service.lineId)}">${escapeHtml(formatCurrency(serviceTotal(service)))}</strong></div></div>
+    <div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} ${service.group ? `· ${escapeHtml(service.group)}` : ''} · Contrato ${escapeHtml(service.contract || activeRecord.contract || '—')}</small></div><button class="icon-button delete-photo" type="button" data-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div>
+    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(servicePriceText(service))}</strong></div><div><span>Valor total</span><strong data-service-total="${escapeHtml(service.lineId)}">${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</strong></div></div>
   </article>`).join(''); updateGoal();
 }
 
@@ -865,7 +913,7 @@ function updatePhotoGrid() {
 
 function serviceTable(services = []) {
   services = normalizeServices(services);
-  return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td data-label="Código">${escapeHtml(service.code)}</td><td data-label="Descrição">${escapeHtml(service.catalogText)}</td><td data-label="Unidade">${escapeHtml(service.unit)}</td><td data-label="QTD">${escapeHtml(formatNumber(service.quantity))}</td><td data-label="Unitário">${escapeHtml(formatCurrency(service.referenceValue))}</td><td data-label="Total">${escapeHtml(formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="detail-section"><h4>Serviços</h4><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>Contrato</th><th>QTD</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${services.map((service) => `<tr><td data-label="Código">${escapeHtml(service.code)}</td><td data-label="Descrição">${escapeHtml(service.catalogText)}</td><td data-label="Unidade">${escapeHtml(service.unit)}</td><td data-label="Contrato">${escapeHtml(service.contract || '—')}</td><td data-label="QTD">${escapeHtml(formatNumber(service.quantity))}</td><td data-label="Unitário">${escapeHtml(servicePriceText(service))}</td><td data-label="Total">${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function materialTable(materials = []) {
@@ -901,12 +949,16 @@ function transformerPhotoMarkup(record, kind) {
 function auditMarkup(record) {
   const corrections = normalizeArray(record?.audit?.supervisorCorrections, 'audit.supervisorCorrections')
     .filter((item) => item && typeof item === 'object' && !Array.isArray(item));
-  if (!corrections.length) return '';
-  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${corrections.map((item) => {
+  const recalculations = normalizeArray(record?.audit?.contractRecalculations, 'audit.contractRecalculations')
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+  if (!corrections.length && !recalculations.length) return '';
+  const correctionEntries = corrections.map((item) => {
     const changes = normalizeArray(item.changes, 'audit.changes')
       .filter((change) => change && typeof change === 'object' && !Array.isArray(change));
     return `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${changes.map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`;
-  }).join('')}</section>`;
+  }).join('');
+  const recalculationEntries = recalculations.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>Valor recalculado conforme contrato da Sub-base.</strong><time>${escapeHtml(formatDateTime(item.recalculatedAt))}</time></div><div class="audit-changes"><div><span>Sub-base</span><del>${escapeHtml(item.base || '—')}</del><ins>${escapeHtml(item.base || '—')}</ins></div><div><span>Contrato</span><del>${escapeHtml(item.previousContract || '—')}</del><ins>${escapeHtml(item.contract || '—')}</ins></div><div><span>Total</span><del>${escapeHtml(formatCurrency(item.previousTotal))}</del><ins>${escapeHtml(formatCurrency(item.newTotal))}</ins></div></div></article>`).join('');
+  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${correctionEntries}${recalculationEntries}</section>`;
 }
 
 function displayAuditValue(value) {
@@ -937,7 +989,7 @@ function occurrenceDetails(record, includePhotos = true) {
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -999,7 +1051,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
     }
     next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
     const submitResult = await api.submitRecord(requestSession.token, {
-      recordId: next.recordId, base: next.base, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
+      recordId: next.recordId, base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
       pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
       pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
@@ -1158,7 +1210,14 @@ function recordCard(record, actionHtml = '') {
   const services = normalizeServices(record.services);
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(services); const serviceQuantity = services.reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
   const correction = record?.audit?.lastSupervisorCorrection;
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos gerais</span>${actionHtml}</footer></article>`;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos gerais</span>${actionHtml}</footer></article>`;
+}
+
+function openScrollableDialog(dialog, body) {
+  if (!dialog || !body) return;
+  body.scrollTop = 0;
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => { body.scrollTop = 0; });
 }
 
 async function handleMineAction(event) {
@@ -1168,7 +1227,7 @@ async function handleMineAction(event) {
   if (button.dataset.mineAction === 'view') {
     const detailRecord = { ...record, ...(server || {}), photos: server?.photos || record.photos, dailyProduction: server?.dailyProduction || record.dailyProduction };
     elements.mineDetailTitle.textContent = `Ocorrência ${detailRecord.occurrenceNumber || 'sem número'}`;
-    elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); elements.mineDetailDialog.showModal(); return;
+    elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); return;
   }
   if (button.dataset.mineAction === 'correct') {
     const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, photoStates: Array.from({ length: 7 }, (_, index) => record.photoStates?.[index] || ({ photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false })) };
@@ -1180,10 +1239,12 @@ async function handleMineAction(event) {
 async function loadRecordIntoForm(record) {
   record = normalizeOccurrenceRecord(record); const services = record.services; const materials = record.materials.map((material) => ({ ...material, lineId: material.lineId || generateUuid() })); const photoStates = record.photoStates;
   clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, occurrenceTypes: normalizeOccurrenceTypes(record.occurrenceTypes), transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services, materials, photoStates: Array.from({ length: 7 }, (_, index) => photoStates[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
+  if (!activeRecord.contract) activeRecord.contract = contractForBase(activeRecord.base);
+  if (activeRecord.services.length && activeRecord.services.every((service) => service.contractValues && typeof service.contractValues === 'object')) applyContractToRecord(activeRecord);
   const photos = await getPhotosForRecord(record.recordId);
   for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
   if (photos.length) await putRecord(activeRecord);
-  elements.operationBase.value = activeRecord.base || ''; elements.team.value = activeRecord.team || ''; elements.crewLeader.value = activeRecord.crewLeader || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
+  elements.operationBase.value = activeRecord.base || ''; updateContractOutput(elements.operationContract, activeRecord.base); elements.team.value = activeRecord.team || ''; elements.crewLeader.value = activeRecord.crewLeader || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
   if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); await loadDailyProduction(activeRecord.team, false); }
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
   elements.otherOccurrenceType.value = activeRecord.otherOccurrenceType || '';
@@ -1201,6 +1262,7 @@ function resetForm({ preserveTeam = false } = {}) {
   catalogSearchRequestId += 1; materialSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearTimeout(materialSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
   [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.materialSearch, elements.observation].forEach((input) => { input.value = ''; });
   elements.team.value = team;
+  updateContractOutput(elements.operationContract, '');
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
   elements.transformerSection.hidden = true; elements.pgPostSection.hidden = true; elements.pgConductorSection.hidden = true; elements.otherTypeSection.hidden = true; elements.serviceResults.hidden = true; elements.materialResults.hidden = true; elements.materialSearchSpinner.hidden = true; elements.materialSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; elements.observationCount.textContent = '0'; elements.draftIdBadge.hidden = true; elements.stepOneErrors.hidden = true;
   renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1); if (team) loadDailyProduction(team, false);
@@ -1250,12 +1312,12 @@ function renderSupervisorList(error = null) {
     updateSupervisorSelectionUi(); return;
   }
   elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
-    const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const eligible = !issues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
+    const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const pricingIssues = supervisorPricingIssues(record); const eligible = !issues.length && !pricingIssues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
@@ -1267,7 +1329,14 @@ function handleSupervisorListClick(event) {
 }
 
 function handleSupervisorSelection(event) { const checkbox = event.target.closest('[data-supervisor-select]'); if (!checkbox) return; if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect); else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect); updateSupervisorSelectionUi(); }
-function selectableSupervisorRecords() { return supervisorRecords.filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length); }
+function supervisorPricingIssues(record) {
+  const expectedContract = contractForBase(record?.base);
+  if (!expectedContract || String(record?.contract || '') !== expectedContract) return ['Contrato incompatível com a Sub-base.'];
+  if (record?.pricingIssue) return [String(record.pricingIssue)];
+  const invalid = normalizeServices(record?.services).find((service) => service.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract);
+  return invalid ? [`Serviço sem valor cadastrado para o contrato ${expectedContract}.`] : [];
+}
+function selectableSupervisorRecords() { return supervisorRecords.filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length && !supervisorPricingIssues(record).length); }
 function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) selectableSupervisorRecords().forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
 function updateSupervisorSelectionUi() {
   const selectable = selectableSupervisorRecords(); const selectableIds = new Set(selectable.map((record) => record.recordId));
@@ -1278,13 +1347,13 @@ function updateSupervisorSelectionUi() {
 
 function activeSupervisorPhotoIssues() { return activeSupervisorRecord ? photoIssueIndexes(activeSupervisorRecord, supervisorPhotoFailures.get(activeSupervisorRecord.recordId) || []) : []; }
 function updateSupervisorReviewActions() {
-  const issues = activeSupervisorPhotoIssues(); const ready = !issues.length && activeSupervisorRecord?.status === RECORD_STATUS.WAITING_SUPERVISOR;
+  const issues = activeSupervisorPhotoIssues(); const pricingIssues = supervisorPricingIssues(activeSupervisorRecord); const ready = !issues.length && !pricingIssues.length && activeSupervisorRecord?.status === RECORD_STATUS.WAITING_SUPERVISOR;
   elements.requestCorrectionButton.hidden = !issues.length;
   const issueLabels = issues.map((index) => index === 6 ? 'Trafo retirado' : index === 7 ? 'Trafo instalado' : `Foto ${index}`);
   elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issueLabels.join(', ')}` : 'Solicitar correção';
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
 }
-function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; const photoCount = Math.max(countConfirmedPhotos(activeSupervisorRecord), countReadyPhotoStates(activeSupervisorRecord)); elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); }
+function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; const photoCount = Math.max(countConfirmedPhotos(activeSupervisorRecord), countReadyPhotoStates(activeSupervisorRecord)); elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent); }
 
 function openSupervisorEditor() {
   if (!activeSupervisorRecord) return;
@@ -1293,7 +1362,7 @@ function openSupervisorEditor() {
   supervisorEditRecord.services = normalizeServices(supervisorEditRecord.services).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
   supervisorEditRecord.materials = normalizeMaterials(supervisorEditRecord.materials).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
-  elements.editOperationBase.value = supervisorEditRecord.base || ''; elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
+  elements.editOperationBase.value = supervisorEditRecord.base || ''; updateContractOutput(elements.editOperationContract, supervisorEditRecord.base); elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
   elements.editOtherOccurrenceType.value = supervisorEditRecord.otherOccurrenceType || '';
   elements.editPgPostRemoved.value = supervisorEditRecord.pgPostRemoved || supervisorEditRecord.pg1 || ''; elements.editPgPostInstalled.value = supervisorEditRecord.pgPostInstalled || supervisorEditRecord.pg2 || '';
@@ -1303,7 +1372,23 @@ function openSupervisorEditor() {
   elements.editNewTransformerCia.value = supervisorEditRecord.transformer?.newCia || ''; elements.editNewTransformerBto.value = supervisorEditRecord.transformer?.newBto || '';
   elements.editObservation.value = supervisorEditRecord.observation || ''; elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; elements.editMaterialSearch.value = ''; elements.editMaterialResults.hidden = true; elements.supervisorEditErrors.textContent = '';
   syncSupervisorEditorFromForm(); renderSupervisorEditServices(); renderSupervisorEditMaterials();
-  elements.reviewDialog.close(); elements.supervisorEditDialog.showModal();
+  elements.reviewDialog.close(); openScrollableDialog(elements.supervisorEditDialog, elements.supervisorEditDialog.querySelector('.modal__body'));
+}
+
+function handleSupervisorBaseChange() {
+  if (!supervisorEditRecord) return;
+  clearTimeout(supervisorEditSearchTimer);
+  supervisorEditCatalogRequestId += 1;
+  elements.editServiceResults.hidden = true;
+  const previousBase = supervisorEditRecord.base;
+  syncSupervisorEditorFromForm();
+  if (supervisorEditRecord.base !== previousBase) {
+    const result = applyContractToRecord(supervisorEditRecord);
+    renderSupervisorEditServices();
+    if (result.missingCodes.length && supervisorEditRecord.services.length && result.contract) elements.supervisorEditErrors.textContent = `Serviço sem valor cadastrado para o contrato ${result.contract}.`;
+    else elements.supervisorEditErrors.textContent = '';
+  }
+  updateContractOutput(elements.editOperationContract, supervisorEditRecord.base);
 }
 
 function syncSupervisorEditorFromForm() {
@@ -1314,18 +1399,19 @@ function syncSupervisorEditorFromForm() {
   const hasConductor = occurrenceTypes.includes(TYPE_CONDUCTOR); elements.editPgConductorSection.hidden = !hasConductor;
   const hasOther = occurrenceTypes.includes(TYPE_OTHER); elements.editOtherTypeSection.hidden = !hasOther;
   supervisorEditRecord = {
-    ...supervisorEditRecord, base: elements.editOperationBase.value, team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
+    ...supervisorEditRecord, base: elements.editOperationBase.value, contract: contractForBase(elements.editOperationBase.value), team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
     otherOccurrenceType: hasOther ? elements.editOtherOccurrenceType.value.trim() : '',
     pgPostRemoved: hasPost ? elements.editPgPostRemoved.value.trim() : '', pgPostInstalled: hasPost ? elements.editPgPostInstalled.value.trim() : '',
     pgConductorStart: hasConductor ? elements.editPgConductorStart.value.trim() : '', pgConductorEnd: hasConductor ? elements.editPgConductorEnd.value.trim() : '', observation: elements.editObservation.value.trim(),
     transformer: hasTransformer ? { removedCode: elements.editRemovedTransformerCode.value.trim(), removedCia: elements.editRemovedTransformerCia.value.trim(), removedBto: elements.editRemovedTransformerBto.value.trim(), newCode: elements.editNewTransformerCode.value.trim(), newCia: elements.editNewTransformerCia.value.trim(), newBto: elements.editNewTransformerBto.value.trim() } : { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' }
   };
+  updateContractOutput(elements.editOperationContract, supervisorEditRecord.base);
   return supervisorEditRecord;
 }
 
 function renderSupervisorEditServices() {
   if (!supervisorEditRecord) return;
-  elements.editServicesList.innerHTML = supervisorEditRecord.services.length ? supervisorEditRecord.services.map((service, index) => `<article class="selected-service"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} · ${escapeHtml(formatCurrency(service.referenceValue))}</small></div><button class="icon-button delete-photo" type="button" data-edit-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div><div class="readonly-grid"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-edit-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div class="field"><span>Valor unitário</span><strong>${escapeHtml(formatCurrency(service.referenceValue))}</strong></div><div class="field field--wide"><span>Valor total</span><strong>${escapeHtml(formatCurrency(serviceTotal(service)))}</strong></div></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um serviço da aba Emergência.</div>';
+  elements.editServicesList.innerHTML = supervisorEditRecord.services.length ? supervisorEditRecord.services.map((service, index) => `<article class="selected-service"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} · Contrato ${escapeHtml(service.contract || supervisorEditRecord.contract || '—')} · ${escapeHtml(servicePriceText(service))}</small></div><button class="icon-button delete-photo" type="button" data-edit-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div><div class="readonly-grid"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-edit-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div class="field"><span>Valor unitário</span><strong>${escapeHtml(servicePriceText(service))}</strong></div><div class="field field--wide"><span>Valor total</span><strong>${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</strong></div></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um serviço da aba Emergência.</div>';
 }
 
 function renderSupervisorEditMaterials() {
@@ -1337,11 +1423,13 @@ function searchSupervisorCatalog() {
   clearTimeout(supervisorEditSearchTimer); const query = elements.editServiceSearch.value.trim();
   const requestId = ++supervisorEditCatalogRequestId; const revision = sessionRevision; const requestSession = session; const recordId = supervisorEditRecord?.recordId;
   if (query.length < 2) { elements.editServiceResults.hidden = true; return; }
+  const contract = contractForBase(elements.editOperationBase.value);
+  if (!contract) { elements.editServiceResults.hidden = true; elements.supervisorEditErrors.textContent = 'Selecione a Sub-base para definir o contrato e os valores dos serviços.'; return; }
   supervisorEditSearchTimer = setTimeout(async () => {
     try {
-      const result = await api.searchCatalog(requestSession.token, query, 25);
+      const result = await api.searchCatalog(requestSession.token, query, 25, contract);
       if (requestId !== supervisorEditCatalogRequestId || revision !== sessionRevision || supervisorEditRecord?.recordId !== recordId || elements.editServiceSearch.value.trim() !== query) return;
-      supervisorEditCatalogResults = normalizeArray(result.results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item)); elements.editServiceResults.innerHTML = supervisorEditCatalogResults.length ? supervisorEditCatalogResults.map((item, index) => `<button class="search-result" type="button" data-edit-catalog-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.catalogText)}</span><small>${escapeHtml(item.unit)} · ${escapeHtml(formatCurrency(item.referenceValue))}</small></button>`).join('') : '<p class="search-empty">Nenhum serviço encontrado.</p>'; elements.editServiceResults.hidden = false;
+      supervisorEditCatalogResults = normalizeArray(result.results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item)); elements.editServiceResults.innerHTML = supervisorEditCatalogResults.length ? supervisorEditCatalogResults.map((item, index) => { const priced = priceServiceForContract(item, contract); return `<button class="search-result" type="button" data-edit-catalog-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.catalogText)}</span><small>${escapeHtml(item.unit)} · Contrato ${escapeHtml(contract)} · ${escapeHtml(servicePriceText(priced))}</small></button>`; }).join('') : '<p class="search-empty">Nenhum serviço encontrado.</p>'; elements.editServiceResults.hidden = false;
     } catch (error) { if (requestId === supervisorEditCatalogRequestId && revision === sessionRevision) elements.supervisorEditErrors.textContent = friendlyError(error); }
   }, 260);
 }
@@ -1349,9 +1437,13 @@ function searchSupervisorCatalog() {
 function selectSupervisorCatalogItem(event) {
   const button = event.target.closest('[data-edit-catalog-index]'); if (!button || !supervisorEditRecord) return;
   const item = supervisorEditCatalogResults[Number(button.dataset.editCatalogIndex)]; if (!item) return;
+  const contract = contractForBase(elements.editOperationBase.value);
+  if (!contract) { elements.supervisorEditErrors.textContent = 'Selecione a Sub-base para definir o contrato e os valores dos serviços.'; return; }
+  const priced = priceServiceForContract(item, contract);
+  if (priced.referenceValue == null) { elements.supervisorEditErrors.textContent = `Serviço sem valor cadastrado para o contrato ${contract}.`; return; }
   const existing = supervisorEditRecord.services.find((service) => service.catalogKey === item.catalogKey);
   if (existing) existing.quantity = Math.max(1, Number(existing.quantity) || 1);
-  else supervisorEditRecord.services.push({ ...item, lineId: generateUuid(), quantity: 1, totalValue: Number(item.referenceValue) || 0 });
+  else supervisorEditRecord.services.push({ ...priced, lineId: generateUuid(), quantity: 1, totalValue: priced.referenceValue });
   elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; renderSupervisorEditServices();
 }
 
@@ -1407,7 +1499,7 @@ async function saveSupervisorCorrection(event) {
     const result = await api.supervisorCorrectRecord(session.token, { ...draft, materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
     const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
     const photoCount = Math.max(countConfirmedPhotos(corrected), countReadyPhotoStates(corrected));
-    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); elements.reviewDialog.showModal(); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
+    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
   } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
   finally { setBusy(elements.saveSupervisorEditButton, false); supervisorMutationRunning = false; updateSupervisorReviewActions(); }
 }

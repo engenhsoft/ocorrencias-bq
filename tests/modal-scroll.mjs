@@ -24,46 +24,51 @@ test('consulta e conferência usam a estrutura compartilhada', () => {
   assert.match(html, /id="reviewDialogContent" class="modal__body"/);
 });
 
-test('modal detalhado possui altura definida pelo viewport', () => {
+test('modal detalhado usa insets físicos sem depender de vh no Safari', () => {
   const rules = declarations('.detail-modal');
-  assert.match(rules, /height:\s*calc\(100vh\s*-\s*1\.5rem\)/);
-  assert.match(rules, /height:\s*calc\(100dvh\s*-\s*1\.5rem\)/);
+  assert.match(rules, /position:\s*fixed/);
+  assert.match(rules, /inset:[^;]+safe-area-inset-top/);
+  assert.match(rules, /height:\s*auto/);
+  assert.match(rules, /max-height:\s*none/);
+  assert.doesNotMatch(rules, /100d?vh/);
 });
 
-test('dialog aberto estabelece coluna flexível', () => {
+test('dialog aberto delega o layout vertical à superfície', () => {
   const rules = declarations('.detail-modal[open]');
-  assert.match(rules, /display:\s*flex/);
-  assert.match(rules, /flex-direction:\s*column/);
+  assert.match(rules, /display:\s*block/);
 });
 
-test('superfície ocupa a altura definida sem bloquear encolhimento', () => {
+test('superfície separa cabeçalho corpo e rodapé por grid', () => {
   const rules = declarations('.detail-modal .modal__surface');
-  assert.match(rules, /flex:\s*1\s+1\s+auto/);
   assert.match(rules, /height:\s*100%/);
-  assert.match(rules, /max-height:\s*100%/);
+  assert.match(rules, /display:\s*grid/);
+  assert.match(rules, /grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/);
   assert.match(rules, /min-height:\s*0/);
+  assert.match(rules, /overflow:\s*hidden/);
 });
 
 test('corpo é o único trecho rolável e suporta Safari touch', () => {
   const rules = declarations('.detail-modal .modal__body');
-  assert.match(rules, /flex:\s*1\s+1\s+0/);
   assert.match(rules, /min-height:\s*0/);
-  assert.match(rules, /overflow-y:\s*auto/);
+  assert.match(rules, /overflow-y:\s*scroll/);
   assert.match(rules, /overflow-x:\s*hidden/);
   assert.match(rules, /-webkit-overflow-scrolling:\s*touch/);
+  assert.match(rules, /touch-action:\s*pan-y/);
 });
 
 test('rodapé permanece no fluxo e não cobre o último conteúdo', () => {
   const rules = declarations('.detail-modal .modal__footer');
-  assert.match(rules, /flex:\s*0\s+0\s+auto/);
-  assert.doesNotMatch(rules, /position:\s*(?:fixed|absolute)/);
-  assert.match(declarations('.detail-modal .modal__body'), /env\(safe-area-inset-bottom\)/);
+  assert.match(rules, /position:\s*relative/);
+  assert.doesNotMatch(rules, /position:\s*(?:fixed|absolute|sticky)/);
+  const body = declarations('.detail-modal .modal__body');
+  assert.match(body, /padding-bottom:[^;]+safe-area-inset-bottom/);
+  assert.match(body, /scroll-padding-bottom:[^;]+safe-area-inset-bottom/);
 });
 
 test('regras móveis cobrem todos os viewports solicitados', () => {
   const mobileRules = css.match(/@media \(max-width: 640px\)[\s\S]*?@media \(min-width: 641px\)/)?.[0] || '';
-  assert.match(mobileRules, /height:\s*calc\(100vh\s*-\s*0\.5rem\)/);
-  assert.match(mobileRules, /height:\s*calc\(100dvh\s*-\s*0\.5rem\)/);
+  assert.match(mobileRules, /\.detail-modal\s*\{[^}]*inset:[^}]+safe-area-inset-top/);
+  assert.doesNotMatch(mobileRules.match(/\.detail-modal\s*\{[^}]*\}/)?.[0] || '', /100d?vh/);
   for (const width of [320, 360, 375, 390, 414, 430, 600, 768]) assert.ok(width > 0);
 });
 

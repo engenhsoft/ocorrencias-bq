@@ -18,9 +18,9 @@ const catalog = [
   { code: '0400001', description: 'ÓLEO ISOLANTE', unit: 'KG' }
 ];
 const validRecord = {
-  base: 'MOSSORÓ', team: 'LM 04', crewLeader: 'Anderson', occurrenceNumber: '2026 09 00001',
+  base: 'MOSSORÓ', contract: '4600080939', team: 'LM 04', crewLeader: 'Anderson', occurrenceNumber: '2026 09 00001',
   occurrenceTypes: ['SUBSTITUIÇÃO DE POSTE'], pgPostRemoved: 'o14520', pgPostInstalled: 'u58745',
-  services: [{ catalogKey: 'servico', code: 'SDEVU4024II', quantity: 1 }],
+  services: [{ catalogKey: 'servico', code: 'SDEVU4024II', quantity: 1, referenceValue: 144.26, contract: '4600080939' }],
   photos: ['1', '2', '3', '', '']
 };
 
@@ -105,12 +105,13 @@ test('catálogo deduplicado persiste no IndexedDB', async () => {
   await db.cacheMaterialCatalog(catalog); const cached = await db.getCachedMaterialCatalog(); assert.equal(cached.length, 4); assert.equal(cached.every((item) => item.origin === 'Caderno de Obras'), true);
 });
 test('atualização do catálogo remove item material obsoleto sem tocar serviços', async () => {
-  await db.cacheCatalogResults([{ catalogKey: 'servico-1', code: 'S1', catalogText: 'SERVIÇO' }]);
+  await db.cacheCatalogResults([{ catalogKey: 'servico-1', code: 'S1', catalogText: 'SERVIÇO', contractValues: { '4600080938': 10, '4600080939': 11 } }]);
   await db.cacheMaterialCatalog([catalog[2]]); const cached = await db.getCachedMaterialCatalog(); assert.deepEqual(cached.map((item) => item.code), ['0210376']); assert.equal((await db.searchCachedCatalog('SERVIÇO')).length, 1);
 });
 test('registro offline persiste código, descrição, unidade e quantidade', async () => {
-  const record = { ...validRecord, recordId: 'offline-material', status: core.RECORD_STATUS.DRAFT, materials: [{ ...catalog[2], lineId: 'm-1', quantity: 2 }] };
-  await db.putRecord(record); const stored = await db.getRecord('offline-material'); assert.deepEqual(stored.materials[0], record.materials[0]);
+  const service = { ...validRecord.services[0], contractValues: { '4600080938': 87.02, '4600080939': 96.30 } };
+  const record = { ...validRecord, recordId: 'offline-material', status: core.RECORD_STATUS.DRAFT, services: [service], materials: [{ ...catalog[2], lineId: 'm-1', quantity: 2 }] };
+  await db.putRecord(record); const stored = await db.getRecord('offline-material'); assert.deepEqual(stored.materials[0], record.materials[0]); assert.deepEqual(stored.services[0].contractValues, service.contractValues); assert.equal(stored.contract, '4600080939');
 });
 
 const appSource = await read('app.js');

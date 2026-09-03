@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.09.02.2';
+export const APP_VERSION = '2026.09.03.1';
 
 export const TEAM_GOAL = 6000;
 
@@ -15,6 +15,71 @@ export const OCCURRENCE_TYPES = Object.freeze([
 export const OPERATION_BASES = Object.freeze([
   'ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'
 ]);
+
+export const SERVICE_CONTRACTS = Object.freeze({
+  CONTRACT_80938: '4600080938',
+  CONTRACT_80939: '4600080939'
+});
+
+export const CONTRACT_BY_BASE = Object.freeze({
+  'CARAÚBAS': SERVICE_CONTRACTS.CONTRACT_80938,
+  'PAU DOS FERROS': SERVICE_CONTRACTS.CONTRACT_80938,
+  'CURRAIS NOVOS': SERVICE_CONTRACTS.CONTRACT_80938,
+  'CAICÓ': SERVICE_CONTRACTS.CONTRACT_80938,
+  'MOSSORÓ': SERVICE_CONTRACTS.CONTRACT_80939,
+  'ASSÚ': SERVICE_CONTRACTS.CONTRACT_80939
+});
+
+export function contractForBase(base) {
+  return CONTRACT_BY_BASE[String(base || '').trim().toUpperCase()] || '';
+}
+
+function parseCatalogPrice(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
+  const text = String(value ?? '').replace(/R\$/gi, '').replace(/\s/g, '').trim();
+  if (!text) return null;
+  const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : null;
+}
+
+export function contractValuesForService(service = {}) {
+  const source = service?.contractValues && typeof service.contractValues === 'object' && !Array.isArray(service.contractValues)
+    ? service.contractValues
+    : {};
+  return {
+    [SERVICE_CONTRACTS.CONTRACT_80938]: parseCatalogPrice(source[SERVICE_CONTRACTS.CONTRACT_80938] ?? service.value4600080938),
+    [SERVICE_CONTRACTS.CONTRACT_80939]: parseCatalogPrice(source[SERVICE_CONTRACTS.CONTRACT_80939] ?? service.value4600080939)
+  };
+}
+
+export function serviceValueForContract(service, contract) {
+  const value = contractValuesForService(service)[String(contract || '')];
+  return Number.isFinite(value) ? value : null;
+}
+
+export function priceServiceForContract(service = {}, contract = '') {
+  const referenceValue = serviceValueForContract(service, contract);
+  const quantity = Number(service.quantity);
+  return {
+    ...service,
+    contractValues: contractValuesForService(service),
+    contract: String(contract || ''),
+    referenceValue,
+    totalValue: referenceValue == null || !Number.isFinite(quantity) ? null : Math.round(referenceValue * quantity * 100) / 100,
+    pricingError: referenceValue == null ? `Serviço sem valor cadastrado para o contrato ${contract}.` : ''
+  };
+}
+
+export function repriceServicesForBase(services, base) {
+  const contract = contractForBase(base);
+  const repriced = normalizeServices(services).map((service) => priceServiceForContract(service, contract));
+  return {
+    contract,
+    services: repriced,
+    missingCodes: repriced.filter((service) => service.referenceValue == null).map((service) => service.code || service.catalogKey || 'sem código')
+  };
+}
 
 export const RECORD_STATUS = Object.freeze({
   DRAFT: 'RASCUNHO',
@@ -316,7 +381,9 @@ export function validateOccurrence(record = {}) {
   const types = normalizeOccurrenceTypes(record.occurrenceTypes);
   const services = normalizeServices(record.services);
   const materials = normalizeMaterials(record.materials, 'materials');
-  if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a base.');
+  const expectedContract = contractForBase(record.base);
+  if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a Sub-base.');
+  else if (!record.contract || String(record.contract) !== expectedContract) errors.push('O contrato da Sub-base está inválido. Selecione novamente a Sub-base.');
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
   if (!String(record.crewLeader || '').trim()) errors.push('Informe o chefe de turma.');
   if (!String(record.occurrenceNumber || '').trim()) errors.push('Informe o Nº da ocorrência.');
@@ -344,6 +411,9 @@ export function validateOccurrence(record = {}) {
   services.forEach((service, index) => {
     if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
     if (!(Number(service?.quantity) >= 1)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
+    if (service?.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract) {
+      errors.push(`Serviço sem valor cadastrado para o contrato ${expectedContract || 'da Sub-base'}.`);
+    }
   });
   if (!materials.length) errors.push('Adicione pelo menos um material aplicado.');
   materials.forEach((material, index) => {
@@ -447,7 +517,8 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
     const next = typeof newValue === 'string' ? newValue : JSON.stringify(newValue ?? '');
     if (previous !== next) changes.push({ field, previousValue: previous, newValue: next });
   };
-  add('Base', before.base, after.base);
+  add('Sub-base', before.base, after.base);
+  add('Contrato', before.contract, after.contract);
   add('Equipe', before.team, after.team);
   add('Chefe de turma', before.crewLeader, after.crewLeader);
   add('Nº da ocorrência', before.occurrenceNumber, after.occurrenceNumber);
@@ -459,7 +530,8 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('PG final do condutor', before.pgConductorEnd, after.pgConductorEnd);
   add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
   add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
-  add('Serviços selecionados', normalizeServices(before.services).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })), normalizeServices(after.services).map(({ catalogKey, code, quantity }) => ({ catalogKey, code, quantity })));
+  add('Serviços selecionados', normalizeServices(before.services).map(({ catalogKey, code, quantity, referenceValue, contract }) => ({ catalogKey, code, quantity, referenceValue, contract })), normalizeServices(after.services).map(({ catalogKey, code, quantity, referenceValue, contract }) => ({ catalogKey, code, quantity, referenceValue, contract })));
+  add('Total dos serviços', Math.round(occurrenceTotal(before.services) * 100) / 100, Math.round(occurrenceTotal(after.services) * 100) / 100);
   add('Materiais aplicados', normalizeMaterials(before.materials).map(({ code, description, unit, quantity }) => ({ code, description, unit, quantity })), normalizeMaterials(after.materials).map(({ code, description, unit, quantity }) => ({ code, description, unit, quantity })));
   add('Observação', before.observation, after.observation);
   return changes;
@@ -520,7 +592,8 @@ export function dedupeCatalogResults(items) {
   const grouped = new Map();
   for (const item of normalizeArray(items, 'catalogResults')) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const key = [item.code, item.catalogText, item.unit, item.group, Number(item.referenceValue)].map(normalizeText).join('|');
+    const values = contractValuesForService(item);
+    const key = [item.code, item.catalogText, item.unit, item.group, values[SERVICE_CONTRACTS.CONTRACT_80938], values[SERVICE_CONTRACTS.CONTRACT_80939]].map(normalizeText).join('|');
     if (!grouped.has(key)) grouped.set(key, { ...item });
   }
   return [...grouped.values()];
