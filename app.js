@@ -247,15 +247,15 @@ function updateNetworkUi() {
 }
 
 async function initialize() {
+  elements.appVersion.textContent = APP_VERSION;
+  elements.appBuild.textContent = `Build ${APP_BUILD}`;
+  elements.loginAppVersion.textContent = `v${APP_VERSION}`;
   await openDatabase();
   bindEvents();
   renderPhotoGrid();
   renderMaterials();
   renderServices();
   updateNetworkUi();
-  elements.appVersion.textContent = APP_VERSION;
-  elements.appBuild.textContent = `Build ${APP_BUILD}`;
-  elements.loginAppVersion.textContent = `v${APP_VERSION}`;
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
   setupServiceWorker();
   if (session) await enterApplication(); else showLogin();
