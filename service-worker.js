@@ -1,5 +1,6 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const CACHE_NAME = `${CACHE_PREFIX}2026.09.03.1-subbase-contract-scroll-1`;
+const WORKER_VERSION = new URL(self.location.href).searchParams.get('v') || 'current';
+const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const APP_SHELL = [
   './',
   './index.html',
@@ -19,7 +20,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
   );
 });
 

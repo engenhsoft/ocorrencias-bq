@@ -1,8 +1,8 @@
 import {
-  APP_VERSION, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
+  APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
+  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
@@ -62,15 +62,18 @@ const elements = {
   refreshMineButton: $('#refreshMineButton'), syncConnection: $('#syncConnection'), syncLastTest: $('#syncLastTest'),
   syncPendingRecords: $('#syncPendingRecords'), syncPendingPhotos: $('#syncPendingPhotos'),
   syncPhotosSyncing: $('#syncPhotosSyncing'), syncErrors: $('#syncErrors'), lastSyncAt: $('#lastSyncAt'),
+  appVersion: $('#appVersion'), appBuild: $('#appBuild'),
   testConnectionButton: $('#testConnectionButton'), syncNowButton: $('#syncNowButton'),
   syncQueueList: $('#syncQueueList'), refreshSupervisorButton: $('#refreshSupervisorButton'),
   supervisorList: $('#supervisorList'), selectAllVisible: $('#selectAllVisible'),
+  supervisorSearch: $('#supervisorSearch'), supervisorBaseFilter: $('#supervisorBaseFilter'), supervisorTeamFilter: $('#supervisorTeamFilter'), supervisorTypeFilter: $('#supervisorTypeFilter'), supervisorDateFrom: $('#supervisorDateFrom'), supervisorDateTo: $('#supervisorDateTo'), supervisorFilterSummary: $('#supervisorFilterSummary'),
   selectedCountLabel: $('#selectedCountLabel'), approveSelectedButton: $('#approveSelectedButton'),
   approveAllButton: $('#approveAllButton'), approveAllFooter: $('#approveAllFooter'),
   reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
   editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'),
-  decisionDialogTitle: $('#decisionDialogTitle'), decisionReason: $('#decisionReason'), decisionNote: $('#decisionNote'),
+  decisionDialogTitle: $('#decisionDialogTitle'), decisionReason: $('#decisionReason'), decisionNote: $('#decisionNote'), decisionPhotoSelector: $('#decisionPhotoSelector'), decisionPhotoChoices: $('#decisionPhotoChoices'), decisionError: $('#decisionError'),
+  updateDialog: $('#updateDialog'), updateNowButton: $('#updateNowButton'), updateLaterButton: $('#updateLaterButton'),
   confirmDialog: $('#confirmDialog'), confirmTitle: $('#confirmTitle'), confirmMessage: $('#confirmMessage'),
   confirmActionButton: $('#confirmActionButton'), confirmIcon: $('#confirmIcon'), photoDialog: $('#photoDialog'),
   photoDialogImage: $('#photoDialogImage'), photoDialogLabel: $('#photoDialogLabel'), photoPreviousButton: $('#photoPreviousButton'),
@@ -142,6 +145,8 @@ let supervisorEditMaterialRequestId = 0;
 const supervisorPhotoFailures = new Map();
 let confirmDialogPromise = null;
 let supervisorMutationRunning = false;
+let waitingServiceWorker = null;
+let updateReloadRequested = false;
 
 function readSession() {
   try {
@@ -248,8 +253,10 @@ async function initialize() {
   renderMaterials();
   renderServices();
   updateNetworkUi();
+  elements.appVersion.textContent = APP_VERSION;
+  elements.appBuild.textContent = `Build ${APP_BUILD}`;
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(() => {});
+  setupServiceWorker();
   if (session) await enterApplication(); else showLogin();
   await updateQueueUi();
 }
@@ -317,6 +324,7 @@ function bindEvents() {
     if (button) syncSingleRecord(button.dataset.syncRecord, true);
   });
   elements.refreshSupervisorButton.addEventListener('click', () => refreshSupervisor(true));
+  [elements.supervisorSearch, elements.supervisorBaseFilter, elements.supervisorTeamFilter, elements.supervisorTypeFilter, elements.supervisorDateFrom, elements.supervisorDateTo].forEach((input) => input.addEventListener('input', () => renderSupervisorList()));
   elements.supervisorList.addEventListener('click', handleSupervisorListClick);
   elements.supervisorList.addEventListener('change', handleSupervisorSelection);
   elements.selectAllVisible.addEventListener('change', selectAllSupervisorVisible);
@@ -363,6 +371,41 @@ function bindEvents() {
     deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice;
     deferredInstallPrompt = null; elements.installButton.hidden = true;
   });
+  elements.updateNowButton.addEventListener('click', () => {
+    if (!waitingServiceWorker) return;
+    updateReloadRequested = true;
+    setBusy(elements.updateNowButton, true, 'Atualizando…');
+    waitingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
+  });
+}
+
+async function setupServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.register(`./service-worker.js?v=${encodeURIComponent(APP_VERSION)}`, { scope: './' });
+    const offerUpdate = (worker) => {
+      if (!worker || !navigator.serviceWorker.controller) return;
+      waitingServiceWorker = worker;
+      if (!elements.updateDialog.open) elements.updateDialog.showModal();
+    };
+    if (registration.waiting) offerUpdate(registration.waiting);
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      worker?.addEventListener('statechange', () => {
+        if (worker.state === 'installed') offerUpdate(worker);
+      });
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!updateReloadRequested) return;
+      const key = `ocorrencias-bq-reloaded-${APP_VERSION}`;
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+      location.reload();
+    });
+    registration.update().catch(() => {});
+  } catch (error) {
+    console.warn('[PWA] Não foi possível verificar atualização.', error);
+  }
 }
 
 function showLogin() {
@@ -862,7 +905,7 @@ async function storeSelectedPhoto(photoIndex, file, replace) {
     await ensureActiveRecord(); const blob = await optimizePhoto(file);
     if (blob.size > 9 * 1024 * 1024) throw new ApiError('A foto ficou acima de 9 MB mesmo após a otimização.', 'PHOTO_TOO_LARGE');
     const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
-    activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.confirmed || state.serverUrl), error: '' };
+    activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.replacePending || state.confirmed || state.serverUrl), error: '' };
     const stored = await putPhotoAndRecord(activeRecord, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
     activeRecord = stored.record;
     activePhotos.set(photoIndex, { blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
@@ -947,18 +990,32 @@ function transformerPhotoMarkup(record, kind) {
 }
 
 function auditMarkup(record) {
+  const audit = record?.audit && typeof record.audit === 'object' ? record.audit : {};
   const corrections = normalizeArray(record?.audit?.supervisorCorrections, 'audit.supervisorCorrections')
     .filter((item) => item && typeof item === 'object' && !Array.isArray(item));
   const recalculations = normalizeArray(record?.audit?.contractRecalculations, 'audit.contractRecalculations')
     .filter((item) => item && typeof item === 'object' && !Array.isArray(item));
-  if (!corrections.length && !recalculations.length) return '';
+  const timeline = normalizeArray(audit.timeline, 'audit.timeline')
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({ action: String(item.action || ''), at: item.at || item.timestamp || '', actor: item.actor || '', detail: item.detail || '' }))
+    .filter((item) => item.action && item.at);
+  if (record.registeredAt || record.createdAt) timeline.push({ action: 'CRIADA', at: record.registeredAt || record.createdAt, actor: record.user || '', detail: '' });
+  corrections.forEach((item) => timeline.push({ action: 'CORRIGIDA_PELO_SUPERVISOR', at: item.correctedAt, actor: item.supervisor || '', detail: '' }));
+  const photoRequest = audit.lastPhotoCorrectionRequest;
+  if (photoRequest?.requestedAt) timeline.push({ action: 'CORRECAO_SOLICITADA', at: photoRequest.requestedAt, actor: photoRequest.supervisor || '', detail: normalizeArray(photoRequest.photoIndexes).map(photoIndexLabel).join(', ') });
+  const currentStatus = record.status || record.serverStatus;
+  if (currentStatus && (record.updatedAt || record.reviewedAt)) timeline.push({ action: currentStatus, at: record.reviewedAt || record.updatedAt, actor: record.supervisor || '', detail: record.reason || '' });
+  const uniqueTimeline = [...new Map(timeline.map((item) => [`${item.action}|${item.at}|${item.actor}`, item])).values()]
+    .sort((left, right) => String(left.at).localeCompare(String(right.at)));
+  const labels = { CRIADA: 'Criada', SALVA_LOCALMENTE: 'Salva localmente', PENDENTE_ENVIO: 'Pendente', SINCRONIZADA: 'Sincronizada', AGUARDANDO_SUPERVISOR: 'Aguardando supervisor', CORRECAO_SOLICITADA: 'Correção solicitada', CORRECAO_FOTOS_SOLICITADA: 'Correção solicitada', CORRECAO_REENVIADA: 'Correção reenviada', CORRIGIDA_PELO_SUPERVISOR: 'Corrigida pelo supervisor', REPROVADA: 'Reprovada', APROVADA: 'Aprovada', APROVADA_E_PUBLICADA: 'Aprovada e publicada', PUBLICADA: 'Publicada', FOTOS_SENDO_SINCRONIZADAS: 'Fotos em sincronização' };
+  const timelineEntries = uniqueTimeline.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>${escapeHtml(labels[item.action] || item.action.replaceAll('_', ' '))}</strong><time>${escapeHtml(formatDateTime(item.at))}</time></div>${item.actor || item.detail ? `<p>${escapeHtml([item.actor, item.detail].filter(Boolean).join(' · '))}</p>` : ''}</article>`).join('');
   const correctionEntries = corrections.map((item) => {
     const changes = normalizeArray(item.changes, 'audit.changes')
       .filter((change) => change && typeof change === 'object' && !Array.isArray(change));
     return `<article class="audit-entry"><div class="audit-entry__title"><strong>✓ Corrigido pelo supervisor — ${escapeHtml(item.supervisor || 'Supervisor')}</strong><time>${escapeHtml(formatDateTime(item.correctedAt))}</time></div><div class="audit-changes">${changes.map((change) => `<div><span>${escapeHtml(change.field)}</span><del>${escapeHtml(displayAuditValue(change.previousValue))}</del><ins>${escapeHtml(displayAuditValue(change.newValue))}</ins></div>`).join('')}</div></article>`;
   }).join('');
   const recalculationEntries = recalculations.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>Valor recalculado conforme contrato da Sub-base.</strong><time>${escapeHtml(formatDateTime(item.recalculatedAt))}</time></div><div class="audit-changes"><div><span>Sub-base</span><del>${escapeHtml(item.base || '—')}</del><ins>${escapeHtml(item.base || '—')}</ins></div><div><span>Contrato</span><del>${escapeHtml(item.previousContract || '—')}</del><ins>${escapeHtml(item.contract || '—')}</ins></div><div><span>Total</span><del>${escapeHtml(formatCurrency(item.previousTotal))}</del><ins>${escapeHtml(formatCurrency(item.newTotal))}</ins></div></div></article>`).join('');
-  return `<section class="audit-timeline"><h4>Histórico de correções</h4>${correctionEntries}${recalculationEntries}</section>`;
+  return `<section class="audit-timeline"><h4>Timeline da ocorrência</h4>${timelineEntries || '<p>Sem eventos adicionais comprováveis.</p>'}${correctionEntries}${recalculationEntries}</section>`;
 }
 
 function displayAuditValue(value) {
@@ -997,6 +1054,10 @@ function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.d
 async function submitOccurrence() {
   if (occurrenceSubmissionRunning) return;
   if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) < 3) { toast('Complete os dados e adicione pelo menos 3 fotos da ocorrência.', 'error'); return; }
+  const requestedWithoutReplacement = activeRecord.correctionMode
+    ? normalizeArray(activeRecord.requestedPhotoIndexes, 'requestedPhotoIndexes').map(Number).filter((index) => !activeRecord.photoStates?.[index - 1]?.localReady)
+    : [];
+  if (requestedWithoutReplacement.length) { toast(`Adicione novamente: ${requestedWithoutReplacement.map(photoIndexLabel).join(', ')}.`, 'error'); return; }
   occurrenceSubmissionRunning = true;
   let locallyQueued = false;
   try {
@@ -1081,7 +1142,12 @@ async function performSyncSingleRecord(recordId, notify = true) {
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
       if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await deletePhoto(next.recordId, index).catch(() => {});
     }
-    next.status = finalState.status || RECORD_STATUS.WAITING_SUPERVISOR; next.lastError = ''; next.syncedAt = new Date().toISOString();
+    const confirmedStatus = String(finalState.status || '');
+    const acceptedStatuses = next.correctionMode ? [RECORD_STATUS.WAITING_SUPERVISOR] : [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED];
+    if (!acceptedStatuses.includes(confirmedStatus)) {
+      throw new ApiError('O servidor ainda não confirmou o estado final. A fila foi preservada para nova tentativa.', 'SERVER_CONFIRMATION_PENDING');
+    }
+    next.status = confirmedStatus; next.lastError = ''; next.syncedAt = new Date().toISOString(); next.correctionMode = false; next.requestedPhotoIndexes = [];
     await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); await cacheDailySummary(finalState.dailyProduction || next.dailyProduction, revision === sessionRevision && session?.token === requestSession.token); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
     next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await putRecord(next);
@@ -1223,15 +1289,20 @@ function openScrollableDialog(dialog, body) {
 async function handleMineAction(event) {
   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
-  const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId); const record = local || server; if (!record) return;
+  const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId);
+  if (!local && !server) return;
+  const record = normalizeOccurrenceRecord({ ...(local || {}), ...(server || {}), photos: server?.photos || local?.photos || [], photoStates: local?.photoStates || server?.photoStates || [], transformerPhotos: server?.transformerPhotos || local?.transformerPhotos || {}, audit: server?.audit || local?.audit || {} }, 'selectedRecord');
   if (button.dataset.mineAction === 'view') {
     const detailRecord = { ...record, ...(server || {}), photos: server?.photos || record.photos, dailyProduction: server?.dailyProduction || record.dailyProduction };
     elements.mineDetailTitle.textContent = `Ocorrência ${detailRecord.occurrenceNumber || 'sem número'}`;
     elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); return;
   }
   if (button.dataset.mineAction === 'correct') {
-    const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, photoStates: Array.from({ length: 7 }, (_, index) => record.photoStates?.[index] || ({ photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false })) };
-    await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId); return loadRecordIntoForm(correction);
+    const requested = new Set(correctionPhotoIndexes(record));
+    if (!requested.size) { toast('O servidor não informou quais fotos precisam ser refeitas.', 'error'); return; }
+    const states = normalizePhotoStates(record.photoStates).map((state) => requested.has(state.photoIndex) ? { ...state, confirmed: false, localReady: false, replacePending: true } : { ...state, replacePending: false });
+    const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, requestedPhotoIndexes: [...requested], photoStates: states };
+    await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId); toast(`Refaça somente: ${[...requested].map(photoIndexLabel).join(', ')}.`); return loadRecordIntoForm(correction);
   }
   await setMeta(ACTIVE_DRAFT_META, record.recordId); await loadRecordIntoForm(record);
 }
@@ -1283,6 +1354,7 @@ async function refreshSupervisor(notify = false) {
       if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
       supervisorPhotoFailures.clear();
       supervisorRecords = normalizeOccurrenceRecords(result.records, 'listPending.records');
+      populateSupervisorFilters();
       renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return supervisorRecords;
     } catch (error) {
       if (revision !== sessionRevision) return null;
@@ -1303,15 +1375,50 @@ async function refreshSupervisor(notify = false) {
   }
 }
 
+function populateSupervisorFilters() {
+  const fill = (select, values) => {
+    const current = select.value;
+    select.innerHTML = `<option value="">${select === elements.supervisorTypeFilter ? 'Todos' : 'Todas'}</option>${values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
+    if (values.includes(current)) select.value = current;
+  };
+  fill(elements.supervisorBaseFilter, [...new Set(supervisorRecords.map((record) => record.base).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
+  fill(elements.supervisorTeamFilter, [...new Set(supervisorRecords.map((record) => record.team).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
+  fill(elements.supervisorTypeFilter, OCCURRENCE_TYPES.filter((type) => supervisorRecords.some((record) => normalizeOccurrenceTypes(record.occurrenceTypes).includes(type))));
+}
+
+function filteredSupervisorRecords() {
+  const search = normalizeText(elements.supervisorSearch.value);
+  const base = normalizeText(elements.supervisorBaseFilter.value);
+  const team = normalizeText(elements.supervisorTeamFilter.value);
+  const type = elements.supervisorTypeFilter.value;
+  const from = elements.supervisorDateFrom.value;
+  const to = elements.supervisorDateTo.value;
+  return supervisorRecords.filter((record) => {
+    const date = operationalDate(record.registeredAt || record.createdAt || record.updatedAt);
+    return (!search || normalizeText(record.occurrenceNumber).includes(search))
+      && (!base || normalizeText(record.base) === base)
+      && (!team || normalizeText(record.team) === team)
+      && (!type || normalizeOccurrenceTypes(record.occurrenceTypes).includes(type))
+      && (!from || date >= from)
+      && (!to || date <= to);
+  });
+}
+
 function renderSupervisorList(error = null) {
-  elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !supervisorRecords.length;
+  const visibleRecords = filteredSupervisorRecords();
+  elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !visibleRecords.length;
+  elements.supervisorFilterSummary.textContent = visibleRecords.length === supervisorRecords.length ? `${supervisorRecords.length} pendência(s)` : `${visibleRecords.length} de ${supervisorRecords.length} exibida(s)`;
   if (!supervisorRecords.length) {
     elements.supervisorList.innerHTML = error
       ? `${emptyState('Não foi possível carregar', friendlyError(error))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`
       : emptyState('Nenhuma ocorrência aguardando conferência.', 'As ocorrências completas aparecerão aqui para conferência.');
     updateSupervisorSelectionUi(); return;
   }
-  elements.supervisorList.innerHTML = supervisorRecords.map((record) => {
+  if (!visibleRecords.length) {
+    elements.supervisorList.innerHTML = emptyState('Nenhuma ocorrência encontrada.', 'Ajuste os filtros para ver outras pendências.');
+    updateSupervisorSelectionUi(); return;
+  }
+  elements.supervisorList.innerHTML = visibleRecords.map((record) => {
     const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const pricingIssues = supervisorPricingIssues(record); const eligible = !issues.length && !pricingIssues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
@@ -1336,7 +1443,7 @@ function supervisorPricingIssues(record) {
   const invalid = normalizeServices(record?.services).find((service) => service.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract);
   return invalid ? [`Serviço sem valor cadastrado para o contrato ${expectedContract}.`] : [];
 }
-function selectableSupervisorRecords() { return supervisorRecords.filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length && !supervisorPricingIssues(record).length); }
+function selectableSupervisorRecords() { return filteredSupervisorRecords().filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length && !supervisorPricingIssues(record).length); }
 function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) selectableSupervisorRecords().forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
 function updateSupervisorSelectionUi() {
   const selectable = selectableSupervisorRecords(); const selectableIds = new Set(selectable.map((record) => record.recordId));
@@ -1346,11 +1453,15 @@ function updateSupervisorSelectionUi() {
 }
 
 function activeSupervisorPhotoIssues() { return activeSupervisorRecord ? photoIssueIndexes(activeSupervisorRecord, supervisorPhotoFailures.get(activeSupervisorRecord.recordId) || []) : []; }
+function correctionPhotoIndexes(record) {
+  const value = record?.audit?.lastPhotoCorrectionRequest?.photoIndexes ?? record?.audit?.requestedPhotoIndexes ?? [];
+  return normalizeArray(value, 'audit.requestedPhotoIndexes').map(Number).filter((index) => Number.isInteger(index) && index >= 1 && index <= 7);
+}
+function photoIndexLabel(index) { return index === 6 ? 'Foto Trafo retirado' : index === 7 ? 'Foto Trafo instalado' : `Foto ${index}`; }
 function updateSupervisorReviewActions() {
   const issues = activeSupervisorPhotoIssues(); const pricingIssues = supervisorPricingIssues(activeSupervisorRecord); const ready = !issues.length && !pricingIssues.length && activeSupervisorRecord?.status === RECORD_STATUS.WAITING_SUPERVISOR;
-  elements.requestCorrectionButton.hidden = !issues.length;
-  const issueLabels = issues.map((index) => index === 6 ? 'Trafo retirado' : index === 7 ? 'Trafo instalado' : `Foto ${index}`);
-  elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issueLabels.join(', ')}` : 'Solicitar correção';
+  elements.requestCorrectionButton.hidden = !activeSupervisorRecord || ![RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS].includes(activeSupervisorRecord.status);
+  elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issues.map(photoIndexLabel).join(', ')}` : 'Solicitar correção de fotos';
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
 }
 function openSupervisorReview(recordId) { activeSupervisorRecord = supervisorRecords.find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; const photoCount = Math.max(countConfirmedPhotos(activeSupervisorRecord), countReadyPhotoStates(activeSupervisorRecord)); elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent); }
@@ -1507,12 +1618,12 @@ async function saveSupervisorCorrection(event) {
 async function decideSupervisor(decision) {
   if (!activeSupervisorRecord || supervisorMutationRunning) return;
   supervisorMutationRunning = true;
-  let reason = ''; let note = '';
+  let reason = ''; let note = ''; let selectedPhotoIndexes = [];
   try {
     if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
-    else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); const label = decision === 'reject' ? 'reprovar' : 'solicitar correção para'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} a ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
+    else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); selectedPhotoIndexes = values.photoIndexes || []; const label = decision === 'reject' ? 'reprovar' : `solicitar correção de ${selectedPhotoIndexes.map(photoIndexLabel).join(', ')}`; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} na ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
     const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
-    await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note, decision === 'request_correction' ? activeSupervisorPhotoIssues() : []); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção de fotos solicitada.', 'success'); await refreshSupervisor(false);
+    await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, note, decision === 'request_correction' ? selectedPhotoIndexes : []); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção de fotos solicitada.', 'success'); await refreshSupervisor(false);
   } catch (error) { toast(friendlyError(error), 'error'); }
   finally {
     setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false);
@@ -1521,8 +1632,23 @@ async function decideSupervisor(decision) {
 }
 
 function collectDecision(decision) {
-  elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção'; elements.decisionReason.value = ''; elements.decisionNote.value = ''; elements.decisionDialog.returnValue = ''; elements.decisionDialog.showModal();
-  return new Promise((resolve) => { const handler = () => { elements.decisionDialog.removeEventListener('close', handler); if (elements.decisionDialog.returnValue !== 'default' || !elements.decisionReason.value.trim()) resolve(null); else resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim() }); }; elements.decisionDialog.addEventListener('close', handler); });
+  const isPhotoCorrection = decision === 'request_correction';
+  elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção'; elements.decisionReason.value = ''; elements.decisionNote.value = ''; elements.decisionError.textContent = ''; elements.decisionDialog.returnValue = '';
+  elements.decisionPhotoSelector.hidden = !isPhotoCorrection;
+  if (isPhotoCorrection) {
+    const types = normalizeOccurrenceTypes(activeSupervisorRecord?.occurrenceTypes);
+    const indexes = [1, 2, 3, 4, 5].concat(types.includes(TYPE_TRAFO) ? [6, 7] : []);
+    const detected = new Set(activeSupervisorPhotoIssues());
+    elements.decisionPhotoChoices.innerHTML = indexes.map((index) => `<label class="choice-card"><input type="checkbox" value="${index}" ${detected.has(index) ? 'checked' : ''} /><span>${escapeHtml(photoIndexLabel(index))}</span></label>`).join('');
+  } else elements.decisionPhotoChoices.innerHTML = '';
+  elements.decisionDialog.showModal();
+  return new Promise((resolve) => { const handler = () => {
+    elements.decisionDialog.removeEventListener('close', handler);
+    if (elements.decisionDialog.returnValue !== 'default' || !elements.decisionReason.value.trim()) return resolve(null);
+    const photoIndexes = isPhotoCorrection ? $$('input:checked', elements.decisionPhotoChoices).map((input) => Number(input.value)) : [];
+    if (isPhotoCorrection && !photoIndexes.length) { toast('Selecione pelo menos uma foto para correção.', 'error'); return resolve(null); }
+    resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim(), photoIndexes });
+  }; elements.decisionDialog.addEventListener('close', handler); });
 }
 
 async function approveSelected() {
@@ -1539,9 +1665,11 @@ async function approveSelected() {
 async function approveAll() {
   if (supervisorMutationRunning) return; supervisorMutationRunning = true;
   try {
-    if (!await confirmAction('Aprovar todas?', 'Você tem certeza que deseja aprovar todas as ocorrências aptas?', 'Sim, aprovar todas', 'success')) return;
+    const ids = selectableSupervisorRecords().map((record) => record.recordId);
+    if (!ids.length) return;
+    if (!await confirmAction('Aprovar todas as exibidas?', `${ids.length} ocorrência(s) apta(s) e visível(is) serão publicadas.`, 'Sim, aprovar exibidas', 'success')) return;
     setBusy(elements.approveAllButton, true, 'Aprovando…');
-    const result = await api.approveBatch(session.token, [], true); toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success'); selectedSupervisorIds.clear(); await refreshSupervisor(false);
+    const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success'); selectedSupervisorIds.clear(); await refreshSupervisor(false);
   } catch (error) { toast(friendlyError(error), 'error'); }
   finally { setBusy(elements.approveAllButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
 }

@@ -319,6 +319,11 @@ p { color: var(--muted); line-height: 1.55; }
 .sync-actions-card p { margin: 0; font-size: 0.82rem; }
 
 .supervisor-toolbar { margin-bottom: 1rem; padding: 0.85rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; }
+.supervisor-filters { margin-bottom: 1rem; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; gap: 0.75rem; }
+.supervisor-filters .field--wide { grid-column: span 2; }
+.filter-summary { grid-column: 1 / -1; color: var(--muted); font-size: 0.82rem; }
+.photo-correction-selector { margin: 0; }
+.photo-correction-selector .choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .checkbox-label { display: inline-flex; align-items: center; gap: 0.48rem; color: var(--navy-900); font-size: 0.8rem; font-weight: 720; cursor: pointer; }
 .checkbox-label input { width: 18px; height: 18px; accent-color: var(--teal-600); }
 .supervisor-card { grid-template-columns: auto minmax(0,1fr); align-items: start; }
@@ -576,6 +581,9 @@ p { color: var(--muted); line-height: 1.55; }
   .supervisor-card { grid-template-columns: minmax(0,1fr); }
   .supervisor-card > input { justify-self: start; }
   .supervisor-thumbs { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .supervisor-filters { grid-template-columns: 1fr 1fr; }
+  .supervisor-filters .field--wide { grid-column: 1 / -1; }
+  .supervisor-toolbar { align-items: stretch; flex-direction: column; }
   .modal { width: calc(100% - 0.75rem); max-width: calc(100% - 0.75rem); }
   .detail-modal { inset: max(0.25rem, env(safe-area-inset-top)) 0.25rem max(0.25rem, env(safe-area-inset-bottom)); width: auto; max-width: none; height: auto; max-height: none; margin: auto; }
   .modal__header, .modal__body, .modal__footer { padding-left: 0.8rem; padding-right: 0.8rem; }
@@ -598,6 +606,7 @@ p { color: var(--muted); line-height: 1.55; }
   .detail-modal .modal__footer--review { grid-template-columns: minmax(0,1fr); }
   .detail-modal .modal__footer .button { width: 100%; }
   .detail-modal .detail-section, .detail-modal .review-data { padding: 0.75rem; }
+  .supervisor-filters, .photo-correction-selector .choice-grid { grid-template-columns: minmax(0,1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

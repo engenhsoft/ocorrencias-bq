@@ -1,4 +1,5 @@
-export const APP_VERSION = '2026.09.03.1';
+export const APP_VERSION = '2026.09.08.1';
+export const APP_BUILD = '2026-09-08-final-package';
 
 export const TEAM_GOAL = 6000;
 
@@ -251,11 +252,43 @@ export function normalizeOccurrenceRecord(value, label = 'record') {
     occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
     services: normalizeServices(source.services, `${label}.services`),
     materials: normalizeMaterials(source.materials, `${label}.materials`),
-    photos: normalizeArray(source.photos, `${label}.photos`),
-    photoStates: normalizeArray(source.photoStates, `${label}.photoStates`),
+    photos: normalizePhotoUrls(source.photos, `${label}.photos`),
+    photoStates: normalizePhotoStates(source.photoStates, `${label}.photoStates`),
     transformer: source.transformer && typeof source.transformer === 'object' && !Array.isArray(source.transformer) ? source.transformer : {},
     transformerPhotos: source.transformerPhotos && typeof source.transformerPhotos === 'object' && !Array.isArray(source.transformerPhotos) ? source.transformerPhotos : {}
   };
+}
+
+export function normalizePhotoUrls(value, label = 'photos') {
+  const normalized = Array(5).fill('');
+  normalizeArray(value, label).forEach((entry, position) => {
+    const isObject = entry && typeof entry === 'object' && !Array.isArray(entry);
+    const index = Number(isObject ? (entry.photoIndex ?? entry.index ?? position + 1) : position + 1);
+    if (!Number.isInteger(index) || index < 1 || index > 5) {
+      globalThis.console?.warn?.(`[Fotos] ${label} contém índice inválido; entrada ignorada.`, { index });
+      return;
+    }
+    const url = isObject ? (entry.serverUrl || entry.url || entry.src || '') : entry;
+    normalized[index - 1] = typeof url === 'string' ? url : '';
+  });
+  return normalized;
+}
+
+export function normalizePhotoStates(value, label = 'photoStates') {
+  const normalized = Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1 }));
+  normalizeArray(value, label).forEach((entry, position) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      globalThis.console?.warn?.(`[Fotos] ${label} contém estado inválido; entrada ignorada.`);
+      return;
+    }
+    const index = Number(entry.photoIndex ?? entry.index ?? position + 1);
+    if (!Number.isInteger(index) || index < 1 || index > 7) {
+      globalThis.console?.warn?.(`[Fotos] ${label} contém índice inválido; entrada ignorada.`, { index });
+      return;
+    }
+    normalized[index - 1] = { ...entry, photoIndex: index };
+  });
+  return normalized;
 }
 
 export function normalizeOccurrenceRecords(value, label = 'records') {
@@ -429,21 +462,21 @@ export function validateOccurrence(record = {}) {
 }
 
 export function countConfirmedPhotos(record) {
-  const stateCount = normalizeArray(record?.photoStates, 'photoStates').slice(0, 5).filter((state) => state?.confirmed).length;
-  const urlCount = normalizeArray(record?.photos, 'photos').slice(0, 5).filter(Boolean).length;
-  return Math.max(stateCount, urlCount, Number(record?.photoCount) || 0);
+  const stateCount = normalizePhotoStates(record?.photoStates).slice(0, 5).filter((state) => state.confirmed).length;
+  const urlCount = normalizePhotoUrls(record?.photos).filter(Boolean).length;
+  return Math.max(stateCount, urlCount);
 }
 
 export function countReadyPhotoStates(record) {
-  const stateCount = normalizeArray(record?.photoStates, 'photoStates').slice(0, 5)
+  const stateCount = normalizePhotoStates(record?.photoStates).slice(0, 5)
     .filter((state) => state?.confirmed || state?.serverUrl || state?.localReady).length;
-  const urlCount = normalizeArray(record?.photos, 'photos').slice(0, 5).filter(Boolean).length;
-  return Math.max(stateCount, urlCount, Number(record?.photoCount) || 0);
+  const urlCount = normalizePhotoUrls(record?.photos).filter(Boolean).length;
+  return Math.max(stateCount, urlCount);
 }
 
 export function transformerPhotoReady(record, kind) {
-  const index = kind === 'removed' ? 5 : 6;
-  const state = record?.photoStates?.[index] || {};
+  const index = kind === 'removed' ? 6 : 7;
+  const state = normalizePhotoStates(record?.photoStates)[index - 1];
   const url = kind === 'removed' ? record?.transformerPhotos?.removed : record?.transformerPhotos?.installed;
   return Boolean(state.confirmed || state.serverUrl || state.url || state.localReady || url);
 }
@@ -455,7 +488,7 @@ export function requiredPhotoDeficit(record) {
 }
 
 export function countPendingPhotoUploads(record) {
-  return normalizeArray(record?.photoStates, 'photoStates').slice(0, 7)
+  return normalizePhotoStates(record?.photoStates).slice(0, 7)
     .filter((state) => state && typeof state === 'object' && !Array.isArray(state))
     .filter((state) => Boolean(state.localReady) && (!state.confirmed || state.replacePending)).length;
 }
@@ -497,7 +530,9 @@ export function normalizeFailedIndexes(value) {
 
 export function photoIssueIndexes(record, failedIndexes = []) {
   const failed = new Set(normalizeFailedIndexes(failedIndexes));
-  const urls = Array.from({ length: 5 }, (_, index) => record?.photos?.[index] || record?.photoStates?.[index]?.serverUrl || record?.photoStates?.[index]?.url || '');
+  const photos = normalizePhotoUrls(record?.photos);
+  const states = normalizePhotoStates(record?.photoStates);
+  const urls = Array.from({ length: 5 }, (_, index) => photos[index] || states[index].serverUrl || states[index].url || '');
   const validGeneral = urls.map((url, index) => Boolean(url) && !failed.has(index + 1));
   const issues = [];
   const missingGeneral = validGeneral.map((valid, index) => valid ? 0 : index + 1).filter(Boolean);
@@ -506,7 +541,7 @@ export function photoIssueIndexes(record, failedIndexes = []) {
     if (!transformerPhotoReady(record, 'removed') || failed.has(6)) issues.push(6);
     if (!transformerPhotoReady(record, 'installed') || failed.has(7)) issues.push(7);
   }
-  for (const index of failed) if (index >= 1 && index <= 7 && index <= 5 && validGeneral.filter(Boolean).length < 3) issues.push(index);
+  for (const index of failed) if (index >= 1 && index <= 5) issues.push(index);
   return [...new Set(issues)].sort((left, right) => left - right);
 }
 
@@ -559,11 +594,14 @@ export function summarizeQueue(records = []) {
 }
 
 export function reconcilePhotoStates(localRecord, serverState) {
-  const serverStates = normalizeArray(serverState?.photoStates, 'serverState.photoStates');
+  const serverStates = normalizePhotoStates(serverState?.photoStates, 'serverState.photoStates');
   const serverRecord = serverState?.record && typeof serverState.record === 'object' && !Array.isArray(serverState.record) ? serverState.record : {};
-  const byIndex = new Map(serverStates.map((state) => [Number(state?.photoIndex), state]));
+  const byIndex = new Map(serverStates
+    .filter((state) => state.confirmed || state.serverUrl || state.url || state.uploadKey)
+    .map((state) => [state.photoIndex, state]));
+  const currentStates = normalizePhotoStates(localRecord?.photoStates, 'localRecord.photoStates');
   const localStates = Array.from({ length: 7 }, (_, index) => {
-    const current = localRecord?.photoStates?.[index] || {};
+    const current = currentStates[index];
     const server = byIndex.get(index + 1);
     if (current.replacePending) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: server?.url || current.serverUrl || '' };
@@ -605,7 +643,8 @@ export function mergeRecordCollections(localRecords, serverRecords) {
     merged.set(record.recordId, { ...record });
   }
   for (const server of normalizeOccurrenceRecords(serverRecords, 'serverRecords')) {
-    const local = merged.get(server.recordId) || normalizeOccurrenceRecord({}, 'localRecord');
+    const existingLocal = merged.get(server.recordId);
+    const local = existingLocal || normalizeOccurrenceRecord({}, 'localRecord');
     merged.set(server.recordId, {
       ...local,
       ...server,
@@ -614,7 +653,7 @@ export function mergeRecordCollections(localRecords, serverRecords) {
       occurrenceTypes: server.occurrenceTypes.length ? server.occurrenceTypes : local.occurrenceTypes,
       services: server.services.length ? server.services : local.services,
       materials: server.materials.length ? server.materials : local.materials,
-      photoStates: Array.isArray(local.photoStates) && local.photoStates.length ? local.photoStates : server.photoStates,
+      photoStates: existingLocal ? local.photoStates : server.photoStates,
       photos: server.photos.length ? server.photos : local.photos,
       transformer: Object.keys(server.transformer).length ? server.transformer : local.transformer,
       transformerPhotos: Object.keys(server.transformerPhotos).length ? server.transformerPhotos : local.transformerPhotos
