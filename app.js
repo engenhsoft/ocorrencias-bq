@@ -62,7 +62,7 @@ const elements = {
   refreshMineButton: $('#refreshMineButton'), syncConnection: $('#syncConnection'), syncLastTest: $('#syncLastTest'),
   syncPendingRecords: $('#syncPendingRecords'), syncPendingPhotos: $('#syncPendingPhotos'),
   syncPhotosSyncing: $('#syncPhotosSyncing'), syncErrors: $('#syncErrors'), lastSyncAt: $('#lastSyncAt'),
-  appVersion: $('#appVersion'), appBuild: $('#appBuild'),
+  appVersion: $('#appVersion'), appBuild: $('#appBuild'), loginAppVersion: $('#loginAppVersion'),
   testConnectionButton: $('#testConnectionButton'), syncNowButton: $('#syncNowButton'),
   syncQueueList: $('#syncQueueList'), refreshSupervisorButton: $('#refreshSupervisorButton'),
   supervisorList: $('#supervisorList'), selectAllVisible: $('#selectAllVisible'),
@@ -255,6 +255,7 @@ async function initialize() {
   updateNetworkUi();
   elements.appVersion.textContent = APP_VERSION;
   elements.appBuild.textContent = `Build ${APP_BUILD}`;
+  elements.loginAppVersion.textContent = `v${APP_VERSION}`;
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
   setupServiceWorker();
   if (session) await enterApplication(); else showLogin();
