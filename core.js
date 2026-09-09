@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.08.2';
-export const APP_BUILD = '2026-09-08-published-normalization';
+export const APP_VERSION = '2026.09.09.1';
+export const APP_BUILD = '2026-09-09-materials-trafo-number-hotfix';
 
 export const TEAM_GOAL = 6000;
 
