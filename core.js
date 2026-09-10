@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.09.1';
-export const APP_BUILD = '2026-09-09-materials-trafo-number-hotfix';
+export const APP_VERSION = '2026.09.10.1';
+export const APP_BUILD = '2026-09-10-material-card-label-hotfix';
 
 export const TEAM_GOAL = 6000;
 
