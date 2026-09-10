@@ -797,7 +797,7 @@ async function handleMaterialCatalogInput() {
 async function searchMaterials(query, requestId) {
   const revision = sessionRevision;
   elements.materialSearchSpinner.hidden = false;
-  elements.materialSearchHint.textContent = navigator.onLine ? 'Carregando o Caderno de Obras…' : 'Sem internet: pesquisando materiais salvos neste aparelho.';
+  elements.materialSearchHint.textContent = navigator.onLine ? 'Carregando o Caderno de Materiais…' : 'Sem internet: pesquisando materiais salvos neste aparelho.';
   let error = null;
   try { await ensureMaterialCatalog(); }
   catch (caught) {
@@ -813,11 +813,11 @@ async function searchMaterials(query, requestId) {
 function renderMaterialResults(error = null) {
   elements.materialResults.hidden = false;
   if (!materialResults.length) {
-    elements.materialResults.innerHTML = `<div class="search-empty">${escapeHtml(error ? 'Catálogo indisponível e nenhum resultado salvo.' : 'Nenhum material encontrado no Caderno de Obras.')}</div>`;
+    elements.materialResults.innerHTML = `<div class="search-empty">${escapeHtml(error ? 'Catálogo indisponível e nenhum resultado salvo.' : 'Nenhum material encontrado no Caderno de Materiais.')}</div>`;
     elements.materialSearchHint.textContent = error ? friendlyError(error) : 'Tente outro código ou palavra.'; return;
   }
   elements.materialResults.innerHTML = materialResults.map((item, index) => `<button class="search-result" type="button" role="option" data-material-index="${index}">
-    <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Caderno de Obras</small></span>
+    <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Caderno de Materiais</small></span>
     <span>${escapeHtml(item.description)}</span>
     <span class="search-result__meta"><b>${escapeHtml(item.unit)}</b></span>
   </button>`).join('');
@@ -1528,7 +1528,7 @@ function renderSupervisorEditServices() {
 
 function renderSupervisorEditMaterials() {
   if (!supervisorEditRecord) return;
-  elements.editMaterialsList.innerHTML = supervisorEditRecord.materials.length ? normalizeMaterials(supervisorEditRecord.materials).map((material, index) => `<article class="line-item material-row"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span>${material.code ? `<strong>${escapeHtml(material.code)}</strong>` : ''}<p>${escapeHtml(material.description)}</p>${material.unit ? `<small>Unidade: ${escapeHtml(material.unit)}</small>` : '<small>Registro histórico sem código/unidade</small>'}</div><button class="icon-button delete-photo" type="button" data-edit-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button></div><div class="line-item__fields"><label class="field material-quantity"><span>QTD *</span><div class="quantity-with-unit"><input type="text" inputmode="${normalizeText(material.unit) === 'UN' ? 'numeric' : 'decimal'}" data-edit-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /><strong>${escapeHtml(material.unit || '')}</strong></div></label></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um material do Caderno de Obras.</div>';
+  elements.editMaterialsList.innerHTML = supervisorEditRecord.materials.length ? normalizeMaterials(supervisorEditRecord.materials).map((material, index) => `<article class="line-item material-row"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span>${material.code ? `<strong>${escapeHtml(material.code)}</strong>` : ''}<p>${escapeHtml(material.description)}</p>${material.unit ? `<small>Unidade: ${escapeHtml(material.unit)}</small>` : '<small>Registro histórico sem código/unidade</small>'}</div><button class="icon-button delete-photo" type="button" data-edit-remove-material="${escapeHtml(material.lineId)}" aria-label="Remover material">×</button></div><div class="line-item__fields"><label class="field material-quantity"><span>QTD *</span><div class="quantity-with-unit"><input type="text" inputmode="${normalizeText(material.unit) === 'UN' ? 'numeric' : 'decimal'}" data-edit-material-quantity="${escapeHtml(material.lineId)}" value="${escapeHtml(material.quantity)}" /><strong>${escapeHtml(material.unit || '')}</strong></div></label></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um material do Caderno de Materiais.</div>';
 }
 
 function searchSupervisorCatalog() {
@@ -1576,7 +1576,7 @@ function searchSupervisorMaterials() {
       await ensureMaterialCatalog();
       if (requestId !== supervisorEditMaterialRequestId || revision !== sessionRevision || supervisorEditRecord?.recordId !== recordId || elements.editMaterialSearch.value.trim() !== query) return;
       supervisorEditMaterialResults = searchMaterialCatalog(materialCatalog, query, 40);
-      elements.editMaterialResults.innerHTML = supervisorEditMaterialResults.length ? supervisorEditMaterialResults.map((item, index) => `<button class="search-result" type="button" data-edit-material-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.description)}</span><small>${escapeHtml(item.unit)}</small></button>`).join('') : '<p class="search-empty">Nenhum material encontrado no Caderno de Obras.</p>';
+      elements.editMaterialResults.innerHTML = supervisorEditMaterialResults.length ? supervisorEditMaterialResults.map((item, index) => `<button class="search-result" type="button" data-edit-material-index="${index}"><strong>${escapeHtml(item.code)}</strong><span>${escapeHtml(item.description)}</span><small>${escapeHtml(item.unit)}</small></button>`).join('') : '<p class="search-empty">Nenhum material encontrado no Caderno de Materiais.</p>';
       elements.editMaterialResults.hidden = false;
     } catch (error) { if (requestId === supervisorEditMaterialRequestId && revision === sessionRevision) elements.supervisorEditErrors.textContent = friendlyError(error); }
   }, 220);
