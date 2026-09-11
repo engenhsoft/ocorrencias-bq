@@ -99,7 +99,7 @@ export function loadMaterialCatalog(options = {}) {
     };
     globalThis[callbackName] = (response) => finish(() => {
       if (!response || response.status !== 'ok' || !Array.isArray(response.table?.rows)) {
-        reject(new ApiError('Não foi possível carregar o Caderno de Obras.', 'MATERIAL_CATALOG_ERROR', response));
+        reject(new ApiError('Não foi possível carregar o Caderno de Materiais.', 'MATERIAL_CATALOG_ERROR', response));
         return;
       }
       const cellText = (cell) => String(cell?.f ?? cell?.v ?? '').trim();
@@ -111,8 +111,8 @@ export function loadMaterialCatalog(options = {}) {
       }));
       resolve(rows);
     });
-    script.onerror = () => finish(() => reject(new ApiError('Não foi possível carregar o Caderno de Obras.', 'MATERIAL_CATALOG_ERROR')));
-    const timer = setTimeout(() => finish(() => reject(new ApiError('Tempo esgotado ao carregar o Caderno de Obras.', 'TIMEOUT'))), timeoutMs);
+    script.onerror = () => finish(() => reject(new ApiError('Não foi possível carregar o Caderno de Materiais.', 'MATERIAL_CATALOG_ERROR')));
+    const timer = setTimeout(() => finish(() => reject(new ApiError('Tempo esgotado ao carregar o Caderno de Materiais.', 'TIMEOUT'))), timeoutMs);
     script.src = url.toString();
     script.async = true;
     document.head.append(script);
@@ -138,7 +138,7 @@ export const api = Object.freeze({
   listMine: (token) => apiRequest('listMine', { token }),
   listPending: (token) => apiRequest('listPending', { token }),
   supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
-  supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }),
+  supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 }),
   approveBatch: (token, recordIds = [], all = false, note = '') => apiRequest('approveBatch', { token, recordIds, all, note }, { timeoutMs: 60000 })
 });
 

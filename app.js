@@ -69,6 +69,7 @@ const elements = {
   supervisorSearch: $('#supervisorSearch'), supervisorBaseFilter: $('#supervisorBaseFilter'), supervisorTeamFilter: $('#supervisorTeamFilter'), supervisorTypeFilter: $('#supervisorTypeFilter'), supervisorDateFrom: $('#supervisorDateFrom'), supervisorDateTo: $('#supervisorDateTo'), supervisorFilterSummary: $('#supervisorFilterSummary'),
   selectedCountLabel: $('#selectedCountLabel'), approveSelectedButton: $('#approveSelectedButton'),
   approveAllButton: $('#approveAllButton'), approveAllFooter: $('#approveAllFooter'),
+  supervisorBatchResult: $('#supervisorBatchResult'),
   reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
   editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'),
@@ -118,6 +119,7 @@ let mineFilter = 'today';
 let mineTeam = '';
 let supervisorRecords = [];
 let selectedSupervisorIds = new Set();
+let supervisorLoadError = null;
 let activeSupervisorRecord = null;
 let syncRunning = false;
 let occurrenceSubmissionRunning = false;
@@ -224,12 +226,12 @@ function toast(message, tone = 'default', duration = 3600) {
 function setBusy(button, busy, label = 'Aguarde…') {
   if (!button) return;
   if (busy) {
-    button.dataset.originalLabel = button.innerHTML;
+    if (!button.dataset.originalLabel) button.dataset.originalLabel = button.innerHTML;
     button.disabled = true;
     button.textContent = label;
   } else {
     button.disabled = false;
-    if (button.dataset.originalLabel) button.innerHTML = button.dataset.originalLabel;
+    if (button.dataset.originalLabel) { button.innerHTML = button.dataset.originalLabel; delete button.dataset.originalLabel; }
   }
 }
 
@@ -817,7 +819,7 @@ function renderMaterialResults(error = null) {
     elements.materialSearchHint.textContent = error ? friendlyError(error) : 'Tente outro código ou palavra.'; return;
   }
   elements.materialResults.innerHTML = materialResults.map((item, index) => `<button class="search-result" type="button" role="option" data-material-index="${index}">
-    <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Caderno de Materiais</small></span>
+    <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong></span>
     <span>${escapeHtml(item.description)}</span>
     <span class="search-result__meta"><b>${escapeHtml(item.unit)}</b></span>
   </button>`).join('');
@@ -1355,6 +1357,7 @@ async function refreshSupervisor(notify = false) {
       if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
       supervisorPhotoFailures.clear();
       supervisorRecords = normalizeOccurrenceRecords(result.records, 'listPending.records');
+      supervisorLoadError = null;
       populateSupervisorFilters();
       renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return supervisorRecords;
     } catch (error) {
@@ -1363,7 +1366,8 @@ async function refreshSupervisor(notify = false) {
       else {
         console.error('[Supervisor] Falha ao atualizar ocorrências.', error);
         const message = 'Não foi possível atualizar as ocorrências. Tente novamente.';
-        renderSupervisorList(new ApiError(message, 'SUPERVISOR_REFRESH_ERROR'));
+        supervisorLoadError = new ApiError(message, 'SUPERVISOR_REFRESH_ERROR');
+        renderSupervisorList(supervisorLoadError);
         if (notify) toast(message, 'error');
       }
       return null;
@@ -1406,13 +1410,19 @@ function filteredSupervisorRecords() {
 }
 
 function renderSupervisorList(error = null) {
+  const loadError = error || supervisorLoadError;
   const visibleRecords = filteredSupervisorRecords();
   elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !visibleRecords.length;
   elements.supervisorFilterSummary.textContent = visibleRecords.length === supervisorRecords.length ? `${supervisorRecords.length} pendência(s)` : `${visibleRecords.length} de ${supervisorRecords.length} exibida(s)`;
+  if (loadError) {
+    elements.approveAllFooter.hidden = true;
+    elements.supervisorFilterSummary.textContent = 'Falha ao atualizar';
+    selectedSupervisorIds.clear();
+    elements.supervisorList.innerHTML = `${emptyState('Não foi possível carregar', friendlyError(loadError))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`;
+    updateSupervisorSelectionUi(); return;
+  }
   if (!supervisorRecords.length) {
-    elements.supervisorList.innerHTML = error
-      ? `${emptyState('Não foi possível carregar', friendlyError(error))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`
-      : emptyState('Nenhuma ocorrência aguardando conferência.', 'As ocorrências completas aparecerão aqui para conferência.');
+    elements.supervisorList.innerHTML = emptyState('Nenhuma ocorrência aguardando conferência.', 'As ocorrências completas aparecerão aqui para conferência.');
     updateSupervisorSelectionUi(); return;
   }
   if (!visibleRecords.length) {
@@ -1657,8 +1667,7 @@ async function approveSelected() {
   if (supervisorMutationRunning) return; supervisorMutationRunning = true;
   try {
     if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas.`, 'Aprovar selecionadas', 'success')) return;
-    setBusy(elements.approveSelectedButton, true, 'Aprovando…');
-    const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} aprovada(s); ${result.skippedCount} ignorada(s).`, result.approvedCount ? 'success' : 'default'); selectedSupervisorIds.clear(); await refreshSupervisor(false);
+    await approveSupervisorRecords(ids, elements.approveSelectedButton);
   } catch (error) { toast(friendlyError(error), 'error'); }
   finally { setBusy(elements.approveSelectedButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
 }
@@ -1669,10 +1678,37 @@ async function approveAll() {
     const ids = selectableSupervisorRecords().map((record) => record.recordId);
     if (!ids.length) return;
     if (!await confirmAction('Aprovar todas as exibidas?', `${ids.length} ocorrência(s) apta(s) e visível(is) serão publicadas.`, 'Sim, aprovar exibidas', 'success')) return;
-    setBusy(elements.approveAllButton, true, 'Aprovando…');
-    const result = await api.approveBatch(session.token, ids, false); toast(`${result.approvedCount} ocorrência(s) aprovada(s).`, 'success'); selectedSupervisorIds.clear(); await refreshSupervisor(false);
+    await approveSupervisorRecords(ids, elements.approveAllButton);
   } catch (error) { toast(friendlyError(error), 'error'); }
   finally { setBusy(elements.approveAllButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
+}
+
+async function approveSupervisorRecords(ids, button) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  const labels = new Map(supervisorRecords.map((record) => [record.recordId, record.occurrenceNumber || record.recordId]));
+  const successes = [];
+  const failures = [];
+  elements.supervisorBatchResult.hidden = false;
+  for (let index = 0; index < uniqueIds.length; index += 1) {
+    const recordId = uniqueIds[index];
+    const progress = `Aprovando ${index + 1}/${uniqueIds.length}…`;
+    setBusy(button, true, progress);
+    elements.supervisorBatchResult.className = 'batch-result batch-result--progress';
+    elements.supervisorBatchResult.textContent = progress;
+    try {
+      await api.supervisorAction(session.token, 'approve', recordId);
+      successes.push(recordId);
+      selectedSupervisorIds.delete(recordId);
+    } catch (error) {
+      failures.push({ recordId, label: labels.get(recordId) || recordId, code: error?.code || 'SERVER_ERROR', message: friendlyError(error) });
+    }
+  }
+  const summary = `${successes.length} sucesso(s) · ${failures.length} falha(s)`;
+  elements.supervisorBatchResult.className = `batch-result ${failures.length ? 'batch-result--warning' : 'batch-result--success'}`;
+  elements.supervisorBatchResult.innerHTML = `<strong>${escapeHtml(summary)}</strong>${failures.length ? `<ul>${failures.map((failure) => `<li><b>${escapeHtml(failure.label)}</b>: ${escapeHtml(failure.message)} <small>(${escapeHtml(failure.code)})</small></li>`).join('')}</ul>` : ''}`;
+  toast(summary, failures.length ? 'error' : 'success', 5200);
+  await refreshSupervisor(false);
+  return { successes, failures };
 }
 
 function confirmAction(title, message, actionLabel = 'Confirmar', tone = 'default') {

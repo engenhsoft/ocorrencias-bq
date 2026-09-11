@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.10.2';
-export const APP_BUILD = '2026-09-10-material-card-copy-hotfix';
+export const APP_VERSION = '2026.09.11.1';
+export const APP_BUILD = '2026-09-11-approval-integrity-hotfix';
 
 export const TEAM_GOAL = 6000;
 
