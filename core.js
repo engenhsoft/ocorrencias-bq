@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.20.1';
-export const APP_BUILD = '2026-09-20-login-supervisor-reliability';
+export const APP_VERSION = '2026.09.20.2';
+export const APP_BUILD = '2026-09-20-supervisor-kpis-corrections';
 
 export const TEAM_GOAL = 6000;
 
@@ -117,6 +117,34 @@ export function statusLabel(status, photoCount) {
 
 export function statusTone(status) {
   return (STATUS_META[status] || ['', 'neutral'])[1];
+}
+
+export function uniqueRecordsById(records = []) {
+  const byId = new Map();
+  for (const record of normalizeArray(records, 'records')) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+    const recordId = String(record.recordId || '').trim();
+    if (!recordId || byId.has(recordId)) continue;
+    byId.set(recordId, record);
+  }
+  return [...byId.values()];
+}
+
+export function supervisorKpis(records = []) {
+  const unique = uniqueRecordsById(records);
+  const count = (status) => unique.filter((record) => record.status === status).length;
+  const waitingConference = count(RECORD_STATUS.WAITING_SUPERVISOR);
+  const waitingCorrection = count(RECORD_STATUS.CORRECTION_REQUESTED);
+  const rejected = count(RECORD_STATUS.REJECTED);
+  const pendingSync = count(RECORD_STATUS.SYNCING_PHOTOS);
+  return {
+    total: unique.length,
+    waitingConference,
+    waitingCorrection,
+    rejected,
+    pendingSync,
+    pending: waitingCorrection + pendingSync
+  };
 }
 
 export function normalizeText(value) {
