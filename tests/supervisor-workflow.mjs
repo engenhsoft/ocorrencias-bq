@@ -57,6 +57,7 @@ test('pendências usam os estados canônicos existentes', () => {
 
 test('observação da correção é obrigatória e não exige foto', () => {
   assert.match(htmlSource, /id="decisionReason"[^>]*required/);
+  assert.equal((htmlSource.match(/value="cancel" formnovalidate/g) || []).length >= 2, true);
   assert.match(appSource, /Observação da correção \*/);
   assert.doesNotMatch(appSource, /Selecione pelo menos uma foto para correção/);
 });
