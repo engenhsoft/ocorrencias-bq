@@ -2,7 +2,7 @@ import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
-  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serviceTotal,
+  materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
 } from './core.js';
@@ -120,6 +120,7 @@ let mineTeam = '';
 let supervisorRecords = [];
 let selectedSupervisorIds = new Set();
 let supervisorLoadError = null;
+let supervisorLoading = false;
 let activeSupervisorRecord = null;
 let syncRunning = false;
 let occurrenceSubmissionRunning = false;
@@ -183,6 +184,8 @@ function clearSessionUiState() {
   mineFilter = 'today';
   mineTeam = '';
   supervisorRecords = [];
+  supervisorLoading = false;
+  supervisorLoadError = null;
   selectedSupervisorIds.clear();
   activeSupervisorRecord = null;
   supervisorEditRecord = null;
@@ -260,8 +263,8 @@ async function initialize() {
   updateNetworkUi();
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
   setupServiceWorker();
-  if (session) await enterApplication(); else showLogin();
-  await updateQueueUi();
+  if (session) await enterApplication();
+  else { showLogin(); await updateQueueUi(); }
 }
 
 function bindEvents() {
@@ -442,17 +445,17 @@ async function enterApplication() {
   elements.supervisorNav.hidden = session.role !== 'supervisor';
   if (session.role === 'supervisor') {
     elements.resumeBanner.hidden = true;
-    await navigate('supervisor');
+    navigate('supervisor');
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) refreshSupervisor(false);
     }, 30000);
   } else {
-    navigate('new'); await detectDraft();
+    navigate('new'); detectDraft().catch((error) => console.error('[Rascunho] Falha ao recuperar dados locais.', error));
     if (!elements.team.value) elements.team.value = localStorage.getItem(LAST_TEAM_KEY) || '';
     updateGoal(); refreshMine(false); if (navigator.onLine) { syncAll(false); loadDailyProduction(elements.team.value, false); }
   }
-  await updateQueueUi();
+  updateQueueUi().catch((error) => console.error('[Fila] Falha ao atualizar o resumo local.', error));
 }
 
 function openProfileSwitch(targetRole) {
@@ -729,7 +732,7 @@ function renderServices() {
   }
   elements.servicesList.innerHTML = services.map((service, index) => `<article class="line-item" data-service-line="${escapeHtml(service.lineId)}">
     <div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} ${service.group ? `· ${escapeHtml(service.group)}` : ''} · Contrato ${escapeHtml(service.contract || activeRecord.contract || '—')}</small></div><button class="icon-button delete-photo" type="button" data-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div>
-    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(servicePriceText(service))}</strong></div><div><span>Valor total</span><strong data-service-total="${escapeHtml(service.lineId)}">${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</strong></div></div>
+    <div class="line-item__values"><label class="field"><span>QTD *</span><input type="text" inputmode="decimal" data-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div><span>Valor unitário</span><strong>${escapeHtml(servicePriceText(service))}</strong></div><div><span>Valor total</span><strong data-service-total="${escapeHtml(service.lineId)}">${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</strong></div></div>
   </article>`).join(''); updateGoal();
 }
 
@@ -1119,7 +1122,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
       pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
       pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
-      transformer: next.transformer, services: next.services, materials: serializeMaterialsForBackend(next.materials),
+      transformer: next.transformer, services: serializeServicesForBackend(next.services), materials: serializeMaterialsForBackend(next.materials),
       totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
     }, APP_VERSION);
@@ -1348,20 +1351,27 @@ async function refreshSupervisor(notify = false) {
   if (supervisorRefreshPromise && supervisorRefreshRevision === revision) return supervisorRefreshPromise;
   if (!navigator.onLine) {
     const error = new ApiError('O painel do supervisor precisa de conexão.', 'OFFLINE');
+    supervisorLoading = false;
+    supervisorLoadError = error;
     renderSupervisorList(error); if (notify) toast(error.message, 'error'); return null;
   }
+  supervisorLoading = true;
+  supervisorLoadError = null;
   setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
+  renderSupervisorList();
   const task = (async () => {
     try {
       const result = await api.listPending(requestSession.token);
       if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
       supervisorPhotoFailures.clear();
       supervisorRecords = normalizeOccurrenceRecords(result.records, 'listPending.records');
+      supervisorLoading = false;
       supervisorLoadError = null;
       populateSupervisorFilters();
       renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return supervisorRecords;
     } catch (error) {
       if (revision !== sessionRevision) return null;
+      supervisorLoading = false;
       if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
       else {
         console.error('[Supervisor] Falha ao atualizar ocorrências.', error);
@@ -1409,18 +1419,37 @@ function filteredSupervisorRecords() {
   });
 }
 
+function pendingCountLabel(count) {
+  return `${count} ${count === 1 ? 'pendência' : 'pendências'}`;
+}
+
+function setSupervisorSummary(text, state = 'ready') {
+  elements.supervisorFilterSummary.textContent = text;
+  elements.supervisorFilterSummary.dataset.state = state;
+}
+
 function renderSupervisorList(error = null) {
   const loadError = error || supervisorLoadError;
   const visibleRecords = filteredSupervisorRecords();
   elements.supervisorNavCount.hidden = !supervisorRecords.length; elements.supervisorNavCount.textContent = supervisorRecords.length; elements.approveAllFooter.hidden = !visibleRecords.length;
-  elements.supervisorFilterSummary.textContent = visibleRecords.length === supervisorRecords.length ? `${supervisorRecords.length} pendência(s)` : `${visibleRecords.length} de ${supervisorRecords.length} exibida(s)`;
+  elements.supervisorList.setAttribute('aria-busy', String(supervisorLoading));
   if (loadError) {
     elements.approveAllFooter.hidden = true;
-    elements.supervisorFilterSummary.textContent = 'Falha ao atualizar';
+    setSupervisorSummary('Falha ao atualizar', 'error');
     selectedSupervisorIds.clear();
     elements.supervisorList.innerHTML = `${emptyState('Não foi possível carregar', friendlyError(loadError))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`;
     updateSupervisorSelectionUi(); return;
   }
+  if (supervisorLoading && !supervisorRecords.length) {
+    elements.approveAllFooter.hidden = true;
+    setSupervisorSummary('Carregando pendências…', 'loading');
+    elements.supervisorList.innerHTML = emptyState('Carregando ocorrências', 'Aguarde enquanto buscamos as pendências do Supervisor.');
+    updateSupervisorSelectionUi(); return;
+  }
+  const countText = visibleRecords.length === supervisorRecords.length
+    ? pendingCountLabel(supervisorRecords.length)
+    : `${pendingCountLabel(visibleRecords.length)} ${visibleRecords.length === 1 ? 'visível' : 'visíveis'} de ${pendingCountLabel(supervisorRecords.length)}`;
+  setSupervisorSummary(supervisorLoading ? `Atualizando · ${countText}` : countText, supervisorLoading ? 'loading' : 'ready');
   if (!supervisorRecords.length) {
     elements.supervisorList.innerHTML = emptyState('Nenhuma ocorrência aguardando conferência.', 'As ocorrências completas aparecerão aqui para conferência.');
     updateSupervisorSelectionUi(); return;
@@ -1533,7 +1562,7 @@ function syncSupervisorEditorFromForm() {
 
 function renderSupervisorEditServices() {
   if (!supervisorEditRecord) return;
-  elements.editServicesList.innerHTML = supervisorEditRecord.services.length ? supervisorEditRecord.services.map((service, index) => `<article class="selected-service"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} · Contrato ${escapeHtml(service.contract || supervisorEditRecord.contract || '—')} · ${escapeHtml(servicePriceText(service))}</small></div><button class="icon-button delete-photo" type="button" data-edit-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div><div class="readonly-grid"><label class="field"><span>QTD *</span><input type="number" min="1" step="1" inputmode="numeric" data-edit-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div class="field"><span>Valor unitário</span><strong>${escapeHtml(servicePriceText(service))}</strong></div><div class="field field--wide"><span>Valor total</span><strong>${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</strong></div></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um serviço da aba Emergência.</div>';
+  elements.editServicesList.innerHTML = supervisorEditRecord.services.length ? supervisorEditRecord.services.map((service, index) => `<article class="selected-service"><div class="line-item__main"><div><span class="line-item__index">${index + 1}</span><strong>${escapeHtml(service.code)}</strong><p>${escapeHtml(service.catalogText)}</p><small>${escapeHtml(service.unit || '—')} · Contrato ${escapeHtml(service.contract || supervisorEditRecord.contract || '—')} · ${escapeHtml(servicePriceText(service))}</small></div><button class="icon-button delete-photo" type="button" data-edit-remove-service="${escapeHtml(service.lineId)}" aria-label="Remover serviço">×</button></div><div class="readonly-grid"><label class="field"><span>QTD *</span><input type="text" inputmode="decimal" data-edit-service-quantity="${escapeHtml(service.lineId)}" value="${escapeHtml(service.quantity)}" /></label><div class="field"><span>Valor unitário</span><strong>${escapeHtml(servicePriceText(service))}</strong></div><div class="field field--wide"><span>Valor total</span><strong>${escapeHtml(service.referenceValue == null ? 'Indisponível' : formatCurrency(serviceTotal(service)))}</strong></div></div></article>`).join('') : '<div class="line-items__empty">Adicione pelo menos um serviço da aba Emergência.</div>';
 }
 
 function renderSupervisorEditMaterials() {
@@ -1564,7 +1593,7 @@ function selectSupervisorCatalogItem(event) {
   const priced = priceServiceForContract(item, contract);
   if (priced.referenceValue == null) { elements.supervisorEditErrors.textContent = `Serviço sem valor cadastrado para o contrato ${contract}.`; return; }
   const existing = supervisorEditRecord.services.find((service) => service.catalogKey === item.catalogKey);
-  if (existing) existing.quantity = Math.max(1, Number(existing.quantity) || 1);
+  if (existing) existing.quantity = Math.max(1, parseServiceQuantity(existing.quantity) || 1);
   else supervisorEditRecord.services.push({ ...priced, lineId: generateUuid(), quantity: 1, totalValue: priced.referenceValue });
   elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; renderSupervisorEditServices();
 }
@@ -1574,7 +1603,7 @@ function handleSupervisorServiceEdit(event) {
   const remove = event.target.closest('[data-edit-remove-service]'); if (remove) { supervisorEditRecord.services = supervisorEditRecord.services.filter((service) => service.lineId !== remove.dataset.editRemoveService); renderSupervisorEditServices(); return; }
   const input = event.target.closest('[data-edit-service-quantity]'); if (!input) return;
   const service = supervisorEditRecord.services.find((item) => item.lineId === input.dataset.editServiceQuantity); if (!service) return;
-  service.quantity = Number(input.value); if (event.type === 'input') { const total = input.closest('.selected-service')?.querySelector('.field--wide strong'); if (total) total.textContent = formatCurrency(serviceTotal(service)); }
+  service.quantity = input.value; if (event.type === 'input') { const total = input.closest('.selected-service')?.querySelector('.field--wide strong'); if (total) total.textContent = formatCurrency(serviceTotal(service)); }
 }
 
 function searchSupervisorMaterials() {
@@ -1618,7 +1647,7 @@ async function saveSupervisorCorrection(event) {
   supervisorMutationRunning = true;
   setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
   try {
-    const result = await api.supervisorCorrectRecord(session.token, { ...draft, materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
+    const result = await api.supervisorCorrectRecord(session.token, { ...draft, services: serializeServicesForBackend(draft.services), materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
     const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
     const photoCount = Math.max(countConfirmedPhotos(corrected), countReadyPhotoStates(corrected));
     elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.11.1';
-export const APP_BUILD = '2026-09-11-approval-integrity-hotfix';
+export const APP_VERSION = '2026.09.20.1';
+export const APP_BUILD = '2026-09-20-login-supervisor-reliability';
 
 export const TEAM_GOAL = 6000;
 
@@ -61,7 +61,7 @@ export function serviceValueForContract(service, contract) {
 
 export function priceServiceForContract(service = {}, contract = '') {
   const referenceValue = serviceValueForContract(service, contract);
-  const quantity = Number(service.quantity);
+  const quantity = parseServiceQuantity(service.quantity);
   return {
     ...service,
     contractValues: contractValuesForService(service),
@@ -137,6 +137,20 @@ export function normalizeArray(value, label = 'valor') {
 export function normalizeServices(value, label = 'services') {
   return normalizeArray(value, label)
     .filter((service) => service && typeof service === 'object' && !Array.isArray(service));
+}
+
+export function parseServiceQuantity(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const text = String(value ?? '').trim();
+  if (!/^\d+(?:[.,]\d+)?$/.test(text)) return NaN;
+  return Number(text.replace(',', '.'));
+}
+
+export function serializeServicesForBackend(value) {
+  return normalizeServices(value).map((service) => {
+    const quantity = parseServiceQuantity(service.quantity);
+    return { ...service, quantity: Number.isFinite(quantity) ? quantity : service.quantity };
+  });
 }
 
 export function normalizeOccurrenceTypes(value) {
@@ -304,7 +318,7 @@ export function formatCurrency(value) {
 }
 
 export function formatNumber(value) {
-  const number = Number(value);
+  const number = parseServiceQuantity(value);
   return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
     .format(Number.isFinite(number) ? number : 0);
 }
@@ -334,7 +348,7 @@ export function isUuid(value) {
 }
 
 export function serviceTotal(service) {
-  const quantity = Number(service?.quantity);
+  const quantity = parseServiceQuantity(service?.quantity);
   const unitValue = Number(service?.referenceValue);
   return Number.isFinite(quantity) && Number.isFinite(unitValue) ? quantity * unitValue : 0;
 }
@@ -443,7 +457,7 @@ export function validateOccurrence(record = {}) {
   if (!services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
   services.forEach((service, index) => {
     if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
-    if (!(Number(service?.quantity) >= 1)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
+    if (!(parseServiceQuantity(service?.quantity) > 0)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
     if (service?.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract) {
       errors.push(`Serviço sem valor cadastrado para o contrato ${expectedContract || 'da Sub-base'}.`);
     }
