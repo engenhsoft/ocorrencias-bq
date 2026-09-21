@@ -1,26 +1,34 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const WORKER_VERSION = new URL(self.location.href).searchParams.get('v') || 'current';
+const WORKER_VERSION = '2026.09.20.3';
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
+const versioned = (path) => `${path}?v=${WORKER_VERSION}`;
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css',
-  './config.js',
-  './core.js',
-  './db.js',
-  './api.js',
-  './app.js',
-  './manifest.webmanifest',
+  versioned('./styles.css'),
+  versioned('./config.js'),
+  versioned('./core.js'),
+  versioned('./db.js'),
+  versioned('./api.js'),
+  versioned('./app.js'),
+  versioned('./manifest.webmanifest'),
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/apple-touch-icon.png'
 ];
 
+async function precacheAppShell() {
+  const cache = await caches.open(CACHE_NAME);
+  await Promise.all(APP_SHELL.map(async (asset) => {
+    const request = new Request(asset, { cache: 'reload' });
+    const response = await fetch(request);
+    if (!response.ok) throw new Error(`Falha ao armazenar ${asset}: ${response.status}`);
+    await cache.put(request, response);
+  }));
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-  );
+  event.waitUntil(precacheAppShell());
 });
 
 self.addEventListener('activate', (event) => {

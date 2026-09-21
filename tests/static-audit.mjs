@@ -42,14 +42,14 @@ for (const icon of [...manifest.icons.map((item) => item.src.replace(/^\.\//, ''
 const shellMatch = serviceWorker.match(/const APP_SHELL = \[([\s\S]*?)\];/);
 const shell = [...(shellMatch?.[1] || '').matchAll(/'([^']+)'/g)].map((match) => match[1]);
 test('service worker possui shell offline', () => assert.ok(shell.length >= 10));
-for (const asset of shell.filter((item) => item !== './')) test(`shell existe: ${asset}`, () => access(new URL(asset.replace(/^\.\//, ''), root)));
+for (const asset of shell.filter((item) => item !== './')) test(`shell existe: ${asset}`, () => access(new URL(asset.split('?')[0].replace(/^\.\//, ''), root)));
 test('service worker ativa nova versão imediatamente', () => assert.match(serviceWorker, /skipWaiting\(\)/));
 test('service worker assume clientes após ativação', () => assert.match(serviceWorker, /clients\.claim\(\)/));
 test('service worker limpa caches antigos do mesmo app', () => assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\).*key !== CACHE_NAME/s));
 test('navegação usa rede com fallback offline', () => { assert.match(serviceWorker, /request\.mode === 'navigate'/); assert.match(serviceWorker, /caches\.match\('\.\/index\.html'\)/); });
-test('versões de app e config são coerentes', () => {
-  const appVersion = core.match(/APP_VERSION = '([^']+)'/)?.[1]; const cacheVersion = config.match(/CACHE_VERSION = '([^']+)'/)?.[1]; assert.equal(appVersion, cacheVersion); assert.ok(serviceWorker.includes(cacheVersion));
-  assert.ok(html.includes(`v${appVersion}`));
+test('versões de app e service worker são coerentes', () => {
+  const appVersion = core.match(/APP_VERSION = '([^']+)'/)?.[1]; const workerVersion = serviceWorker.match(/WORKER_VERSION = '([^']+)'/)?.[1]; assert.equal(appVersion, workerVersion); assert.ok(serviceWorker.includes(workerVersion));
+  assert.ok(html.includes(`v=${appVersion}`));
 });
 
 let passed = 0; const failures = [];

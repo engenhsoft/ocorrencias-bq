@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue } from './core.js';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue } from './core.js?v=2026.09.20.3';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;

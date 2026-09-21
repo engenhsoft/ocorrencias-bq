@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.20.2';
-export const APP_BUILD = '2026-09-20-supervisor-kpis-corrections';
+export const APP_VERSION = '2026.09.20.3';
+export const APP_BUILD = '2026-09-20-pwa-cache-coherence';
 
 export const TEAM_GOAL = 6000;
 
