@@ -23,18 +23,32 @@ test('KPIs contam UUID único, nunca o número da ocorrência', () => {
     { recordId: 'f', status: core.RECORD_STATUS.PUBLISHED }
   ];
   assert.deepEqual(core.supervisorKpis(records), {
-    total: 6, waitingConference: 2, waitingCorrection: 1, rejected: 1, pendingSync: 1, pending: 2
+    published: 1, waitingConference: 2, waitingCorrection: 1, rejected: 1, pendingSync: 1, pending: 2
   });
 });
 
 test('registros sem UUID não entram nos KPIs', () => {
-  assert.equal(core.supervisorKpis([{ occurrenceNumber: 'repetida', status: core.RECORD_STATUS.REJECTED }]).total, 0);
+  assert.equal(core.supervisorKpis([{ occurrenceNumber: 'repetida', status: core.RECORD_STATUS.PUBLISHED }]).published, 0);
+});
+
+test('KPI Publicadas inclui somente estados finais publicados por UUID', () => {
+  const metrics = core.supervisorKpis([
+    { recordId: 'p1', status: core.RECORD_STATUS.PUBLISHED },
+    { recordId: 'p1', status: core.RECORD_STATUS.PUBLISHED },
+    { recordId: 'p2', status: 'APROVADA_E_PUBLICADA' },
+    { recordId: 'a1', status: core.RECORD_STATUS.APPROVED },
+    { recordId: 'w1', status: core.RECORD_STATUS.WAITING_SUPERVISOR },
+    { recordId: 'r1', status: core.RECORD_STATUS.REJECTED }
+  ]);
+  assert.equal(metrics.published, 2);
 });
 
 test('Supervisor contém os cinco KPIs e os badges solicitados', () => {
   for (const id of ['supervisorKpiTotal', 'supervisorKpiWaiting', 'supervisorKpiCorrection', 'supervisorKpiRejected', 'supervisorKpiSync', 'supervisorOccurrencesBadge', 'supervisorPendingBadge', 'supervisorPhotosBadge', 'supervisorCorrectionBadge']) {
     assert.match(htmlSource, new RegExp(`id="${id}"`));
   }
+  assert.match(htmlSource, /<span>Publicadas<\/span>/);
+  assert.doesNotMatch(htmlSource, /<span>Total de ocorrências<\/span>/);
 });
 
 test('abas e filtros de pendência são exatamente os solicitados', () => {
@@ -60,6 +74,17 @@ test('observação da correção é obrigatória e não exige foto', () => {
   assert.equal((htmlSource.match(/value="cancel" formnovalidate/g) || []).length >= 2, true);
   assert.match(appSource, /Observação da correção \*/);
   assert.doesNotMatch(appSource, /Selecione pelo menos uma foto para correção/);
+  assert.match(appSource, /value\.trim\(\)/);
+  assert.match(appSource, /event\.preventDefault\(\)/);
+});
+
+test('modal de correção mostra a ocorrência completa sem permitir edição', () => {
+  assert.match(htmlSource, /id="decisionOccurrenceContext"/);
+  assert.match(htmlSource, /id="decisionOccurrenceSummary"/);
+  assert.match(htmlSource, /Nenhum dado é editado nesta tela/);
+  assert.match(appSource, /occurrenceDetails\(activeSupervisorRecord\)/);
+  assert.match(appSource, /<dt>UUID<\/dt>/);
+  assert.match(appSource, /<dt>Enviado por<\/dt>/);
 });
 
 test('equipe recebe destaque, abre o mesmo registro e pode reenviar', () => {
@@ -67,6 +92,13 @@ test('equipe recebe destaque, abre o mesmo registro e pode reenviar', () => {
   assert.match(appSource, /CORREÇÃO SOLICITADA PELO SUPERVISOR/);
   assert.match(appSource, /const correction = \{ \.\.\.record,[\s\S]*correctionMode: true/);
   assert.match(appSource, /Reenviar ao Supervisor/);
+  assert.match(appSource, /loadRecordIntoForm\(correction\)/);
+  assert.match(appSource, /record\.services/);
+  assert.match(appSource, /record\.materials/);
+});
+
+test('fotos opcionais solicitadas usam também o pedido de correção geral', () => {
+  assert.match(appSource, /lastCorrectionRequest\?\.photoIndexes/);
 });
 
 test('correções pedidas não aparecem como aptas para aprovação', () => {

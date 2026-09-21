@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const WORKER_VERSION = '2026.09.20.3';
+const WORKER_VERSION = '2026.09.21.1';
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const versioned = (path) => `${path}?v=${WORKER_VERSION}`;
 const APP_SHELL = [

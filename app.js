@@ -5,13 +5,13 @@ import {
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.20.3';
+} from './core.js?v=2026.09.21.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.20.3';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.20.3';
+} from './db.js?v=2026.09.21.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.21.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -75,8 +75,8 @@ const elements = {
   supervisorBatchResult: $('#supervisorBatchResult'),
   reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
-  editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'),
-  decisionDialogTitle: $('#decisionDialogTitle'), decisionReason: $('#decisionReason'), decisionReasonLabel: $('#decisionReasonLabel'), decisionNote: $('#decisionNote'), decisionNoteField: $('#decisionNoteField'), decisionPhotoSelector: $('#decisionPhotoSelector'), decisionPhotoChoices: $('#decisionPhotoChoices'), decisionError: $('#decisionError'),
+  editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'), decisionForm: $('#decisionForm'),
+  decisionDialogTitle: $('#decisionDialogTitle'), decisionOccurrenceContext: $('#decisionOccurrenceContext'), decisionOccurrenceSummary: $('#decisionOccurrenceSummary'), decisionReason: $('#decisionReason'), decisionReasonLabel: $('#decisionReasonLabel'), decisionNote: $('#decisionNote'), decisionNoteField: $('#decisionNoteField'), decisionPhotoSelector: $('#decisionPhotoSelector'), decisionPhotoChoices: $('#decisionPhotoChoices'), decisionError: $('#decisionError'),
   updateDialog: $('#updateDialog'), updateNowButton: $('#updateNowButton'), updateLaterButton: $('#updateLaterButton'),
   confirmDialog: $('#confirmDialog'), confirmTitle: $('#confirmTitle'), confirmMessage: $('#confirmMessage'),
   confirmActionButton: $('#confirmActionButton'), confirmIcon: $('#confirmIcon'), photoDialog: $('#photoDialog'),
@@ -363,6 +363,7 @@ function bindEvents() {
   elements.approveButton.addEventListener('click', () => decideSupervisor('approve'));
   elements.rejectButton.addEventListener('click', () => decideSupervisor('reject'));
   elements.requestCorrectionButton.addEventListener('click', () => decideSupervisor('request_correction'));
+  elements.decisionForm.addEventListener('submit', validateDecisionSubmission);
   elements.editOccurrenceButton.addEventListener('click', openSupervisorEditor);
   elements.supervisorEditForm.addEventListener('submit', saveSupervisorCorrection);
   $$('[data-close-supervisor-edit]').forEach((button) => button.addEventListener('click', () => elements.supervisorEditDialog.close()));
@@ -1096,7 +1097,7 @@ function occurrenceDetails(record, includePhotos = true) {
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${correctionRequestMarkup(record)}${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${correctionRequestMarkup(record)}${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -1489,7 +1490,7 @@ function renderSupervisorNavigation() {
   const metrics = supervisorKpis(supervisorMetricRecords);
   elements.supervisorKpis.setAttribute('aria-busy', String(supervisorLoading && !supervisorDataLoaded));
   if (supervisorDataLoaded) {
-    elements.supervisorKpiTotal.textContent = metrics.total;
+    elements.supervisorKpiTotal.textContent = metrics.published;
     elements.supervisorKpiWaiting.textContent = metrics.waitingConference;
     elements.supervisorKpiCorrection.textContent = metrics.waitingCorrection;
     elements.supervisorKpiRejected.textContent = metrics.rejected;
@@ -1622,7 +1623,7 @@ function updateSupervisorSelectionUi() {
 
 function activeSupervisorPhotoIssues() { return activeSupervisorRecord ? photoIssueIndexes(activeSupervisorRecord, supervisorPhotoFailures.get(activeSupervisorRecord.recordId) || []) : []; }
 function correctionPhotoIndexes(record) {
-  const value = record?.audit?.lastPhotoCorrectionRequest?.photoIndexes ?? record?.audit?.requestedPhotoIndexes ?? [];
+  const value = record?.audit?.lastCorrectionRequest?.photoIndexes ?? record?.audit?.lastPhotoCorrectionRequest?.photoIndexes ?? record?.audit?.requestedPhotoIndexes ?? [];
   return normalizeArray(value, 'audit.requestedPhotoIndexes').map(Number).filter((index) => Number.isInteger(index) && index >= 1 && index <= 7);
 }
 function photoIndexLabel(index) { return index === 6 ? 'Foto Trafo retirado' : index === 7 ? 'Foto Trafo instalado' : `Foto ${index}`; }
@@ -1803,14 +1804,23 @@ async function decideSupervisor(decision) {
   }
 }
 
+function validateDecisionSubmission(event) {
+  if (elements.decisionReason.value.trim()) return;
+  event.preventDefault();
+  elements.decisionError.textContent = 'Informe a observação obrigatória antes de confirmar.';
+  elements.decisionReason.focus();
+}
+
 function collectDecision(decision) {
-  const isPhotoCorrection = decision === 'request_correction';
+  const isCorrection = decision === 'request_correction';
   elements.decisionDialogTitle.textContent = decision === 'reject' ? 'Reprovar ocorrência' : 'Solicitar correção'; elements.decisionReason.value = ''; elements.decisionNote.value = ''; elements.decisionError.textContent = ''; elements.decisionDialog.returnValue = '';
-  elements.decisionReasonLabel.textContent = isPhotoCorrection ? 'Observação da correção *' : 'Motivo da reprovação *';
-  elements.decisionReason.placeholder = isPhotoCorrection ? 'Descreva claramente o que a equipe precisa corrigir.' : 'Informe o motivo da reprovação.';
-  elements.decisionNoteField.hidden = isPhotoCorrection;
-  elements.decisionPhotoSelector.hidden = !isPhotoCorrection;
-  if (isPhotoCorrection) {
+  elements.decisionReasonLabel.textContent = isCorrection ? 'Observação da correção *' : 'Motivo da reprovação *';
+  elements.decisionReason.placeholder = isCorrection ? 'Descreva qualquer dado operacional que a equipe precisa corrigir.' : 'Informe o motivo da reprovação.';
+  elements.decisionOccurrenceContext.hidden = !isCorrection;
+  elements.decisionOccurrenceSummary.innerHTML = isCorrection && activeSupervisorRecord ? occurrenceDetails(activeSupervisorRecord) : '';
+  elements.decisionNoteField.hidden = isCorrection;
+  elements.decisionPhotoSelector.hidden = !isCorrection;
+  if (isCorrection) {
     const types = normalizeOccurrenceTypes(activeSupervisorRecord?.occurrenceTypes);
     const indexes = [1, 2, 3, 4, 5].concat(types.includes(TYPE_TRAFO) ? [6, 7] : []);
     const detected = new Set(activeSupervisorPhotoIssues());
@@ -1820,7 +1830,7 @@ function collectDecision(decision) {
   return new Promise((resolve) => { const handler = () => {
     elements.decisionDialog.removeEventListener('close', handler);
     if (elements.decisionDialog.returnValue !== 'default' || !elements.decisionReason.value.trim()) return resolve(null);
-    const photoIndexes = isPhotoCorrection ? $$('input:checked', elements.decisionPhotoChoices).map((input) => Number(input.value)) : [];
+    const photoIndexes = isCorrection ? $$('input:checked', elements.decisionPhotoChoices).map((input) => Number(input.value)) : [];
     resolve({ reason: elements.decisionReason.value.trim(), note: elements.decisionNote.value.trim(), photoIndexes });
   }; elements.decisionDialog.addEventListener('close', handler); });
 }

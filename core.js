@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.20.3';
-export const APP_BUILD = '2026-09-20-pwa-cache-coherence';
+export const APP_VERSION = '2026.09.21.1';
+export const APP_BUILD = '2026-09-21-full-supervisor-correction';
 
 export const TEAM_GOAL = 6000;
 
@@ -132,13 +132,14 @@ export function uniqueRecordsById(records = []) {
 
 export function supervisorKpis(records = []) {
   const unique = uniqueRecordsById(records);
-  const count = (status) => unique.filter((record) => record.status === status).length;
+  const count = (...statuses) => unique.filter((record) => statuses.includes(record.status)).length;
+  const published = count(RECORD_STATUS.PUBLISHED, 'APROVADA_E_PUBLICADA');
   const waitingConference = count(RECORD_STATUS.WAITING_SUPERVISOR);
   const waitingCorrection = count(RECORD_STATUS.CORRECTION_REQUESTED);
   const rejected = count(RECORD_STATUS.REJECTED);
   const pendingSync = count(RECORD_STATUS.SYNCING_PHOTOS);
   return {
-    total: unique.length,
+    published,
     waitingConference,
     waitingCorrection,
     rejected,

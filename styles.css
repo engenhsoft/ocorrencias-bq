@@ -356,7 +356,15 @@ p { color: var(--muted); line-height: 1.55; }
 .batch-result ul { margin: 0.55rem 0 0; padding-left: 1.15rem; }
 .batch-result li + li { margin-top: 0.35rem; }
 .photo-correction-selector { margin: 0; }
+.photo-correction-selector > p { margin: 0 0 0.8rem; font-size: 0.8rem; }
 .photo-correction-selector .choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.decision-occurrence-context { padding: 0.9rem; border: 1px solid #b7d7e8; border-radius: 16px; background: #f4fafc; }
+.decision-occurrence-context__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.8rem; }
+.decision-occurrence-context__heading strong { color: var(--navy-900); }
+.decision-occurrence-context__heading p { margin: 0.25rem 0 0; font-size: 0.8rem; }
+.decision-occurrence-context__heading > span { flex: 0 0 auto; padding: 0.3rem 0.5rem; border-radius: 999px; color: var(--blue-700); background: #e6f4fb; font-size: 0.68rem; font-weight: 780; text-transform: uppercase; }
+.decision-occurrence-summary { margin-top: 0.9rem; display: grid; gap: 0.9rem; }
+.decision-occurrence-summary > * { width: 100%; max-width: 100%; min-width: 0; margin: 0; }
 .checkbox-label { display: inline-flex; align-items: center; gap: 0.48rem; color: var(--navy-900); font-size: 0.8rem; font-weight: 720; cursor: pointer; }
 .checkbox-label input { width: 18px; height: 18px; accent-color: var(--teal-600); }
 .supervisor-card { grid-template-columns: auto minmax(0,1fr); align-items: start; }
@@ -630,6 +638,8 @@ p { color: var(--muted); line-height: 1.55; }
   .supervisor-toolbar .button, .approve-all-footer .button { width: 100%; }
   .supervisor-filters input[type="date"] { width: 100%; min-height: 44px; -webkit-appearance: none; appearance: none; }
   .approve-all-footer { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .decision-occurrence-context { padding: 0.75rem; }
+  .decision-occurrence-context__heading { flex-direction: column; }
   .modal { width: calc(100% - 0.75rem); max-width: calc(100% - 0.75rem); }
   .detail-modal { inset: max(0.25rem, env(safe-area-inset-top)) 0.25rem max(0.25rem, env(safe-area-inset-bottom)); width: auto; max-width: none; height: auto; max-height: none; margin: auto; }
   .modal__header, .modal__body, .modal__footer { padding-left: 0.8rem; padding-right: 0.8rem; }
