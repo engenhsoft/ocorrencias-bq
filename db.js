@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue } from './core.js?v=2026.09.21.1';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue } from './core.js?v=2026.09.27.1';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;
@@ -31,6 +31,11 @@ export function openDatabase() {
   connectionPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     let invalidated = false;
+    const timer = setTimeout(() => {
+      invalidated = true;
+      connectionPromise = null;
+      reject(new Error('Tempo esgotado ao abrir o armazenamento local. Feche outras abas do aplicativo e tente novamente.'));
+    }, 12000);
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE.records)) {
@@ -51,6 +56,7 @@ export function openDatabase() {
       }
     };
     request.onsuccess = () => {
+      clearTimeout(timer);
       if (invalidated) {
         request.result.close();
         return;
@@ -62,10 +68,12 @@ export function openDatabase() {
       resolve(request.result);
     };
     request.onerror = () => {
+      clearTimeout(timer);
       connectionPromise = null;
       reject(request.error || new Error('Não foi possível abrir o armazenamento local.'));
     };
     request.onblocked = () => {
+      clearTimeout(timer);
       invalidated = true;
       connectionPromise = null;
       reject(new Error('Feche outras versões do aplicativo para atualizar o armazenamento local.'));
@@ -229,6 +237,16 @@ export async function getCachedMaterialCatalog() {
 export async function setMeta(key, value) {
   const { transaction, store } = await storeTransaction([STORE.meta], 'readwrite');
   store(STORE.meta).put({ key, value, updatedAt: new Date().toISOString() });
+  await transactionDone(transaction);
+}
+
+export async function clearMetaIfValue(key, expectedValue) {
+  const { transaction, store } = await storeTransaction([STORE.meta], 'readwrite');
+  const metaStore = store(STORE.meta);
+  const request = metaStore.get(key);
+  request.onsuccess = () => {
+    if (request.result?.value === expectedValue) metaStore.put({ key, value: null, updatedAt: new Date().toISOString() });
+  };
   await transactionDone(transaction);
 }
 

@@ -5,13 +5,13 @@ import {
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.21.1';
+} from './core.js?v=2026.09.27.1';
 import {
-  cacheCatalogResults, cacheMaterialCatalog, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
+  cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.21.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.21.1';
+} from './db.js?v=2026.09.27.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.27.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -103,6 +103,8 @@ const elements = {
 
 let session = readSession();
 let sessionRevision = 0;
+let loginRunning = false;
+let profileSwitchRunning = false;
 let activeRecord = null;
 let activePhotos = new Map();
 let previewUrls = new Map();
@@ -220,7 +222,7 @@ function clearSessionUiState() {
   elements.supervisorList.innerHTML = '';
   elements.supervisorKpis.setAttribute('aria-busy', 'true');
   [elements.supervisorKpiTotal, elements.supervisorKpiWaiting, elements.supervisorKpiCorrection, elements.supervisorKpiRejected, elements.supervisorKpiSync].forEach((item) => { item.textContent = '—'; });
-  elements.supervisorOccurrencesBadge.textContent = '0'; elements.supervisorPendingBadge.textContent = '0'; elements.supervisorPhotosBadge.textContent = '0'; elements.supervisorCorrectionBadge.textContent = '0';
+  elements.supervisorOccurrencesBadge.textContent = '—'; elements.supervisorPendingBadge.textContent = '—'; elements.supervisorPhotosBadge.textContent = '—'; elements.supervisorCorrectionBadge.textContent = '—';
   elements.supervisorNavCount.hidden = true;
   elements.selectAllVisible.checked = false;
   elements.selectAllVisible.indeterminate = false;
@@ -271,7 +273,6 @@ async function initialize() {
   elements.appVersion.textContent = APP_VERSION;
   elements.appBuild.textContent = `Build ${APP_BUILD}`;
   elements.loginAppVersion.textContent = `v${APP_VERSION}`;
-  await openDatabase();
   bindEvents();
   renderPhotoGrid();
   renderMaterials();
@@ -279,8 +280,18 @@ async function initialize() {
   updateNetworkUi();
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
   setupServiceWorker();
+  try { await ensureLocalStorage(); }
+  catch (error) { showLogin(); elements.loginMessage.textContent = friendlyError(error); return; }
   if (session) await enterApplication();
   else { showLogin(); await updateQueueUi(); }
+}
+
+async function ensureLocalStorage() {
+  try { await openDatabase(); }
+  catch (error) {
+    console.error('[Armazenamento] Falha ao iniciar.', error);
+    throw new ApiError('Armazenamento local indisponível. Feche outras abas do aplicativo e tente novamente.', 'LOCAL_STORAGE_UNAVAILABLE');
+  }
 }
 
 function bindEvents() {
@@ -445,14 +456,17 @@ function showLogin() {
 
 async function handleLogin(event) {
   event.preventDefault();
+  if (loginRunning) return;
   const form = new FormData(elements.loginForm);
   const user = String(form.get('user') || '').trim();
   const password = String(form.get('password') || '');
   const role = String(form.get('role') || 'field');
   elements.loginMessage.textContent = '';
   if (!navigator.onLine) { elements.loginMessage.textContent = 'Faça o primeiro acesso online. Depois, a fila continuará funcionando sem internet.'; return; }
+  loginRunning = true;
   setBusy(elements.loginButton, true, 'Entrando…');
   try {
+    await ensureLocalStorage();
     const result = await api.login(user, password, role);
     clearSessionUiState();
     persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
@@ -460,7 +474,7 @@ async function handleLogin(event) {
     elements.loginPassword.value = '';
     await enterApplication();
   } catch (error) { elements.loginMessage.textContent = friendlyError(error); }
-  finally { setBusy(elements.loginButton, false); }
+  finally { loginRunning = false; setBusy(elements.loginButton, false); }
 }
 
 async function enterApplication() {
@@ -474,7 +488,7 @@ async function enterApplication() {
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) refreshSupervisor(false);
-    }, 30000);
+    }, 90000);
   } else {
     navigate('new'); detectDraft().catch((error) => console.error('[Rascunho] Falha ao recuperar dados locais.', error));
     if (!elements.team.value) elements.team.value = localStorage.getItem(LAST_TEAM_KEY) || '';
@@ -496,9 +510,11 @@ function openProfileSwitch(targetRole) {
 
 async function handleProfileSwitch(event) {
   event.preventDefault();
+  if (profileSwitchRunning) return;
   const user = elements.profileSwitchUser.value.trim(); const password = elements.profileSwitchPassword.value;
   elements.profileSwitchMessage.textContent = '';
   if (!navigator.onLine) { elements.profileSwitchMessage.textContent = 'A troca de perfil precisa de conexão para validar a senha.'; return; }
+  profileSwitchRunning = true;
   setBusy(elements.profileSwitchSubmit, true, 'Autenticando…');
   try {
     const result = await api.login(user, password, profileSwitchTarget);
@@ -508,7 +524,7 @@ async function handleProfileSwitch(event) {
     clearInterval(supervisorRefreshTimer); await enterApplication();
     toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
   } catch (error) { elements.profileSwitchMessage.textContent = friendlyError(error); }
-  finally { setBusy(elements.profileSwitchSubmit, false); }
+  finally { profileSwitchRunning = false; setBusy(elements.profileSwitchSubmit, false); }
 }
 
 function logout() { persistSession(null); clearSessionUiState(); showLogin(); }
@@ -598,10 +614,15 @@ async function handleFormInput(event) {
   const previousBase = activeRecord.base;
   syncFormToRecord();
   if (event?.target === elements.operationBase && activeRecord.base !== previousBase) {
+    clearTimeout(catalogSearchTimer);
+    catalogSearchRequestId += 1;
+    catalogResults = [];
+    elements.searchSpinner.hidden = true;
+    elements.serviceResults.hidden = true;
     const result = applyContractToRecord(activeRecord);
     renderServices();
     if (result.missingCodes.length && activeRecord.services.length && result.contract) toast(`Serviço sem valor cadastrado para o contrato ${result.contract}.`, 'error');
-    if (!elements.serviceResults.hidden) renderCatalogResults();
+    if (elements.serviceSearch.value.trim().length >= 2) void handleCatalogInput();
   }
   updateContractOutput(elements.operationContract, activeRecord.base);
   elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
@@ -1111,19 +1132,31 @@ async function submitOccurrence() {
   if (requestedWithoutReplacement.length) { toast(`Adicione novamente: ${requestedWithoutReplacement.map(photoIndexLabel).join(', ')}.`, 'error'); return; }
   occurrenceSubmissionRunning = true;
   let locallyQueued = false;
+  let submittedId = '';
+  const previousStatus = activeRecord.status;
   try {
     if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
+    submittedId = activeRecord.recordId;
     syncFormToRecord(); activeRecord.status = RECORD_STATUS.PENDING; activeRecord.lastError = '';
-    await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, null); const submittedId = activeRecord.recordId; locallyQueued = true;
-    setBusy(elements.submitOccurrenceButton, true, 'Enviando…');
-    const result = await syncSingleRecord(submittedId, false);
-    toast(result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'Ocorrência enviada para conferência.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.', result?.status === RECORD_STATUS.WAITING_SUPERVISOR ? 'success' : 'default');
+    setBusy(elements.submitOccurrenceButton, true, 'Guardando…');
+    await putRecord(activeRecord); locallyQueued = true;
+    await clearMetaIfValue(ACTIVE_DRAFT_META, submittedId);
+    toast('Ocorrência guardada na fila. A sincronização continuará automaticamente.');
+    void syncSingleRecord(submittedId, false).then((result) => {
+      if (result?.status === RECORD_STATUS.WAITING_SUPERVISOR) toast('Ocorrência enviada para conferência.', 'success');
+      else if (result?.status === RECORD_STATUS.ERROR) toast(result.lastError || 'Falha ao sincronizar. Tente novamente pela fila.', 'error', 5200);
+    }).catch((error) => { console.error('[Fila] Falha ao sincronizar ocorrência guardada.', error); toast('Falha ao sincronizar. O registro continua guardado para nova tentativa.', 'error'); });
   } catch (error) {
-    console.error('[Envio] Não foi possível guardar a ocorrência na fila.', error);
-    toast('Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
+    console.error('[Envio] Falha ao preparar ocorrência na fila.', error);
+    if (!locallyQueued && activeRecord?.recordId === submittedId) activeRecord.status = previousStatus;
+    toast(locallyQueued ? 'Ocorrência guardada neste aparelho. Abra a fila para tentar sincronizar.' : 'Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
   } finally {
     occurrenceSubmissionRunning = false; setBusy(elements.submitOccurrenceButton, false);
-    if (locallyQueued) { resetForm({ preserveTeam: true }); navigate('mine'); }
+    if (locallyQueued && activeRecord?.recordId === submittedId) {
+      const wasInForm = currentView === 'new';
+      resetForm({ preserveTeam: true });
+      if (wasInForm) navigate('mine');
+    }
   }
 }
 
@@ -1376,11 +1409,10 @@ async function loadRecordIntoForm(record) {
   renderFieldCorrectionBanner(activeRecord);
   if (!activeRecord.contract) activeRecord.contract = contractForBase(activeRecord.base);
   if (activeRecord.services.length && activeRecord.services.every((service) => service.contractValues && typeof service.contractValues === 'object')) applyContractToRecord(activeRecord);
-  const photos = await getPhotosForRecord(record.recordId);
-  for (const photo of photos) { const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex }; activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' }; activePhotos.set(photo.photoIndex, photo); setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob)); }
-  if (photos.length) await putRecord(activeRecord);
-  elements.operationBase.value = activeRecord.base || ''; updateContractOutput(elements.operationContract, activeRecord.base); elements.team.value = activeRecord.team || ''; elements.crewLeader.value = activeRecord.crewLeader || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
-  if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); await loadDailyProduction(activeRecord.team, false); }
+  const loadingRecord = activeRecord;
+  elements.operationBase.value = loadingRecord.base || '';
+  updateContractOutput(elements.operationContract, elements.operationBase.value);
+  elements.operationBase.value = activeRecord.base || ''; updateContractOutput(elements.operationContract, elements.operationBase.value); elements.team.value = activeRecord.team || ''; elements.crewLeader.value = activeRecord.crewLeader || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
   elements.otherOccurrenceType.value = activeRecord.otherOccurrenceType || '';
   elements.pgPostRemoved.value = activeRecord.pgPostRemoved || activeRecord.pg1 || ''; elements.pgPostInstalled.value = activeRecord.pgPostInstalled || activeRecord.pg2 || '';
@@ -1390,6 +1422,23 @@ async function loadRecordIntoForm(record) {
   elements.newTransformerCia.value = activeRecord.transformer.newCia || ''; elements.newTransformerBto.value = activeRecord.transformer.newBto || '';
   elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.pgPostSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_POST); elements.pgConductorSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR); elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
   renderServices(); renderMaterials(); showDraftId(); validateStepOne(false); updatePhotoGrid(); goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1))); elements.resumeBanner.hidden = true; navigate('new');
+  if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); void loadDailyProduction(activeRecord.team, false).catch((error) => console.error('[Produção] Falha ao atualizar meta diária.', error)); }
+  try {
+    const photos = await getPhotosForRecord(record.recordId);
+    if (activeRecord !== loadingRecord) return;
+    for (const photo of photos) {
+      if (activePhotos.has(photo.photoIndex)) continue;
+      const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex };
+      activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' };
+      activePhotos.set(photo.photoIndex, photo);
+      setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob));
+    }
+    if (photos.length) await putRecord(activeRecord);
+    if (activeRecord === loadingRecord) updatePhotoGrid();
+  } catch (error) {
+    console.error('[Rascunho] Falha ao recuperar evidências locais.', error);
+    if (activeRecord === loadingRecord) toast('Não foi possível recuperar as fotos locais. Os demais dados continuam no formulário.', 'error');
+  }
 }
 
 function resetForm({ preserveTeam = false } = {}) {
@@ -1422,11 +1471,17 @@ async function refreshSupervisor(notify = false) {
     try {
       const result = await api.listPending(requestSession.token);
       if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
+      if (!Array.isArray(result.records) || !Array.isArray(result.pendingRecords) || (result.metricRecords != null && !Array.isArray(result.metricRecords))) {
+        throw new ApiError('O servidor retornou um painel incompleto. Tente novamente.', 'INVALID_SUPERVISOR_PAYLOAD');
+      }
+      const records = uniqueRecordsById(normalizeOccurrenceRecords(result.records, 'listPending.records'));
+      const pendingRecords = uniqueRecordsById(normalizeOccurrenceRecords(result.pendingRecords, 'listPending.pendingRecords'));
+      const metricSource = result.metricRecords || [];
+      const metricRecords = uniqueRecordsById(metricSource.length ? metricSource : [...records, ...pendingRecords]);
       supervisorPhotoFailures.clear();
-      supervisorRecords = uniqueRecordsById(normalizeOccurrenceRecords(result.records, 'listPending.records'));
-      supervisorPendingRecords = uniqueRecordsById(normalizeOccurrenceRecords(result.pendingRecords || [], 'listPending.pendingRecords'));
-      const metricSource = normalizeArray(result.metricRecords, 'listPending.metricRecords');
-      supervisorMetricRecords = uniqueRecordsById(metricSource.length ? metricSource : [...supervisorRecords, ...supervisorPendingRecords]);
+      supervisorRecords = records;
+      supervisorPendingRecords = pendingRecords;
+      supervisorMetricRecords = metricRecords;
       supervisorDataLoaded = true;
       supervisorLoading = false;
       supervisorLoadError = null;
@@ -1438,8 +1493,8 @@ async function refreshSupervisor(notify = false) {
       if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
       else {
         console.error('[Supervisor] Falha ao atualizar ocorrências.', error);
-        const message = 'Não foi possível atualizar as ocorrências. Tente novamente.';
-        supervisorLoadError = new ApiError(message, 'SUPERVISOR_REFRESH_ERROR');
+        const message = friendlyError(error);
+        supervisorLoadError = error instanceof ApiError ? error : new ApiError('Não foi possível atualizar as ocorrências. Tente novamente.', 'SUPERVISOR_REFRESH_ERROR');
         renderSupervisorList(supervisorLoadError);
         if (notify) toast(message, 'error');
       }
@@ -1496,10 +1551,10 @@ function renderSupervisorNavigation() {
     elements.supervisorKpiRejected.textContent = metrics.rejected;
     elements.supervisorKpiSync.textContent = metrics.pendingSync;
   }
-  elements.supervisorOccurrencesBadge.textContent = metrics.waitingConference;
-  elements.supervisorPendingBadge.textContent = metrics.pending;
-  elements.supervisorPhotosBadge.textContent = metrics.pendingSync;
-  elements.supervisorCorrectionBadge.textContent = metrics.waitingCorrection;
+  elements.supervisorOccurrencesBadge.textContent = supervisorDataLoaded ? metrics.waitingConference : '—';
+  elements.supervisorPendingBadge.textContent = supervisorDataLoaded ? metrics.pending : '—';
+  elements.supervisorPhotosBadge.textContent = supervisorDataLoaded ? metrics.pendingSync : '—';
+  elements.supervisorCorrectionBadge.textContent = supervisorDataLoaded ? metrics.waitingCorrection : '—';
   const attentionCount = metrics.waitingConference + metrics.pending;
   elements.supervisorNavCount.hidden = !supervisorDataLoaded || !attentionCount;
   elements.supervisorNavCount.textContent = attentionCount;
@@ -1557,7 +1612,7 @@ function renderSupervisorList(error = null) {
   elements.supervisorList.setAttribute('aria-busy', String(supervisorLoading));
   if (loadError) {
     elements.approveAllFooter.hidden = true;
-    setSupervisorSummary('Falha ao atualizar', 'error');
+    setSupervisorSummary(supervisorDataLoaded ? 'Falha ao atualizar · números da última carga' : 'Falha ao carregar', 'error');
     selectedSupervisorIds.clear();
     elements.supervisorList.innerHTML = `${emptyState('Não foi possível carregar', friendlyError(loadError))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`;
     updateSupervisorSelectionUi(); return;
