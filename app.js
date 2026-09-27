@@ -1,23 +1,24 @@
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
-  generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey,
+  correctedAfterResend, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.27.1';
+} from './core.js?v=2026.09.27.2';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.27.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.27.1';
+} from './db.js?v=2026.09.27.2';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.27.2';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
 const LAST_TEAM_KEY = 'ocorrencias-bq-last-team-v1';
 const ACTIVE_DRAFT_META = 'activeDraftId';
 const LAST_SYNC_META = 'lastSyncAt';
+const RELEASE_NOTICE_KEY = `ocorrencias-bq-update-notice-seen-${APP_VERSION}`;
 const TYPE_TRAFO = 'SUBSTITUIÇÃO DE TRAFO';
 const TYPE_POST = 'SUBSTITUIÇÃO DE POSTE';
 const TYPE_CONDUCTOR = 'SUBSTITUIÇÃO DE CONDUTOR';
@@ -75,9 +76,11 @@ const elements = {
   supervisorBatchResult: $('#supervisorBatchResult'),
   reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
+  requestPhotoSyncButton: $('#requestPhotoSyncButton'), photoSyncRequests: $('#photoSyncRequests'),
   editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'), decisionForm: $('#decisionForm'),
   decisionDialogTitle: $('#decisionDialogTitle'), decisionOccurrenceContext: $('#decisionOccurrenceContext'), decisionOccurrenceSummary: $('#decisionOccurrenceSummary'), decisionReason: $('#decisionReason'), decisionReasonLabel: $('#decisionReasonLabel'), decisionNote: $('#decisionNote'), decisionNoteField: $('#decisionNoteField'), decisionPhotoSelector: $('#decisionPhotoSelector'), decisionPhotoChoices: $('#decisionPhotoChoices'), decisionError: $('#decisionError'),
   updateDialog: $('#updateDialog'), updateNowButton: $('#updateNowButton'), updateLaterButton: $('#updateLaterButton'),
+  releaseNoticeDialog: $('#releaseNoticeDialog'), releaseNoticeAcknowledge: $('#releaseNoticeAcknowledge'),
   confirmDialog: $('#confirmDialog'), confirmTitle: $('#confirmTitle'), confirmMessage: $('#confirmMessage'),
   confirmActionButton: $('#confirmActionButton'), confirmIcon: $('#confirmIcon'), photoDialog: $('#photoDialog'),
   photoDialogImage: $('#photoDialogImage'), photoDialogLabel: $('#photoDialogLabel'), photoPreviousButton: $('#photoPreviousButton'),
@@ -160,6 +163,8 @@ let confirmDialogPromise = null;
 let supervisorMutationRunning = false;
 let waitingServiceWorker = null;
 let updateReloadRequested = false;
+const photoSyncAttempts = new Set();
+const photoSyncFeedback = new Map();
 
 function readSession() {
   try {
@@ -191,6 +196,10 @@ function clearSessionUiState() {
   activeRecord = null;
   clearPreviewUrls();
   mineRecords = [];
+  elements.photoSyncRequests.hidden = true;
+  elements.photoSyncRequests.innerHTML = '';
+  photoSyncAttempts.clear();
+  photoSyncFeedback.clear();
   mineFilter = 'today';
   mineTeam = '';
   supervisorRecords = [];
@@ -349,6 +358,10 @@ function bindEvents() {
     renderMineFilters(); renderMineList();
   });
   elements.mineList.addEventListener('click', handleMineAction);
+  elements.photoSyncRequests.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-photo-sync-record]');
+    if (button) void syncRequestedPhotos(button.dataset.photoSyncRecord);
+  });
   elements.mineTeamSelect.addEventListener('change', () => { mineTeam = elements.mineTeamSelect.value; localStorage.setItem(LAST_TEAM_KEY, mineTeam); refreshMineGoal(false); });
   elements.testConnectionButton.addEventListener('click', testConnection);
   elements.syncNowButton.addEventListener('click', () => syncAll(true));
@@ -374,6 +387,7 @@ function bindEvents() {
   elements.approveButton.addEventListener('click', () => decideSupervisor('approve'));
   elements.rejectButton.addEventListener('click', () => decideSupervisor('reject'));
   elements.requestCorrectionButton.addEventListener('click', () => decideSupervisor('request_correction'));
+  elements.requestPhotoSyncButton.addEventListener('click', () => requestPhotoSync(activeSupervisorRecord?.recordId));
   elements.decisionForm.addEventListener('submit', validateDecisionSubmission);
   elements.editOccurrenceButton.addEventListener('click', openSupervisorEditor);
   elements.supervisorEditForm.addEventListener('submit', saveSupervisorCorrection);
@@ -419,6 +433,18 @@ function bindEvents() {
     setBusy(elements.updateNowButton, true, 'Atualizando…');
     waitingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
   });
+  elements.releaseNoticeDialog.addEventListener('close', () => {
+    try { localStorage.setItem(RELEASE_NOTICE_KEY, '1'); }
+    catch (error) { console.warn('[Atualização] Não foi possível registrar o aviso.', error); }
+  });
+  elements.updateDialog.addEventListener('close', showReleaseNoticeOnce);
+}
+
+function showReleaseNoticeOnce() {
+  if (!session || elements.updateDialog.open || elements.releaseNoticeDialog.open) return;
+  try {
+    if (!localStorage.getItem(RELEASE_NOTICE_KEY)) elements.releaseNoticeDialog.showModal();
+  } catch (error) { console.warn('[Atualização] Não foi possível mostrar o aviso.', error); }
 }
 
 async function setupServiceWorker() {
@@ -495,6 +521,7 @@ async function enterApplication() {
     updateGoal(); refreshMine(false); if (navigator.onLine) { syncAll(false); loadDailyProduction(elements.team.value, false); }
   }
   updateQueueUi().catch((error) => console.error('[Fila] Falha ao atualizar o resumo local.', error));
+  setTimeout(showReleaseNoticeOnce, 0);
 }
 
 function openProfileSwitch(targetRole) {
@@ -1079,7 +1106,7 @@ function auditMarkup(record) {
   if (currentStatus && (record.updatedAt || record.reviewedAt)) timeline.push({ action: currentStatus, at: record.reviewedAt || record.updatedAt, actor: record.supervisor || '', detail: record.reason || '' });
   const uniqueTimeline = [...new Map(timeline.map((item) => [`${item.action}|${item.at}|${item.actor}`, item])).values()]
     .sort((left, right) => String(left.at).localeCompare(String(right.at)));
-  const labels = { CRIADA: 'Criada', SALVA_LOCALMENTE: 'Salva localmente', PENDENTE_ENVIO: 'Pendente', SINCRONIZADA: 'Sincronizada', AGUARDANDO_SUPERVISOR: 'Aguardando supervisor', CORRECAO_SOLICITADA: 'Correção solicitada', CORRECAO_FOTOS_SOLICITADA: 'Correção solicitada', CORRECAO_REENVIADA: 'Correção reenviada', CORRIGIDA_PELO_SUPERVISOR: 'Corrigida pelo supervisor', REPROVADA: 'Reprovada', APROVADA: 'Aprovada', APROVADA_E_PUBLICADA: 'Aprovada e publicada', PUBLICADA: 'Publicada', FOTOS_SENDO_SINCRONIZADAS: 'Fotos em sincronização' };
+  const labels = { CRIADA: 'Criada', SALVA_LOCALMENTE: 'Salva localmente', PENDENTE_ENVIO: 'Pendente', SINCRONIZADA: 'Sincronizada', AGUARDANDO_SUPERVISOR: 'Aguardando supervisor', CORRECAO_SOLICITADA: 'Correção solicitada', CORRECAO_FOTOS_SOLICITADA: 'Correção solicitada', CORRECAO_REENVIADA: 'Correção reenviada', CORRIGIDA_PELO_SUPERVISOR: 'Corrigida pelo supervisor', SINCRONISMO_SOLICITADO: 'Sincronismo solicitado', SINCRONISMO_CONFIRMADO: 'Fotos sincronizadas', REPROVADA: 'Reprovada', APROVADA: 'Aprovada', APROVADA_E_PUBLICADA: 'Aprovada e publicada', PUBLICADA: 'Publicada', FOTOS_SENDO_SINCRONIZADAS: 'Fotos em sincronização' };
   const timelineEntries = uniqueTimeline.map((item) => `<article class="audit-entry"><div class="audit-entry__title"><strong>${escapeHtml(labels[item.action] || item.action.replaceAll('_', ' '))}</strong><time>${escapeHtml(formatDateTime(item.at))}</time></div>${item.actor || item.detail ? `<p>${escapeHtml([item.actor, item.detail].filter(Boolean).join(' · '))}</p>` : ''}</article>`).join('');
   const correctionEntries = corrections.map((item) => {
     const changes = normalizeArray(item.changes, 'audit.changes')
@@ -1118,7 +1145,7 @@ function occurrenceDetails(record, includePhotos = true) {
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${correctionRequestMarkup(record)}${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}${correctionRequestMarkup(record)}${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -1236,7 +1263,10 @@ async function performSyncSingleRecord(recordId, notify = true) {
   } catch (error) {
     next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await putRecord(next);
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
-  } finally { await updateQueueUi(); if (currentView === 'mine' && session?.role === 'field') refreshMine(false); }
+  } finally {
+    await updateQueueUi();
+    if (session?.role === 'field' && (currentView === 'mine' || mineRecords.some((item) => item.recordId === recordId && openPhotoSyncRequest(item, session.user)))) refreshMine(false);
+  }
 }
 
 async function syncAll(notify = false) {
@@ -1290,7 +1320,7 @@ async function refreshMine(notify = false) {
         } catch (error) { if (revision === sessionRevision && notify) toast(friendlyError(error), 'error'); }
       }
       if (revision !== sessionRevision) return null;
-      mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); await refreshMineGoal(false); return mineRecords;
+      mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); renderPhotoSyncRequests(); await refreshMineGoal(false); return mineRecords;
     } catch (error) {
       if (revision !== sessionRevision) return null;
       console.error('[Minhas ocorrências] Falha ao atualizar.', error);
@@ -1354,6 +1384,63 @@ function renderMineList() {
     const action = `<div class="button-row">${actions.join('')}</div>`;
     return recordCard(record, action);
   }).join('');
+}
+
+function renderPhotoSyncRequests() {
+  const requested = session?.role === 'field'
+    ? uniqueRecordsById(mineRecords).filter((record) => openPhotoSyncRequest(record, session.user))
+    : [];
+  elements.photoSyncRequests.hidden = !requested.length;
+  elements.photoSyncRequests.innerHTML = requested.map((record) => {
+    const request = openPhotoSyncRequest(record, session.user);
+    const busy = photoSyncAttempts.has(record.recordId);
+    return `<article class="photo-sync-callout"><div><strong>ATENÇÃO · SINCRONIZAÇÃO DE FOTOS SOLICITADA</strong><p>O Supervisor solicitou a sincronização das fotos da ocorrência Nº ${escapeHtml(record.occurrenceNumber || '—')}.</p><small>Mantenha este aparelho conectado à internet. As fotos pendentes precisam ser confirmadas pelo servidor.</small><small>${escapeHtml(request.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(request.requestedAt))}</small>${photoSyncFeedback.has(record.recordId) ? `<p class="photo-sync-error" role="alert">${escapeHtml(photoSyncFeedback.get(record.recordId))}</p>` : ''}</div><button class="button button--primary button--small" type="button" data-photo-sync-record="${escapeHtml(record.recordId)}" ${busy ? 'disabled' : ''}>${busy ? 'Sincronizando…' : 'Sincronizar agora'}</button></article>`;
+  }).join('');
+}
+
+async function syncRequestedPhotos(recordId) {
+  if (!session || session.role !== 'field' || photoSyncAttempts.has(recordId)) return;
+  const remote = mineRecords.find((record) => record.recordId === recordId && openPhotoSyncRequest(record, session.user));
+  if (!remote) return;
+  photoSyncAttempts.add(recordId); photoSyncFeedback.delete(recordId); renderPhotoSyncRequests();
+  try {
+    const local = await getRecord(recordId);
+    const photos = local && (!local.user || local.user === session.user) ? await getPhotosForRecord(recordId) : [];
+    const stored = new Set(photos.filter((photo) => photo.blob).map((photo) => photo.photoIndex));
+    if (!local || (local.user && local.user !== session.user)) {
+      throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
+    }
+    const serverState = await api.getRecordState(session.token, recordId);
+    if (serverState.status !== RECORD_STATUS.SYNCING_PHOTOS) {
+      await refreshMine(false);
+      throw new ApiError('A ocorrência não está mais aguardando fotos. Atualize a lista.', 'PHOTO_SYNC_UPDATED');
+    }
+    const confirmed = normalizePhotoStates(serverState.photoStates);
+    const available = {
+      ...remote,
+      photos: serverState.record?.photos || [],
+      transformerPhotos: serverState.record?.transformerPhotos || {},
+      photoStates: Array.from({ length: 7 }, (_, index) => ({
+        photoIndex: index + 1,
+        confirmed: Boolean(confirmed[index]?.confirmed),
+        serverUrl: confirmed[index]?.confirmed ? confirmed[index]?.serverUrl || confirmed[index]?.url || '' : '',
+        localReady: stored.has(index + 1)
+      }))
+    };
+    if (requiredPhotoDeficit(available) > 0) {
+      throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
+    }
+    const result = await syncSingleRecord(recordId, false);
+    if (result?.status !== RECORD_STATUS.WAITING_SUPERVISOR || result.audit?.photoSyncRequest?.status !== 'RESOLVED') {
+      throw new ApiError(result?.lastError || 'As fotos ainda não foram confirmadas pelo servidor. Tente novamente.', 'PHOTO_SYNC_PENDING');
+    }
+    await refreshMine(false);
+    photoSyncFeedback.delete(recordId);
+    toast('Fotos confirmadas pelo servidor. Ocorrência encaminhada ao Supervisor.', 'success');
+  } catch (error) {
+    photoSyncFeedback.set(recordId, friendlyError(error));
+    toast(friendlyError(error), 'error', 5200);
+  } finally { photoSyncAttempts.delete(recordId); renderPhotoSyncRequests(); }
 }
 
 function recordCard(record, actionHtml = '') {
@@ -1597,10 +1684,11 @@ function pendingSupervisorCard(record) {
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
   const status = record.status || record.serverStatus;
   const request = correctionRequest(record);
+  const syncRequest = status === RECORD_STATUS.SYNCING_PHOTOS ? openPhotoSyncRequest(record) : null;
   const meta = status === RECORD_STATUS.CORRECTION_REQUESTED
     ? correctionRequestMarkup(record)
     : `<div class="status-chip status-chip--info">Fotos sendo sincronizadas · ${photoCount}/5</div>`;
-  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></footer></div></article>`;
+  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${syncRequest ? '<span class="status-chip status-chip--warning">SINCRONISMO SOLICITADO</span>' : ''}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><div class="button-row">${status === RECORD_STATUS.SYNCING_PHOTOS ? `<button class="button button--warning button--small" type="button" data-request-photo-sync="${escapeHtml(record.recordId)}" ${syncRequest ? 'disabled' : ''}>${syncRequest ? 'Sincronismo solicitado' : 'Solicitar sincronismo'}</button>` : ''}<button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></div></footer></div></article>`;
 }
 
 function renderSupervisorList(error = null) {
@@ -1648,13 +1736,15 @@ function renderSupervisorList(error = null) {
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><div class="supervisor-title-line"><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3>${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}</div><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
   }).join(''); updateSupervisorSelectionUi();
 }
 
 function handleSupervisorListClick(event) {
   const retry = event.target.closest('[data-supervisor-retry]');
   if (retry) return refreshSupervisor(true);
+  const sync = event.target.closest('[data-request-photo-sync]');
+  if (sync) return requestPhotoSync(sync.dataset.requestPhotoSync);
   const review = event.target.closest('[data-review-record]'); const zoom = event.target.closest('[data-zoom-src]');
   if (zoom) return openPhotoFromElement(zoom); if (review) openSupervisorReview(review.dataset.reviewRecord);
 }
@@ -1688,6 +1778,9 @@ function updateSupervisorReviewActions() {
   elements.editOccurrenceButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   elements.requestCorrectionButton.hidden = !activeSupervisorRecord || ![RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS].includes(status);
   elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issues.map(photoIndexLabel).join(', ')}` : 'Solicitar correção';
+  elements.requestPhotoSyncButton.hidden = status !== RECORD_STATUS.SYNCING_PHOTOS;
+  elements.requestPhotoSyncButton.disabled = Boolean(openPhotoSyncRequest(activeSupervisorRecord));
+  elements.requestPhotoSyncButton.textContent = openPhotoSyncRequest(activeSupervisorRecord) ? 'Sincronismo solicitado' : 'Solicitar sincronismo';
   elements.approveButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   elements.rejectButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
@@ -1857,6 +1950,21 @@ async function decideSupervisor(decision) {
     setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false);
     supervisorMutationRunning = false; updateSupervisorReviewActions();
   }
+}
+
+async function requestPhotoSync(recordId) {
+  const record = supervisorPendingRecords.find((item) => item.recordId === recordId);
+  if (!record || record.status !== RECORD_STATUS.SYNCING_PHOTOS || openPhotoSyncRequest(record) || supervisorMutationRunning) return;
+  supervisorMutationRunning = true;
+  try {
+    if (!await confirmAction('Solicitar sincronismo?', `A equipe responsável pela ocorrência ${record.occurrenceNumber} receberá um aviso para retomar o envio das fotos pendentes.`, 'Solicitar', 'warning')) return;
+    setBusy(elements.requestPhotoSyncButton, true, 'Salvando…');
+    await api.supervisorAction(session.token, 'request_photo_sync', recordId);
+    if (elements.reviewDialog.open) elements.reviewDialog.close();
+    await refreshSupervisor(false);
+    toast('Sincronismo solicitado à equipe responsável.', 'success');
+  } catch (error) { toast(friendlyError(error), 'error'); }
+  finally { supervisorMutationRunning = false; setBusy(elements.requestPhotoSyncButton, false); updateSupervisorReviewActions(); }
 }
 
 function validateDecisionSubmission(event) {

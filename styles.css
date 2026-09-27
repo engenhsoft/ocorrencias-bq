@@ -200,6 +200,14 @@ p { color: var(--muted); line-height: 1.55; }
 .resume-banner { width: min(calc(100% - 2rem), 1120px); margin: 1rem auto 0; padding: 0.9rem 1rem; border: 1px solid #e7cf83; border-radius: 15px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: var(--yellow-100); box-shadow: var(--shadow-soft); }
 .resume-banner div:first-child { display: grid; gap: 0.2rem; }
 .resume-banner span { color: #715617; font-size: 0.8rem; }
+.photo-sync-requests { width: min(calc(100% - 2rem), 1120px); margin: 1rem auto 0; display: grid; gap: 0.7rem; }
+.photo-sync-callout { min-width: 0; padding: 0.9rem 1rem; border: 1px solid #e5bd75; border-left: 5px solid #cc8500; border-radius: 15px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #fff8e9; box-shadow: var(--shadow-soft); overflow-wrap: anywhere; }
+.photo-sync-callout > div { min-width: 0; display: grid; gap: 0.25rem; }
+.photo-sync-callout strong { color: #805200; font-size: 0.78rem; }
+.photo-sync-callout p { margin: 0; font-size: 0.85rem; }
+.photo-sync-callout small { color: var(--muted); font-size: 0.73rem; }
+.photo-sync-callout .photo-sync-error { color: var(--red-600); font-weight: 700; }
+.photo-sync-callout .button { flex: 0 0 auto; }
 
 .app-layout { width: min(100%, 1440px); margin: 0 auto; display: grid; }
 .main-nav { z-index: 25; display: flex; }
@@ -301,6 +309,9 @@ p { color: var(--muted); line-height: 1.55; }
 .record-card__header small { display: block; margin-top: 0.22rem; color: var(--muted); }
 .record-card__header > div { min-width: 0; }
 .record-card__header small, .record-card > p { max-width: 100%; overflow-wrap: anywhere; }
+.supervisor-title-line { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+.corrected-badge { flex: 0 0 auto; font-size: 0.68rem; }
+.release-notes { margin: 0.7rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.55rem; font-size: 0.85rem; line-height: 1.4; }
 .record-card__body { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0.55rem 0.9rem; }
 .record-meta { min-width: 0; }
 .record-meta span { display: block; color: var(--muted); font-size: 0.67rem; text-transform: uppercase; }
@@ -467,6 +478,8 @@ p { color: var(--muted); line-height: 1.55; }
   .brand-logo--small { width: 40px; height: 40px; }
   .button--ghost#logoutButton { min-width: 42px; padding: 0.5rem; font-size: 0.75rem; }
   .resume-banner { align-items: flex-start; flex-direction: column; }
+  .photo-sync-callout { align-items: stretch; flex-direction: column; }
+  .photo-sync-callout .button { width: 100%; }
   .page-heading { flex-direction: column; }
   .page-heading--with-actions { align-items: stretch; }
   .heading-actions, .heading-actions .button { width: 100%; }

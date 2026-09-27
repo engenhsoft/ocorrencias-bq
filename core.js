@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.27.1';
-export const APP_BUILD = '2026-09-27-operational-stability';
+export const APP_VERSION = '2026.09.27.2';
+export const APP_BUILD = '2026-09-27-corrected-photo-sync-notice';
 
 export const TEAM_GOAL = 6000;
 
@@ -117,6 +117,25 @@ export function statusLabel(status, photoCount) {
 
 export function statusTone(status) {
   return (STATUS_META[status] || ['', 'neutral'])[1];
+}
+
+export function correctedAfterResend(record) {
+  if (!record?.recordId || record.status !== RECORD_STATUS.WAITING_SUPERVISOR) return false;
+  const timeline = Array.isArray(record.audit?.timeline) ? record.audit.timeline : [];
+  let correctionRequested = false;
+  for (const event of timeline) {
+    if (['CORRECAO_SOLICITADA', 'CORRECAO_FOTOS_SOLICITADA'].includes(event?.action)) correctionRequested = true;
+    if (event?.action === 'CORRECAO_REENVIADA' && correctionRequested) return true;
+  }
+  return false;
+}
+
+export function openPhotoSyncRequest(record, recipient = '') {
+  if (!record?.recordId || record.status !== RECORD_STATUS.SYNCING_PHOTOS) return null;
+  const request = record.audit?.photoSyncRequest;
+  if (!request || request.status !== 'OPEN' || request.reason !== 'FOTOS_PENDENTES') return null;
+  if (recipient && request.recipient !== recipient) return null;
+  return request;
 }
 
 export function uniqueRecordsById(records = []) {
