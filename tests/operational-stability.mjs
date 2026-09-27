@@ -110,6 +110,41 @@ test('login e troca de perfil rejeitam submissões concorrentes', () => {
   assert.match(appSource, /await ensureLocalStorage\(\);\s*const result = await api\.login/);
 });
 
+test('login termina loading após falha e aceita nova tentativa sem duplicar chamada', async () => {
+  const source = appSource.match(/async function handleLogin\(event\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(source);
+  const first = deferred();
+  const busy = [];
+  let calls = 0;
+  let entered = 0;
+  const fields = { user: 'Teste', password: 'simulado', role: 'supervisor' };
+  const context = {
+    loginRunning: false,
+    FormData: class { get(key) { return fields[key]; } },
+    elements: { loginForm: {}, loginMessage: { textContent: '' }, loginButton: {}, loginPassword: { value: 'simulado' } },
+    navigator: { onLine: true },
+    setBusy: (_, value) => busy.push(value), ensureLocalStorage: async () => {},
+    api: { login: async () => { calls += 1; if (calls === 1) return first.promise; return { token: 'token', user: 'Teste', role: 'supervisor' }; } },
+    clearSessionUiState: () => {}, persistSession: () => {}, tokenExpiry: () => 1,
+    localStorage: { setItem: () => {} }, LAST_USER_KEY: 'lastUser',
+    enterApplication: async () => { entered += 1; }, friendlyError: (error) => error.message
+  };
+  const login = vm.runInNewContext(`${source}\nhandleLogin`, context);
+  const event = { preventDefault: () => {} };
+  const pending = login(event);
+  await login(event);
+  assert.equal(calls, 1);
+  first.resolve(Promise.reject(new Error('Falha de rede temporária')));
+  await pending;
+  assert.equal(context.loginRunning, false);
+  assert.equal(context.elements.loginMessage.textContent, 'Falha de rede temporária');
+  assert.equal(busy.at(-1), false);
+  await login(event);
+  assert.equal(calls, 2);
+  assert.equal(entered, 1);
+  assert.equal(busy.at(-1), false);
+});
+
 test('falha transitória mantém UUID na fila e o retry chega à confirmação', async () => {
   const source = appSource.match(/async function performSyncSingleRecord\(recordId, notify = true\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(source);
