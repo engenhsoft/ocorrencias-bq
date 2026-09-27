@@ -166,7 +166,7 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
     reconcilePhotoStates: (record, response) => ({ ...record, ...response, photoStates: response.photoStates || record.photoStates, serverConfirmed: true }),
     requiredPhotoDeficit: () => 0, getPhoto: async () => null, deletePhoto: async () => {},
     blobToDataUrl: async () => '', cacheDailySummary: async () => {}, setMeta: async () => {}, LAST_SYNC_META: 'lastSyncAt',
-    updateQueueUi: async () => {}, currentView: 'sync', refreshMine: () => {},
+    updateQueueUi: async () => {}, currentView: 'sync', mineRecords: [], refreshMine: () => {},
     friendlyError: (error) => error.message, statusLabel: (status) => status, toast: () => {}, console, ApiError,
     api: {
       getRecordState: async () => serverState,

@@ -5,13 +5,13 @@ import {
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.27.2';
+} from './core.js?v=2026.09.27.3';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.27.2';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.27.2';
+} from './db.js?v=2026.09.27.3';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.27.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -443,6 +443,8 @@ function bindEvents() {
 function showReleaseNoticeOnce() {
   if (!session || elements.updateDialog.open || elements.releaseNoticeDialog.open) return;
   try {
+    const controller = navigator.serviceWorker?.controller;
+    if (controller && new URL(controller.scriptURL).searchParams.get('v') !== APP_VERSION) return;
     if (!localStorage.getItem(RELEASE_NOTICE_KEY)) elements.releaseNoticeDialog.showModal();
   } catch (error) { console.warn('[Atualização] Não foi possível mostrar o aviso.', error); }
 }
@@ -464,7 +466,7 @@ async function setupServiceWorker() {
       });
     });
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!updateReloadRequested) return;
+      if (!updateReloadRequested) { showReleaseNoticeOnce(); return; }
       const key = `ocorrencias-bq-reloaded-${APP_VERSION}`;
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, '1');

@@ -8,7 +8,7 @@ const [core, html, app, api, db, worker] = await Promise.all([
 ]);
 
 const version = core.match(/APP_VERSION = '([^']+)'/)?.[1];
-assert.equal(version, '2026.09.27.2');
+assert.equal(version, '2026.09.27.3');
 assert.match(core, /APP_BUILD = '2026-09-27-corrected-photo-sync-notice'/);
 assert.ok(worker.includes(`WORKER_VERSION = '${version}'`));
 assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}\$\{WORKER_VERSION\}`/);
@@ -29,7 +29,7 @@ for (const asset of ['styles.css', 'config.js', 'core.js', 'db.js', 'api.js', 'a
 
 assert.match(app, /waitingServiceWorker\.postMessage\(\{ type: 'SKIP_WAITING' \}\)/);
 assert.match(app, /navigator\.serviceWorker\.addEventListener\('controllerchange'/);
-assert.match(app, /if \(!updateReloadRequested\) return/);
+assert.match(app, /if \(!updateReloadRequested\) \{ showReleaseNoticeOnce\(\); return; \}/);
 assert.match(app, /sessionStorage\.setItem\(key, '1'\);\s*location\.reload\(\)/);
 assert.equal((html.match(/value="cancel" formnovalidate/g) || []).length >= 2, true);
 assert.match(html, /id="decisionReason"[^>]*required/);

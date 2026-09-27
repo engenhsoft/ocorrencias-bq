@@ -84,10 +84,20 @@ let shown = 0;
 const notice = { open: false, showModal() { this.open = true; shown += 1; } };
 const noticeContext = {
   session: { role: 'field' }, elements: { updateDialog: { open: false }, releaseNoticeDialog: notice },
+  APP_VERSION: core.APP_VERSION,
+  navigator: { serviceWorker: { controller: { scriptURL: 'https://engenhsoft.github.io/ocorrencias-bq/service-worker.js?v=2026.09.27.2' } } },
+  URL,
   localStorage: { getItem: (key) => seen.get(key), setItem: (key, value) => seen.set(key, value) },
   RELEASE_NOTICE_KEY: `ocorrencias-bq-update-notice-seen-${core.APP_VERSION}`, console
 };
 const showNotice = vm.runInNewContext(`${extract('showReleaseNoticeOnce')}\nshowReleaseNoticeOnce`, noticeContext);
+showNotice();
+assert.equal(shown, 0, 'worker anterior impede aviso antecipado');
+noticeContext.navigator.serviceWorker.controller.scriptURL = `https://engenhsoft.github.io/ocorrencias-bq/service-worker.js?v=${core.APP_VERSION}`;
+noticeContext.elements.updateDialog.open = true;
+showNotice();
+assert.equal(shown, 0, 'atualização aberta tem prioridade');
+noticeContext.elements.updateDialog.open = false;
 showNotice();
 assert.equal(shown, 1);
 notice.open = false;
@@ -97,4 +107,4 @@ assert.equal(shown, 1);
 assert.match(appSource, /releaseNoticeDialog\.addEventListener\('close'/);
 assert.match(htmlSource, /id="releaseNoticeAcknowledge"[^>]*>Entendi/);
 
-console.log('photo-sync-notice: 18 verificações focadas aprovadas');
+console.log('photo-sync-notice: verificações focadas aprovadas');

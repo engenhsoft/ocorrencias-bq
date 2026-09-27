@@ -41,7 +41,7 @@ body {
     radial-gradient(circle at 12% 0%, rgba(36, 128, 185, 0.12), transparent 28rem),
     var(--page);
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 button, input, textarea { font: inherit; }
@@ -457,7 +457,10 @@ p { color: var(--muted); line-height: 1.55; }
 }
 
 @media (max-width: 1039px) {
-  .main-nav { position: fixed; left: 0; right: 0; bottom: 0; padding: 0.42rem 0.55rem var(--safe-bottom); border-top: 1px solid var(--line); justify-content: space-around; background: rgba(255,255,255,0.96); backdrop-filter: blur(16px); }
+  .app-shell { min-height: 100svh; }
+  .app-layout { --mobile-nav-height: calc(54px + 0.42rem + var(--safe-bottom) + 1px); }
+  .main-nav { position: fixed; left: 0; right: 0; bottom: 0; min-height: var(--mobile-nav-height); padding: 0.42rem 0.55rem var(--safe-bottom); border-top: 1px solid var(--line); justify-content: space-around; background: #fff; backdrop-filter: none; }
+  .content-area { padding-bottom: calc(var(--mobile-nav-height) + 1rem); }
   .nav-item { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 0.35rem 0.2rem; border-radius: 11px; display: grid; place-items: center; align-content: center; gap: 0.15rem; font-size: 0.64rem; font-weight: 730; }
   .nav-item > span:first-child { font-size: 1.08rem; }
   .nav-item.is-active { color: var(--navy-900); background: #e9f3f8; }

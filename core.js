@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.09.27.2';
+export const APP_VERSION = '2026.09.27.3';
 export const APP_BUILD = '2026-09-27-corrected-photo-sync-notice';
 
 export const TEAM_GOAL = 6000;
