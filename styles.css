@@ -335,11 +335,14 @@ p { color: var(--muted); line-height: 1.55; }
 .supervisor-kpi span { color: var(--muted); font-size: 0.68rem; font-weight: 780; line-height: 1.25; text-transform: uppercase; overflow-wrap: anywhere; }
 .supervisor-kpi strong { color: var(--navy-900); font-size: clamp(1.35rem, 3vw, 1.85rem); line-height: 1; }
 .supervisor-tabs, .supervisor-pending-filters { margin-bottom: 1rem; padding: 0.3rem; border: 1px solid var(--line); border-radius: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.3rem; background: var(--surface-soft); }
+.supervisor-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .supervisor-tab, .pending-filter { min-width: 0; min-height: 46px; padding: 0.65rem 0.75rem; border: 0; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; color: var(--muted); background: transparent; font: inherit; font-size: 0.8rem; font-weight: 820; text-transform: uppercase; cursor: pointer; }
 .supervisor-tab.is-active, .pending-filter.is-active { color: var(--navy-900); background: #fff; box-shadow: var(--shadow-soft); }
 .tab-badge { min-width: 28px; height: 28px; padding: 0 0.45rem; border-radius: 999px; display: inline-grid; place-items: center; color: #fff; background: var(--blue-700); font-size: 0.78rem; line-height: 1; }
 .pending-filter.is-active .tab-badge { background: var(--teal-600); }
 .supervisor-filters { margin-bottom: 1rem; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; gap: 0.75rem; }
+.supervisor-date-presets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.supervisor-date-presets .filter-chip { min-height: 44px; }
 .supervisor-filters .field--wide { grid-column: span 2; }
 .supervisor-filters .field, .supervisor-filters input, .supervisor-filters select { min-width: 0; max-width: 100%; }
 .filter-summary {
@@ -402,6 +405,11 @@ p { color: var(--muted); line-height: 1.55; }
 .modal__body { flex: 1 1 auto; width: 100%; max-width: 100%; min-width: 0; min-height: 0; padding: 1.05rem 1.1rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
 .modal__footer { flex: 0 0 auto; position: relative; z-index: 2; padding: 0.9rem 1.1rem calc(0.9rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.65rem; background: var(--surface-soft); }
 .modal__footer--review { justify-content: space-between; }
+.review-pager, .review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; }
+.review-pager { width: 100%; justify-content: center; padding-bottom: 0.6rem; border-bottom: 1px solid var(--line); }
+.review-pager .button { min-height: 44px; }
+.review-pager span { min-width: 4rem; text-align: center; color: var(--muted); font-size: 0.8rem; font-weight: 750; }
+.review-actions { width: 100%; justify-content: flex-end; }
 .detail-modal { position: fixed; inset: max(0.75rem, env(safe-area-inset-top)) 0.75rem max(0.75rem, env(safe-area-inset-bottom)); width: auto; max-width: 960px; height: auto; max-height: none; margin: auto; overflow: hidden; }
 .detail-modal[open] { display: block; }
 .detail-modal .modal__surface, .detail-modal .modal__header, .detail-modal .modal__body, .detail-modal .modal__footer { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
@@ -501,8 +509,10 @@ p { color: var(--muted); line-height: 1.55; }
   .sync-grid { grid-template-columns: 1fr 1fr; }
   .sync-actions-card { align-items: stretch; flex-direction: column; }
   .sync-actions-card .button-row, .sync-actions-card .button { width: 100%; }
-  .modal__footer--review { display: grid; grid-template-columns: 1fr 1fr; }
-  .modal__footer--review .button { width: 100%; }
+  .modal__footer--review { display: flex; }
+  .review-pager { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); }
+  .review-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .review-pager .button, .review-actions .button { width: 100%; }
   .photo-modal__nav { width: 40px; height: 50px; margin-top: -25px; }
   .photo-modal__nav--previous { left: 0.35rem; }
   .photo-modal__nav--next { right: 0.35rem; }
@@ -647,7 +657,7 @@ p { color: var(--muted); line-height: 1.55; }
   .supervisor-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .supervisor-kpi:last-child { grid-column: 1 / -1; }
   .supervisor-tabs, .supervisor-pending-filters { width: 100%; }
-  .supervisor-tab, .pending-filter { padding-inline: 0.45rem; font-size: 0.72rem; overflow-wrap: anywhere; }
+  .supervisor-tab, .pending-filter { padding-inline: 0.35rem; font-size: 0.72rem; overflow-wrap: anywhere; flex-wrap: wrap; }
   .supervisor-filters .field--wide { grid-column: 1 / -1; }
   .filter-summary { width: 100%; justify-self: stretch; justify-content: center; text-align: center; }
   .supervisor-toolbar { align-items: stretch; flex-direction: column; }
@@ -675,13 +685,14 @@ p { color: var(--muted); line-height: 1.55; }
   .detail-modal .modal__header, .detail-modal .modal__body, .detail-modal .modal__footer { padding-left: 0.7rem; padding-right: 0.7rem; }
   .detail-modal .modal__header { gap: 0.55rem; }
   .detail-modal .modal__header h2 { font-size: 1.05rem; }
-  .detail-modal .modal__footer--review { grid-template-columns: minmax(0,1fr); }
+  .detail-modal .review-actions { grid-template-columns: minmax(0,1fr); }
   .detail-modal .modal__footer .button { width: 100%; }
   .detail-modal .detail-section, .detail-modal .review-data { padding: 0.75rem; }
   .supervisor-filters, .photo-correction-selector .choice-grid { grid-template-columns: minmax(0,1fr); }
   .supervisor-kpis { grid-template-columns: minmax(0,1fr); }
   .supervisor-kpi:last-child { grid-column: auto; }
-  .supervisor-tabs, .supervisor-pending-filters { grid-template-columns: minmax(0,1fr); }
+  .supervisor-tabs { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .supervisor-pending-filters { grid-template-columns: minmax(0,1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

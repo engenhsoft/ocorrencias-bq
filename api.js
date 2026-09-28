@@ -1,4 +1,4 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.09.27.3';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.09.28.1';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -137,6 +137,7 @@ export const api = Object.freeze({
   getDailyTeamProduction: (token, team, date, recordId = '') => apiRequest('getDailyTeamProduction', { token, team, date, recordId }),
   listMine: (token) => apiRequest('listMine', { token }),
   listPending: (token) => apiRequest('listPending', { token }),
+  listPublishedRecords: (token, recordIds) => apiRequest('listPublishedRecords', { token, recordIds }),
   supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
   supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 }),
   approveBatch: (token, recordIds = [], all = false, note = '') => apiRequest('approveBatch', { token, recordIds, all, note }, { timeoutMs: 60000 })

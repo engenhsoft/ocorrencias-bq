@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.27.3';
-export const APP_BUILD = '2026-09-27-corrected-photo-sync-notice';
+export const APP_VERSION = '2026.09.28.1';
+export const APP_BUILD = '2026-09-28-supervisor-navigation-published';
 
 export const TEAM_GOAL = 6000;
 
@@ -147,6 +147,32 @@ export function uniqueRecordsById(records = []) {
     byId.set(recordId, record);
   }
   return [...byId.values()];
+}
+
+export function mineNeedsAttention(record) {
+  if (record?.status === RECORD_STATUS.CORRECTION_REQUESTED || record?.status === RECORD_STATUS.SYNCING_PHOTOS) return true;
+  return record?.status === RECORD_STATUS.ERROR && (
+    record.serverStatus === RECORD_STATUS.SYNCING_PHOTOS
+    || (record.serverConfirmed && normalizePhotoStates(record.photoStates).some((photo) => photo.localReady && !photo.confirmed))
+  );
+}
+
+export function supervisorDateWindow(mode, today = operationalDate()) {
+  if (mode === 'today') return { from: today, to: today };
+  if (mode === 'month') return { from: `${today.slice(0, 7)}-01`, to: today };
+  return { from: '', to: '' };
+}
+
+export function validDateRange(from, to) {
+  const valid = (value) => !value || (/^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T12:00:00Z`)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value);
+  return valid(from) && valid(to) && (!from || !to || from <= to);
+}
+
+export function nextVisibleRecordId(beforeIds, currentId, afterIds) {
+  const index = beforeIds.indexOf(currentId);
+  if (index < 0) return '';
+  const remaining = new Set(afterIds);
+  return beforeIds.slice(index + 1).find((id) => remaining.has(id)) || '';
 }
 
 export function supervisorKpis(records = []) {

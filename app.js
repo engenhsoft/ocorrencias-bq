@@ -4,14 +4,15 @@ import {
   correctedAfterResend, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
+  mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.27.3';
+} from './core.js?v=2026.09.28.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.27.3';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.27.3';
+} from './db.js?v=2026.09.28.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.28.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -68,13 +69,14 @@ const elements = {
   testConnectionButton: $('#testConnectionButton'), syncNowButton: $('#syncNowButton'),
   syncQueueList: $('#syncQueueList'), refreshSupervisorButton: $('#refreshSupervisorButton'), supervisorTitle: $('#supervisorTitle'),
   supervisorList: $('#supervisorList'), selectAllVisible: $('#selectAllVisible'), supervisorToolbar: $('#supervisorToolbar'),
-  supervisorSearch: $('#supervisorSearch'), supervisorBaseFilter: $('#supervisorBaseFilter'), supervisorTeamFilter: $('#supervisorTeamFilter'), supervisorTypeFilter: $('#supervisorTypeFilter'), supervisorDateFrom: $('#supervisorDateFrom'), supervisorDateTo: $('#supervisorDateTo'), supervisorFilterSummary: $('#supervisorFilterSummary'),
+  supervisorSearch: $('#supervisorSearch'), supervisorBaseFilter: $('#supervisorBaseFilter'), supervisorTeamFilter: $('#supervisorTeamFilter'), supervisorTypeFilter: $('#supervisorTypeFilter'), supervisorDateFrom: $('#supervisorDateFrom'), supervisorDateTo: $('#supervisorDateTo'), supervisorDatePresets: $('#supervisorDatePresets'), supervisorClearFilters: $('#supervisorClearFilters'), supervisorFilterSummary: $('#supervisorFilterSummary'),
   supervisorKpis: $('#supervisorKpis'), supervisorKpiTotal: $('#supervisorKpiTotal'), supervisorKpiWaiting: $('#supervisorKpiWaiting'), supervisorKpiCorrection: $('#supervisorKpiCorrection'), supervisorKpiRejected: $('#supervisorKpiRejected'), supervisorKpiSync: $('#supervisorKpiSync'),
-  supervisorOccurrencesBadge: $('#supervisorOccurrencesBadge'), supervisorPendingBadge: $('#supervisorPendingBadge'), supervisorPhotosBadge: $('#supervisorPhotosBadge'), supervisorCorrectionBadge: $('#supervisorCorrectionBadge'), supervisorPendingFilters: $('#supervisorPendingFilters'),
+  supervisorOccurrencesBadge: $('#supervisorOccurrencesBadge'), supervisorPendingBadge: $('#supervisorPendingBadge'), supervisorPublishedBadge: $('#supervisorPublishedBadge'), supervisorPhotosBadge: $('#supervisorPhotosBadge'), supervisorCorrectionBadge: $('#supervisorCorrectionBadge'), supervisorPendingFilters: $('#supervisorPendingFilters'),
   selectedCountLabel: $('#selectedCountLabel'), approveSelectedButton: $('#approveSelectedButton'),
   approveAllButton: $('#approveAllButton'), approveAllFooter: $('#approveAllFooter'),
   supervisorBatchResult: $('#supervisorBatchResult'),
-  reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'),
+  reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'), reviewDialogMode: $('#reviewDialogMode'),
+  previousReviewButton: $('#previousReviewButton'), nextReviewButton: $('#nextReviewButton'), reviewPosition: $('#reviewPosition'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
   requestPhotoSyncButton: $('#requestPhotoSyncButton'), photoSyncRequests: $('#photoSyncRequests'),
   editOccurrenceButton: $('#editOccurrenceButton'), rejectButton: $('#rejectButton'), approveButton: $('#approveButton'), decisionDialog: $('#decisionDialog'), decisionForm: $('#decisionForm'),
@@ -124,17 +126,25 @@ let materialSearchTimer = 0;
 let materialSearchRequestId = 0;
 let mineRecords = [];
 let mineFilter = 'today';
+let mineAutoFilterPending = false;
 let mineTeam = '';
 let supervisorRecords = [];
 let supervisorPendingRecords = [];
 let supervisorMetricRecords = [];
+const publishedDetailCache = new Map();
+const publishedDetailRequests = new Map();
+let publishedVisibleLimit = 60;
 let supervisorDataLoaded = false;
 let supervisorTab = 'occurrences';
+const emptySupervisorFilters = () => ({ search: '', base: '', team: '', type: '', from: '', to: '', mode: 'period' });
+let supervisorFiltersByTab = { occurrences: emptySupervisorFilters(), pending: emptySupervisorFilters(), published: emptySupervisorFilters() };
 let supervisorPendingFilter = 'photos';
 let selectedSupervisorIds = new Set();
 let supervisorLoadError = null;
 let supervisorLoading = false;
 let activeSupervisorRecord = null;
+let reviewOrder = [];
+let reviewTab = 'occurrences';
 let syncRunning = false;
 let occurrenceSubmissionRunning = false;
 let supervisorRefreshPromise = null;
@@ -201,17 +211,24 @@ function clearSessionUiState() {
   photoSyncAttempts.clear();
   photoSyncFeedback.clear();
   mineFilter = 'today';
+  mineAutoFilterPending = false;
   mineTeam = '';
   supervisorRecords = [];
   supervisorPendingRecords = [];
   supervisorMetricRecords = [];
+  publishedDetailCache.clear(); publishedDetailRequests.clear();
+  publishedVisibleLimit = 60;
   supervisorDataLoaded = false;
   supervisorTab = 'occurrences';
+  supervisorFiltersByTab = { occurrences: emptySupervisorFilters(), pending: emptySupervisorFilters(), published: emptySupervisorFilters() };
+  restoreSupervisorFilters();
   supervisorPendingFilter = 'photos';
   supervisorLoading = false;
   supervisorLoadError = null;
   selectedSupervisorIds.clear();
   activeSupervisorRecord = null;
+  reviewOrder = [];
+  reviewTab = 'occurrences';
   supervisorEditRecord = null;
   supervisorEditCatalogResults = [];
   supervisorEditMaterialResults = [];
@@ -231,7 +248,7 @@ function clearSessionUiState() {
   elements.supervisorList.innerHTML = '';
   elements.supervisorKpis.setAttribute('aria-busy', 'true');
   [elements.supervisorKpiTotal, elements.supervisorKpiWaiting, elements.supervisorKpiCorrection, elements.supervisorKpiRejected, elements.supervisorKpiSync].forEach((item) => { item.textContent = '—'; });
-  elements.supervisorOccurrencesBadge.textContent = '—'; elements.supervisorPendingBadge.textContent = '—'; elements.supervisorPhotosBadge.textContent = '—'; elements.supervisorCorrectionBadge.textContent = '—';
+  elements.supervisorOccurrencesBadge.textContent = '—'; elements.supervisorPendingBadge.textContent = '—'; elements.supervisorPublishedBadge.textContent = '—'; elements.supervisorPhotosBadge.textContent = '—'; elements.supervisorCorrectionBadge.textContent = '—';
   elements.supervisorNavCount.hidden = true;
   elements.selectAllVisible.checked = false;
   elements.selectAllVisible.indeterminate = false;
@@ -355,6 +372,7 @@ function bindEvents() {
     const button = event.target.closest('[data-filter]');
     if (!button) return;
     mineFilter = button.dataset.filter;
+    mineAutoFilterPending = false;
     renderMineFilters(); renderMineList();
   });
   elements.mineList.addEventListener('click', handleMineAction);
@@ -371,14 +389,28 @@ function bindEvents() {
   });
   elements.refreshSupervisorButton.addEventListener('click', () => refreshSupervisor(true));
   $$('.supervisor-tab').forEach((button) => button.addEventListener('click', () => {
-    supervisorTab = button.dataset.supervisorTab === 'pending' ? 'pending' : 'occurrences';
+    saveSupervisorFilters();
+    supervisorTab = ['occurrences', 'pending', 'published'].includes(button.dataset.supervisorTab) ? button.dataset.supervisorTab : 'occurrences';
+    restoreSupervisorFilters();
     selectedSupervisorIds.clear(); renderSupervisorNavigation(); renderSupervisorList();
   }));
   $$('.pending-filter').forEach((button) => button.addEventListener('click', () => {
     supervisorPendingFilter = button.dataset.supervisorPending === 'correction' ? 'correction' : 'photos';
     renderSupervisorNavigation(); renderSupervisorList();
   }));
-  [elements.supervisorSearch, elements.supervisorBaseFilter, elements.supervisorTeamFilter, elements.supervisorTypeFilter, elements.supervisorDateFrom, elements.supervisorDateTo].forEach((input) => input.addEventListener('input', () => renderSupervisorList()));
+  [elements.supervisorSearch, elements.supervisorBaseFilter, elements.supervisorTeamFilter, elements.supervisorTypeFilter, elements.supervisorDateFrom, elements.supervisorDateTo].forEach((input) => input.addEventListener('input', () => { saveSupervisorFilters(); publishedVisibleLimit = 60; renderSupervisorList(); }));
+  [elements.supervisorDateFrom, elements.supervisorDateTo].forEach((input) => input.addEventListener('change', () => { saveSupervisorFilters(); publishedVisibleLimit = 60; renderSupervisorList(); }));
+  elements.supervisorDatePresets.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-supervisor-date]'); if (!button) return;
+    supervisorFiltersByTab[supervisorTab].mode = button.dataset.supervisorDate;
+    publishedVisibleLimit = 60;
+    updateSupervisorDateControls(); renderSupervisorList();
+  });
+  elements.supervisorClearFilters.addEventListener('click', () => {
+    supervisorFiltersByTab[supervisorTab] = emptySupervisorFilters();
+    if (supervisorTab === 'pending') supervisorPendingFilter = 'photos';
+    publishedVisibleLimit = 60; restoreSupervisorFilters(); renderSupervisorList();
+  });
   elements.supervisorList.addEventListener('click', handleSupervisorListClick);
   elements.supervisorList.addEventListener('change', handleSupervisorSelection);
   elements.selectAllVisible.addEventListener('change', selectAllSupervisorVisible);
@@ -390,6 +422,8 @@ function bindEvents() {
   elements.requestPhotoSyncButton.addEventListener('click', () => requestPhotoSync(activeSupervisorRecord?.recordId));
   elements.decisionForm.addEventListener('submit', validateDecisionSubmission);
   elements.editOccurrenceButton.addEventListener('click', openSupervisorEditor);
+  elements.previousReviewButton.addEventListener('click', () => moveSupervisorReview(-1));
+  elements.nextReviewButton.addEventListener('click', () => moveSupervisorReview(1));
   elements.supervisorEditForm.addEventListener('submit', saveSupervisorCorrection);
   $$('[data-close-supervisor-edit]').forEach((button) => button.addEventListener('click', () => elements.supervisorEditDialog.close()));
   elements.editOccurrenceTypes.addEventListener('change', syncSupervisorEditorFromForm);
@@ -402,7 +436,10 @@ function bindEvents() {
   elements.editMaterialResults.addEventListener('click', selectSupervisorMaterial);
   elements.editMaterialsList.addEventListener('input', handleSupervisorMaterialEdit);
   elements.editMaterialsList.addEventListener('click', handleSupervisorMaterialEdit);
-  elements.reviewDialogContent.addEventListener('click', handleZoomClick);
+  elements.reviewDialogContent.addEventListener('click', (event) => {
+    if (event.target.closest('[data-published-retry]')) openSupervisorReview(activeSupervisorRecord?.recordId, true);
+    else handleZoomClick(event);
+  });
   elements.reviewSummary.addEventListener('click', handleZoomClick);
   elements.mineDetailContent.addEventListener('click', handleZoomClick);
   elements.modeSupervisorButton.addEventListener('click', () => openProfileSwitch('supervisor'));
@@ -417,7 +454,7 @@ function bindEvents() {
   window.addEventListener('offline', updateNetworkUi);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') { syncAll(false); loadDailyProduction(elements.team.value, false); }
-    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'supervisor') refreshSupervisor(false);
+    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'supervisor' && !supervisorMutationRunning) refreshSupervisor(false);
   });
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault(); deferredInstallPrompt = event; elements.installButton.hidden = false;
@@ -515,7 +552,7 @@ async function enterApplication() {
     navigate('supervisor');
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
-      if (document.visibilityState === 'visible' && navigator.onLine) refreshSupervisor(false);
+      if (document.visibilityState === 'visible' && navigator.onLine && !supervisorMutationRunning) refreshSupervisor(false);
     }, 90000);
   } else {
     navigate('new'); detectDraft().catch((error) => console.error('[Rascunho] Falha ao recuperar dados locais.', error));
@@ -559,6 +596,14 @@ async function handleProfileSwitch(event) {
 function logout() { persistSession(null); clearSessionUiState(); showLogin(); }
 
 function navigate(view) {
+  if (view === 'supervisor' && currentView !== 'supervisor') {
+    saveSupervisorFilters(); supervisorTab = 'occurrences'; restoreSupervisorFilters();
+  }
+  if (view === 'mine' && currentView !== 'mine') {
+    mineAutoFilterPending = true;
+    mineFilter = mineRecords.some(mineNeedsAttention) ? 'attention' : 'today';
+    renderMineFilters(); renderMineList();
+  }
   currentView = view;
   $$('.view').forEach((section) => { const active = section.id === `view-${view}`; section.hidden = !active; section.classList.toggle('is-active', active); });
   $$('.nav-item').forEach((item) => item.classList.toggle('is-active', item.dataset.nav === view));
@@ -1147,7 +1192,7 @@ function occurrenceDetails(record, includePhotos = true) {
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}${correctionRequestMarkup(record)}${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div></div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}${correctionRequestMarkup(record)}${dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div>${status === RECORD_STATUS.PUBLISHED ? `<div><dt>Publicada em</dt><dd>${escapeHtml(formatDateTime(record.publishedAt || record.approvedAt || record.reviewedAt))}</dd></div>` : ''}</div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -1322,7 +1367,9 @@ async function refreshMine(notify = false) {
         } catch (error) { if (revision === sessionRevision && notify) toast(friendlyError(error), 'error'); }
       }
       if (revision !== sessionRevision) return null;
-      mineRecords = mergeRecordCollections(localRecords, serverRecords); setupMineTeams(); renderMineFilters(); renderMineList(); renderPhotoSyncRequests(); await refreshMineGoal(false); return mineRecords;
+      mineRecords = mergeRecordCollections(localRecords, serverRecords);
+      if (mineAutoFilterPending) { mineFilter = mineRecords.some(mineNeedsAttention) ? 'attention' : 'today'; mineAutoFilterPending = false; }
+      setupMineTeams(); renderMineFilters(); renderMineList(); renderPhotoSyncRequests(); await refreshMineGoal(false); return mineRecords;
     } catch (error) {
       if (revision !== sessionRevision) return null;
       console.error('[Minhas ocorrências] Falha ao atualizar.', error);
@@ -1370,13 +1417,13 @@ function renderMineGoal(summary = emptyDailyProduction(mineTeam)) {
 }
 
 function renderMineFilters() {
-  const filters = [['today', 'Hoje'], ['history', 'Outros dias'], ['all', 'Todas'], ['draft', 'Rascunhos'], ['pending', 'Pendentes'], ['waiting', 'Aguardando'], ['correction', 'Correção'], ['approved', 'Aprovadas'], ['rejected', 'Reprovadas']];
+  const filters = [['attention', 'Pendências da equipe'], ['today', 'Hoje'], ['history', 'Outros dias'], ['all', 'Todas'], ['draft', 'Rascunhos'], ['pending', 'Pendentes'], ['waiting', 'Aguardando'], ['correction', 'Correção'], ['approved', 'Aprovadas'], ['rejected', 'Reprovadas']];
   elements.mineFilters.innerHTML = filters.map(([value, label]) => `<button class="filter-chip${mineFilter === value ? ' is-active' : ''}" type="button" data-filter="${value}">${label}</button>`).join('');
 }
 
 function renderMineList() {
   const today = operationalDate();
-  const filtered = mineRecords.filter((record) => (mineFilter === 'today' && operationalDate(record.registeredAt || record.createdAt) === today) || (mineFilter === 'history' && operationalDate(record.registeredAt || record.createdAt) !== today) || mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
+  const filtered = mineRecords.filter((record) => (mineFilter === 'attention' && mineNeedsAttention(record)) || (mineFilter === 'today' && operationalDate(record.registeredAt || record.createdAt) === today) || (mineFilter === 'history' && operationalDate(record.registeredAt || record.createdAt) !== today) || mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
   if (!filtered.length) { elements.mineList.innerHTML = emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.'); return; }
   elements.mineList.innerHTML = filtered.map((record) => {
     const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
@@ -1590,11 +1637,11 @@ async function refreshSupervisor(notify = false) {
       return null;
     }
   })();
-  supervisorRefreshPromise = task; supervisorRefreshRevision = revision;
-  try { return await task; }
-  finally {
-    if (supervisorRefreshPromise === task) { supervisorRefreshPromise = null; supervisorRefreshRevision = -1; setBusy(elements.refreshSupervisorButton, false); }
-  }
+  const monitored = task.finally(() => {
+    if (supervisorRefreshPromise === monitored) { supervisorRefreshPromise = null; supervisorRefreshRevision = -1; setBusy(elements.refreshSupervisorButton, false); }
+  });
+  supervisorRefreshPromise = monitored; supervisorRefreshRevision = revision;
+  return monitored;
 }
 
 function populateSupervisorFilters() {
@@ -1603,10 +1650,56 @@ function populateSupervisorFilters() {
     select.innerHTML = `<option value="">${select === elements.supervisorTypeFilter ? 'Todos' : 'Todas'}</option>${values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
     if (values.includes(current)) select.value = current;
   };
-  const available = uniqueRecordsById([...supervisorRecords, ...supervisorPendingRecords]);
+  const available = uniqueRecordsById([...supervisorRecords, ...supervisorPendingRecords, ...supervisorPublishedRecords()]);
   fill(elements.supervisorBaseFilter, [...new Set(available.map((record) => record.base).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
   fill(elements.supervisorTeamFilter, [...new Set(available.map((record) => record.team).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')));
   fill(elements.supervisorTypeFilter, OCCURRENCE_TYPES.filter((type) => available.some((record) => normalizeOccurrenceTypes(record.occurrenceTypes).includes(type))));
+}
+
+function saveSupervisorFilters() {
+  supervisorFiltersByTab[supervisorTab] = {
+    search: elements.supervisorSearch.value, base: elements.supervisorBaseFilter.value,
+    team: elements.supervisorTeamFilter.value, type: elements.supervisorTypeFilter.value,
+    from: elements.supervisorDateFrom.value, to: elements.supervisorDateTo.value,
+    mode: supervisorFiltersByTab[supervisorTab].mode
+  };
+}
+
+function restoreSupervisorFilters() {
+  const state = supervisorFiltersByTab[supervisorTab];
+  for (const [name, input] of [['search', elements.supervisorSearch], ['base', elements.supervisorBaseFilter], ['team', elements.supervisorTeamFilter], ['type', elements.supervisorTypeFilter], ['from', elements.supervisorDateFrom], ['to', elements.supervisorDateTo]]) input.value = state[name];
+  updateSupervisorDateControls();
+}
+
+function updateSupervisorDateControls() {
+  const mode = supervisorFiltersByTab[supervisorTab].mode;
+  $$('[data-supervisor-date]', elements.supervisorDatePresets).forEach((button) => {
+    const active = button.dataset.supervisorDate === mode;
+    button.classList.toggle('is-active', active); button.setAttribute('aria-pressed', String(active));
+  });
+  $$('.supervisor-custom-date').forEach((field) => { field.hidden = mode !== 'period'; });
+}
+
+function supervisorPublishedRecords() {
+  return uniqueRecordsById(supervisorMetricRecords.filter((record) => [RECORD_STATUS.PUBLISHED, 'APROVADA_E_PUBLICADA'].includes(record.status)))
+    .map((record) => publishedDetailCache.get(record.recordId) || record)
+    .sort((a, b) => String(b.reviewedAt || b.publishedAt || '').localeCompare(String(a.reviewedAt || a.publishedAt || '')) || a.recordId.localeCompare(b.recordId));
+}
+
+function dateForSupervisorRecord(record) {
+  let value = record.registeredAt || record.createdAt || record.updatedAt;
+  if (supervisorTab === 'published') {
+    const timeline = Array.isArray(record.audit?.timeline) ? record.audit.timeline : [];
+    const publication = [...timeline].reverse().find((event) => ['PUBLICADA', 'APROVADA_E_PUBLICADA'].includes(event.action));
+    value = record.publishedAt || record.approvedAt || publication?.at || record.reviewedAt || '';
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return value;
+  return value ? operationalDate(value) : '';
+}
+
+function supervisorFilterRange() {
+  const state = supervisorFiltersByTab[supervisorTab];
+  return state.mode === 'period' ? { from: state.from, to: state.to } : supervisorDateWindow(state.mode);
 }
 
 function filteredSupervisorRecords() {
@@ -1614,19 +1707,19 @@ function filteredSupervisorRecords() {
   const base = normalizeText(elements.supervisorBaseFilter.value);
   const team = normalizeText(elements.supervisorTeamFilter.value);
   const type = elements.supervisorTypeFilter.value;
-  const from = elements.supervisorDateFrom.value;
-  const to = elements.supervisorDateTo.value;
+  const { from, to } = supervisorFilterRange();
+  if (!validDateRange(from, to)) return [];
   const source = supervisorTab === 'pending'
     ? supervisorPendingRecords.filter((record) => supervisorPendingFilter === 'correction' ? record.status === RECORD_STATUS.CORRECTION_REQUESTED : record.status === RECORD_STATUS.SYNCING_PHOTOS)
-    : supervisorRecords;
+    : supervisorTab === 'published' ? supervisorPublishedRecords() : supervisorRecords;
   return source.filter((record) => {
-    const date = operationalDate(record.registeredAt || record.createdAt || record.updatedAt);
-    return (!search || normalizeText(record.occurrenceNumber).includes(search))
+    const date = dateForSupervisorRecord(record);
+    return (!search || normalizeText(record.occurrenceNumber).includes(search) || (supervisorTab === 'published' && [record.team, record.crewLeader, record.base].some((value) => normalizeText(value).includes(search))))
       && (!base || normalizeText(record.base) === base)
       && (!team || normalizeText(record.team) === team)
       && (!type || normalizeOccurrenceTypes(record.occurrenceTypes).includes(type))
-      && (!from || date >= from)
-      && (!to || date <= to);
+      && (!from || (date && date >= from))
+      && (!to || (date && date <= to));
   });
 }
 
@@ -1642,6 +1735,7 @@ function renderSupervisorNavigation() {
   }
   elements.supervisorOccurrencesBadge.textContent = supervisorDataLoaded ? metrics.waitingConference : '—';
   elements.supervisorPendingBadge.textContent = supervisorDataLoaded ? metrics.pending : '—';
+  elements.supervisorPublishedBadge.textContent = supervisorDataLoaded ? metrics.published : '—';
   elements.supervisorPhotosBadge.textContent = supervisorDataLoaded ? metrics.pendingSync : '—';
   elements.supervisorCorrectionBadge.textContent = supervisorDataLoaded ? metrics.waitingCorrection : '—';
   const attentionCount = metrics.waitingConference + metrics.pending;
@@ -1657,7 +1751,7 @@ function renderSupervisorNavigation() {
   });
   elements.supervisorPendingFilters.hidden = supervisorTab !== 'pending';
   elements.supervisorToolbar.hidden = supervisorTab !== 'occurrences';
-  elements.supervisorTitle.textContent = supervisorTab === 'pending' ? 'Pendências do Supervisor' : 'Ocorrências aguardando conferência';
+  elements.supervisorTitle.textContent = supervisorTab === 'pending' ? 'Pendências do Supervisor' : supervisorTab === 'published' ? 'Ocorrências publicadas' : 'Ocorrências aguardando conferência';
 }
 
 function pendingCountLabel(count) {
@@ -1670,6 +1764,7 @@ function setSupervisorSummary(text, state = 'ready') {
 }
 
 function supervisorActiveRecords() {
+  if (supervisorTab === 'published') return supervisorPublishedRecords();
   if (supervisorTab !== 'pending') return supervisorRecords;
   return supervisorPendingRecords.filter((record) => supervisorPendingFilter === 'correction'
     ? record.status === RECORD_STATUS.CORRECTION_REQUESTED
@@ -1677,6 +1772,7 @@ function supervisorActiveRecords() {
 }
 
 function supervisorActiveCountLabel(count) {
+  if (supervisorTab === 'published') return `${count} ${count === 1 ? 'ocorrência publicada' : 'ocorrências publicadas'}`;
   if (supervisorTab !== 'pending') return `${count} ${count === 1 ? 'ocorrência aguardando conferência' : 'ocorrências aguardando conferência'}`;
   if (supervisorPendingFilter === 'correction') return `${count} ${count === 1 ? 'correção solicitada' : 'correções solicitadas'}`;
   return `${count} ${count === 1 ? 'ocorrência com fotos pendentes' : 'ocorrências com fotos pendentes'}`;
@@ -1691,6 +1787,10 @@ function pendingSupervisorCard(record) {
     ? correctionRequestMarkup(record)
     : `<div class="status-chip status-chip--info">Fotos sendo sincronizadas · ${photoCount}/5</div>`;
   return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${syncRequest ? '<span class="status-chip status-chip--warning">SINCRONISMO SOLICITADO</span>' : ''}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><div class="button-row">${status === RECORD_STATUS.SYNCING_PHOTOS ? `<button class="button button--warning button--small" type="button" data-request-photo-sync="${escapeHtml(record.recordId)}" ${syncRequest ? 'disabled' : ''}>${syncRequest ? 'Sincronismo solicitado' : 'Solicitar sincronismo'}</button>` : ''}<button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></div></footer></div></article>`;
+}
+
+function publishedSupervisorCard(record) {
+  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--success">Publicada</span></header><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Publicada em</span><strong>${escapeHtml(formatDateTime(record.publishedAt || record.approvedAt || record.reviewedAt))}</strong></div></div><footer class="record-card__footer"><span>Somente visualização</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></footer></div></article>`;
 }
 
 function renderSupervisorList(error = null) {
@@ -1713,13 +1813,20 @@ function renderSupervisorList(error = null) {
     elements.supervisorList.innerHTML = emptyState('Carregando painel do Supervisor', 'Aguarde enquanto buscamos ocorrências e pendências em uma única carga.');
     updateSupervisorSelectionUi(); return;
   }
+  const { from, to } = supervisorFilterRange();
+  if (!validDateRange(from, to)) {
+    elements.approveAllFooter.hidden = true;
+    setSupervisorSummary('Confira as datas: a inicial não pode ser posterior à final.', 'error');
+    elements.supervisorList.innerHTML = emptyState('Período inválido', 'Ajuste as datas para aplicar o filtro.');
+    updateSupervisorSelectionUi(); return;
+  }
   const countText = visibleRecords.length === activeRecords.length
     ? supervisorActiveCountLabel(activeRecords.length)
     : `${supervisorActiveCountLabel(visibleRecords.length)} · ${activeRecords.length} no total`;
   setSupervisorSummary(supervisorLoading ? `Atualizando · ${countText}` : countText, supervisorLoading ? 'loading' : 'ready');
   if (!activeRecords.length) {
-    const emptyTitle = supervisorTab === 'occurrences' ? 'Nenhuma ocorrência aguardando conferência.' : supervisorPendingFilter === 'correction' ? 'Nenhuma correção solicitada.' : 'Nenhuma foto pendente.';
-    const emptyMessage = supervisorTab === 'occurrences' ? 'As ocorrências completas aparecerão aqui para conferência.' : 'Quando uma ocorrência exigir esta ação, ela aparecerá aqui.';
+    const emptyTitle = supervisorTab === 'occurrences' ? 'Nenhuma ocorrência aguardando conferência.' : supervisorTab === 'published' ? 'Nenhuma ocorrência publicada.' : supervisorPendingFilter === 'correction' ? 'Nenhuma correção solicitada.' : 'Nenhuma foto pendente.';
+    const emptyMessage = supervisorTab === 'occurrences' ? 'As ocorrências completas aparecerão aqui para conferência.' : supervisorTab === 'published' ? 'As ocorrências confirmadas aparecerão aqui para consulta.' : 'Quando uma ocorrência exigir esta ação, ela aparecerá aqui.';
     elements.supervisorList.innerHTML = emptyState(emptyTitle, emptyMessage);
     updateSupervisorSelectionUi(); return;
   }
@@ -1730,6 +1837,12 @@ function renderSupervisorList(error = null) {
   if (supervisorTab === 'pending') {
     selectedSupervisorIds.clear();
     elements.supervisorList.innerHTML = visibleRecords.map(pendingSupervisorCard).join('');
+    updateSupervisorSelectionUi(); return;
+  }
+  if (supervisorTab === 'published') {
+    selectedSupervisorIds.clear();
+    elements.supervisorList.innerHTML = visibleRecords.slice(0, publishedVisibleLimit).map(publishedSupervisorCard).join('')
+      + (visibleRecords.length > publishedVisibleLimit ? `<div class="empty-state-action"><button class="button button--ghost" type="button" data-published-more>Carregar mais publicadas (${visibleRecords.length - publishedVisibleLimit} restantes)</button></div>` : '');
     updateSupervisorSelectionUi(); return;
   }
   elements.supervisorList.innerHTML = visibleRecords.map((record) => {
@@ -1745,6 +1858,7 @@ function renderSupervisorList(error = null) {
 function handleSupervisorListClick(event) {
   const retry = event.target.closest('[data-supervisor-retry]');
   if (retry) return refreshSupervisor(true);
+  if (event.target.closest('[data-published-more]')) { publishedVisibleLimit += 60; renderSupervisorList(); return; }
   const sync = event.target.closest('[data-request-photo-sync]');
   if (sync) return requestPhotoSync(sync.dataset.requestPhotoSync);
   const review = event.target.closest('[data-review-record]'); const zoom = event.target.closest('[data-zoom-src]');
@@ -1777,6 +1891,12 @@ function photoIndexLabel(index) { return index === 6 ? 'Foto Trafo retirado' : i
 function updateSupervisorReviewActions() {
   const issues = activeSupervisorPhotoIssues(); const pricingIssues = supervisorPricingIssues(activeSupervisorRecord); const ready = !issues.length && !pricingIssues.length && activeSupervisorRecord?.status === RECORD_STATUS.WAITING_SUPERVISOR;
   const status = activeSupervisorRecord?.status;
+  const position = reviewOrder.indexOf(activeSupervisorRecord?.recordId);
+  const readOnly = reviewTab === 'published';
+  elements.reviewDialogMode.textContent = readOnly ? 'Publicada · somente visualização' : 'Conferência detalhada';
+  elements.reviewPosition.textContent = position < 0 ? '' : `${position + 1} de ${reviewOrder.length}`;
+  elements.previousReviewButton.disabled = supervisorMutationRunning || position <= 0;
+  elements.nextReviewButton.disabled = supervisorMutationRunning || position < 0 || position >= reviewOrder.length - 1;
   elements.editOccurrenceButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   elements.requestCorrectionButton.hidden = !activeSupervisorRecord || ![RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS].includes(status);
   elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issues.map(photoIndexLabel).join(', ')}` : 'Solicitar correção';
@@ -1785,12 +1905,71 @@ function updateSupervisorReviewActions() {
   elements.requestPhotoSyncButton.textContent = openPhotoSyncRequest(activeSupervisorRecord) ? 'Sincronismo solicitado' : 'Solicitar sincronismo';
   elements.approveButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   elements.rejectButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
+  if (readOnly) {
+    [elements.editOccurrenceButton, elements.requestCorrectionButton, elements.requestPhotoSyncButton, elements.approveButton, elements.rejectButton].forEach((button) => { button.hidden = true; });
+  }
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
 }
-function openSupervisorReview(recordId) { activeSupervisorRecord = [...supervisorRecords, ...supervisorPendingRecords].find((record) => record.recordId === recordId); if (!activeSupervisorRecord) return; const photoCount = Math.max(countConfirmedPhotos(activeSupervisorRecord), countReadyPhotoStates(activeSupervisorRecord)); elements.reviewDialogTitle.textContent = `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(activeSupervisorRecord); updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent); }
+function openSupervisorReview(recordId, preserveOrder = false) {
+  if (!preserveOrder) { reviewOrder = filteredSupervisorRecords().map((record) => record.recordId); reviewTab = supervisorTab; }
+  if (reviewTab !== supervisorTab || !reviewOrder.includes(recordId)) return;
+  activeSupervisorRecord = filteredSupervisorRecords().find((record) => record.recordId === recordId) || null;
+  if (!activeSupervisorRecord) return;
+  const photoCount = Math.max(countConfirmedPhotos(activeSupervisorRecord), countReadyPhotoStates(activeSupervisorRecord));
+  elements.reviewDialogTitle.textContent = reviewTab === 'published' ? `Ocorrência ${activeSupervisorRecord.occurrenceNumber || '—'} · Publicada` : `Ocorrência ${activeSupervisorRecord.occurrenceNumber} · ${photoCount}/5 fotos`;
+  elements.reviewDialogContent.innerHTML = reviewTab === 'published' && !publishedDetailCache.has(recordId)
+    ? emptyState('Carregando ocorrência publicada', 'Buscando os dados completos para consulta.')
+    : occurrenceDetails(activeSupervisorRecord);
+  updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent);
+  if (reviewTab === 'published' && !publishedDetailCache.has(recordId)) {
+    void loadPublishedDetailBatch(recordId).then(() => {
+      if (elements.reviewDialog.open && activeSupervisorRecord?.recordId === recordId && reviewTab === 'published') openSupervisorReview(recordId, true);
+    }).catch((error) => {
+      if (elements.reviewDialog.open && activeSupervisorRecord?.recordId === recordId) {
+        elements.reviewDialogContent.innerHTML = `${emptyState('Não foi possível carregar a publicação', friendlyError(error))}<div class="empty-state-action"><button class="button button--primary" type="button" data-published-retry>Tentar novamente</button></div>`;
+      }
+    });
+  }
+}
+
+function loadPublishedDetailBatch(recordId) {
+  const index = reviewOrder.indexOf(recordId);
+  if (index < 0) return Promise.reject(new ApiError('Ocorrência fora da lista atual.', 'INVALID_PUBLISHED_RECORD'));
+  const batchIds = reviewOrder.slice(Math.floor(index / 20) * 20, Math.floor(index / 20) * 20 + 20)
+    .filter((id) => !publishedDetailCache.has(id));
+  if (!batchIds.length) return Promise.resolve();
+  const key = batchIds.join('|');
+  if (publishedDetailRequests.has(key)) return publishedDetailRequests.get(key);
+  const revision = sessionRevision;
+  const task = api.listPublishedRecords(session.token, batchIds).then((result) => {
+    if (revision !== sessionRevision) return;
+    if (!Array.isArray(result.records)) throw new ApiError('O servidor retornou uma lista de publicadas inválida.', 'INVALID_PUBLISHED_PAYLOAD');
+    const requested = new Set(batchIds);
+    for (const record of uniqueRecordsById(normalizeOccurrenceRecords(result.records, 'listPublishedRecords.records'))) {
+      if (requested.has(record.recordId) && record.status === RECORD_STATUS.PUBLISHED) publishedDetailCache.set(record.recordId, record);
+    }
+    if (!publishedDetailCache.has(recordId)) throw new ApiError('Esta publicação não está mais disponível. Atualize o painel.', 'PUBLISHED_NOT_FOUND');
+  }).finally(() => { publishedDetailRequests.delete(key); });
+  publishedDetailRequests.set(key, task);
+  return task;
+}
+
+function moveSupervisorReview(direction) {
+  if (!activeSupervisorRecord || supervisorMutationRunning || reviewTab !== supervisorTab) return;
+  const index = reviewOrder.indexOf(activeSupervisorRecord.recordId);
+  const id = reviewOrder[index + direction];
+  if (id) openSupervisorReview(id, true);
+}
+
+function advanceSupervisorAfterAction(beforeIds, recordId) {
+  const nextId = nextVisibleRecordId(beforeIds, recordId, filteredSupervisorRecords().map((record) => record.recordId));
+  if (elements.reviewDialog.open) elements.reviewDialog.close();
+  if (nextId && reviewTab === supervisorTab) openSupervisorReview(nextId);
+  else activeSupervisorRecord = null;
+}
 
 function openSupervisorEditor() {
-  if (!activeSupervisorRecord) return;
+  if (!activeSupervisorRecord || reviewTab === 'published') return;
   supervisorEditRecord = JSON.parse(JSON.stringify(activeSupervisorRecord));
   supervisorEditRecord.occurrenceTypes = normalizeOccurrenceTypes(supervisorEditRecord.occurrenceTypes);
   supervisorEditRecord.services = normalizeServices(supervisorEditRecord.services).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
@@ -1924,6 +2103,8 @@ function handleSupervisorMaterialEdit(event) {
 
 async function saveSupervisorCorrection(event) {
   event.preventDefault(); if (!supervisorEditRecord || !activeSupervisorRecord || supervisorMutationRunning) return;
+  const reviewedId = activeSupervisorRecord.recordId;
+  const beforeIds = [...reviewOrder];
   const draft = syncSupervisorEditorFromForm();
   const errors = validateOccurrence(draft); if (errors.length) { elements.supervisorEditErrors.innerHTML = errors.map((error) => `• ${escapeHtml(error)}`).join('<br>'); return; }
   if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }
@@ -1932,21 +2113,33 @@ async function saveSupervisorCorrection(event) {
   try {
     const result = await api.supervisorCorrectRecord(session.token, { ...draft, services: serializeServicesForBackend(draft.services), materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
     const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
-    const photoCount = Math.max(countConfirmedPhotos(corrected), countReadyPhotoStates(corrected));
-    elements.supervisorEditDialog.close(); renderSupervisorList(); elements.reviewDialogTitle.textContent = `Ocorrência ${corrected.occurrenceNumber} · ${photoCount}/5 fotos`; elements.reviewDialogContent.innerHTML = occurrenceDetails(corrected); updateSupervisorReviewActions(); openScrollableDialog(elements.reviewDialog, elements.reviewDialogContent); toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
+    elements.supervisorEditDialog.close(); renderSupervisorList();
+    if (supervisorRefreshPromise) await supervisorRefreshPromise;
+    const refreshed = await refreshSupervisor(false);
+    if (refreshed) advanceSupervisorAfterAction(beforeIds, reviewedId);
+    else { openSupervisorReview(reviewedId); toast('Correção salva. Atualize o painel antes de seguir para a próxima ocorrência.', 'error'); }
+    toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
   } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
   finally { setBusy(elements.saveSupervisorEditButton, false); supervisorMutationRunning = false; updateSupervisorReviewActions(); }
 }
 
 async function decideSupervisor(decision) {
-  if (!activeSupervisorRecord || supervisorMutationRunning) return;
+  if (!activeSupervisorRecord || reviewTab === 'published' || supervisorMutationRunning) return;
   supervisorMutationRunning = true;
+  updateSupervisorReviewActions();
   let reason = ''; let note = ''; let selectedPhotoIndexes = [];
   try {
     if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
     else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); selectedPhotoIndexes = values.photoIndexes || []; const label = decision === 'reject' ? 'reprovar' : 'solicitar correção'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} na ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
     const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
-    await api.supervisorAction(session.token, decision, activeSupervisorRecord.recordId, reason, decision === 'request_correction' ? (note || reason) : note, decision === 'request_correction' ? selectedPhotoIndexes : []); elements.reviewDialog.close(); toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção solicitada à equipe.', 'success'); await refreshSupervisor(false);
+    const reviewedId = activeSupervisorRecord.recordId;
+    const beforeIds = [...reviewOrder];
+    await api.supervisorAction(session.token, decision, reviewedId, reason, decision === 'request_correction' ? (note || reason) : note, decision === 'request_correction' ? selectedPhotoIndexes : []);
+    toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção solicitada à equipe.', 'success');
+    if (supervisorRefreshPromise) await supervisorRefreshPromise;
+    const refreshed = await refreshSupervisor(false);
+    if (refreshed) advanceSupervisorAfterAction(beforeIds, reviewedId);
+    else { elements.reviewDialog.close(); activeSupervisorRecord = null; toast('Decisão salva. Atualize o painel antes de seguir para a próxima ocorrência.', 'error'); }
   } catch (error) { toast(friendlyError(error), 'error'); }
   finally {
     setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false);
