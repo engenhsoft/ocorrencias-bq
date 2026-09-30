@@ -1,4 +1,4 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.09.28.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.09.30.1';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -122,6 +122,7 @@ export function loadMaterialCatalog(options = {}) {
 export const api = Object.freeze({
   login: (user, password, role) => apiRequest('login', { user, password, role }),
   searchCatalog: (token, query, limit = 25, contract = '') => apiRequest('searchCatalog', { token, query, limit, contract }),
+  getTeamDirectory: (token) => apiRequest('getTeamDirectory', { token }),
   submitRecord: (token, record, clientVersion) => apiRequest('submitRecord', { token, record, clientVersion }),
   uploadPhoto: (token, photo, options = {}) => apiRequest('uploadPhoto', {
     token,
@@ -140,6 +141,7 @@ export const api = Object.freeze({
   listPublishedRecords: (token, recordIds) => apiRequest('listPublishedRecords', { token, recordIds }),
   supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
   supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 }),
+  requestPhotoSyncBatch: (token, recordIds) => apiRequest('requestPhotoSyncBatch', { token, recordIds }, { timeoutMs: 60000 }),
   approveBatch: (token, recordIds = [], all = false, note = '') => apiRequest('approveBatch', { token, recordIds, all, note }, { timeoutMs: 60000 })
 });
 

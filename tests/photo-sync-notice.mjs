@@ -34,7 +34,7 @@ async function exercisePhotoSync({ local = true, blobs = [3], resolved = true } 
   const feedback = new Map();
   const attempts = new Set();
   const context = {
-    session: { role: 'field', user: 'equipe-a', token: 'session' }, mineRecords: [photoPending],
+    session: { role: 'field', user: 'equipe-a', token: 'session' }, sessionRevision: 1, mineRecords: [photoPending],
     photoSyncAttempts: attempts, photoSyncFeedback: feedback,
     renderPhotoSyncRequests: () => events.push('render'),
     getRecord: async (id) => { events.push(`local:${id}`); return local ? { recordId: id, user: 'equipe-a' } : null; },
@@ -43,7 +43,7 @@ async function exercisePhotoSync({ local = true, blobs = [3], resolved = true } 
       events.push(`remote:${id}`);
       return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [1, 2].map((index) => ({ photoIndex: index, confirmed: true })), record: { photos: ['foto1', 'foto2'] } };
     } },
-    normalizePhotoStates: core.normalizePhotoStates, requiredPhotoDeficit: core.requiredPhotoDeficit,
+    normalizePhotoStates: core.normalizePhotoStates, requiredPhotoDeficit: core.requiredPhotoDeficit, normalizeArray: core.normalizeArray, sameUser: core.sameUser,
     RECORD_STATUS: core.RECORD_STATUS, openPhotoSyncRequest: core.openPhotoSyncRequest,
     syncSingleRecord: async (id) => {
       events.push(`sync:${id}`);

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.28.1';
-export const APP_BUILD = '2026-09-28-supervisor-navigation-published';
+export const APP_VERSION = '2026.09.30.1';
+export const APP_BUILD = '2026-09-30-dates-photo-sync-team-directory';
 
 export const TEAM_GOAL = 6000;
 
@@ -134,8 +134,48 @@ export function openPhotoSyncRequest(record, recipient = '') {
   if (!record?.recordId || record.status !== RECORD_STATUS.SYNCING_PHOTOS) return null;
   const request = record.audit?.photoSyncRequest;
   if (!request || request.status !== 'OPEN' || request.reason !== 'FOTOS_PENDENTES') return null;
-  if (recipient && request.recipient !== recipient) return null;
+  if (record.user && !sameUser(record.user, request.recipient)) return null;
+  if (recipient && !sameUser(request.recipient, recipient)) return null;
   return request;
+}
+
+// O login atual identifica a pessoa pelo nome, não pela equipe.
+export function sameUser(left, right) {
+  const key = (value) => normalizeText(value).replace(/\s+/g, ' ');
+  return Boolean(key(left)) && key(left) === key(right);
+}
+
+export function normalizeTeamDirectory(entries) {
+  if (!Array.isArray(entries) || !entries.length) throw new Error('Relação de equipes indisponível.');
+  const byKey = new Map();
+  for (const entry of entries) {
+    const base = OPERATION_BASES.find((value) => normalizeText(value) === normalizeText(entry?.base));
+    const team = String(entry?.team || '').trim();
+    const crewLeader = String(entry?.crewLeader || '').trim();
+    if (!base || !team || !crewLeader || ['EQUIPE', 'CHEFE DE TURMA'].includes(normalizeText(crewLeader))) throw new Error('Relação de equipes inválida.');
+    const key = `${base}|${normalizeText(team)}`;
+    const previous = byKey.get(key);
+    if (previous && normalizeText(previous.crewLeader) !== normalizeText(crewLeader)) throw new Error('Equipe com chefes conflitantes no cadastro.');
+    byKey.set(key, { base, team, crewLeader });
+  }
+  return [...byKey.values()];
+}
+
+export function teamsForBase(entries = [], base = '') {
+  return entries.filter((entry) => normalizeText(entry.base) === normalizeText(base));
+}
+
+export function teamDirectoryEntry(entries = [], base = '', team = '') {
+  return teamsForBase(entries, base).find((entry) => normalizeText(entry.team) === normalizeText(team)) || null;
+}
+
+export function occurrenceDate(record = {}) {
+  const value = record.registeredAt || record.createdAt;
+  return value ? operationalDate(value) : '';
+}
+
+export function dateInRange(date, { from = '', to = '' } = {}) {
+  return validDateRange(from, to) && ((!from && !to) || Boolean(date)) && (!from || date >= from) && (!to || date <= to);
 }
 
 export function uniqueRecordsById(records = []) {
@@ -432,6 +472,18 @@ export function occurrenceTotal(services = []) {
 }
 
 export function operationalDate(value = new Date(), timeZone = 'America/Bahia') {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    // Uma data sem hora é um dia do calendário, não meia-noite em UTC.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return validDateRange(text, text) ? text : '';
+    const local = text.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}:\d{2}(?::\d{2})?))?$/);
+    const calendar = local ? `${local[3]}-${local[2]}-${local[1]}` : text.match(/^(\d{4}-\d{2}-\d{2})[ T]/)?.[1];
+    if (calendar && !validDateRange(calendar, calendar)) return '';
+    if (local) value = `${local[3]}-${local[2]}-${local[1]}T${local[4] || '12:00:00'}-03:00`;
+    else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text)) value = `${text.replace(' ', 'T')}-03:00`;
+    else value = text;
+  }
+  if (!value) return '';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -519,10 +571,10 @@ export function validateOccurrence(record = {}) {
     if (!String(record.pgConductorEnd || '').trim()) errors.push('Informe o PG final da substituição do condutor.');
   }
   if (types.includes('SUBSTITUIÇÃO DE TRAFO')) {
-    if (!String(record.transformer?.removedCode || '').trim()) errors.push('Informe o código do trafo retirado ou 999999.');
+    if (!String(record.transformer?.removedCode || '').trim()) errors.push('Informe a série do transformador retirado ou 999999.');
     if (!String(record.transformer?.removedCia || '').trim()) errors.push('Informe a CIA do trafo retirado.');
     if (!String(record.transformer?.removedBto || '').trim()) errors.push('Informe o BTO do transformador retirado.');
-    if (!String(record.transformer?.newCode || '').trim() || String(record.transformer?.newCode || '').trim() === '999999') errors.push('Informe um código válido para o trafo novo.');
+    if (!String(record.transformer?.newCode || '').trim() || String(record.transformer?.newCode || '').trim() === '999999') errors.push('Informe uma série válida para o transformador instalado.');
     if (!String(record.transformer?.newCia || '').trim()) errors.push('Informe a CIA do trafo novo.');
     if (!String(record.transformer?.newBto || '').trim()) errors.push('Informe o BTO do transformador instalado.');
     if (!transformerPhotoReady(record, 'removed')) errors.push('Adicione a evidência do transformador retirado.');

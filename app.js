@@ -4,21 +4,23 @@ import {
   correctedAfterResend, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
-  mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange,
+  mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
+  sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.28.1';
+} from './core.js?v=2026.09.30.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.28.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.28.1';
+} from './db.js?v=2026.09.30.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.30.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
 const LAST_TEAM_KEY = 'ocorrencias-bq-last-team-v1';
 const ACTIVE_DRAFT_META = 'activeDraftId';
 const LAST_SYNC_META = 'lastSyncAt';
+const TEAM_DIRECTORY_META = 'teamDirectory';
 const RELEASE_NOTICE_KEY = `ocorrencias-bq-update-notice-seen-${APP_VERSION}`;
 const TYPE_TRAFO = 'SUBSTITUIÇÃO DE TRAFO';
 const TYPE_POST = 'SUBSTITUIÇÃO DE POSTE';
@@ -40,7 +42,7 @@ const elements = {
   resumeBannerText: $('#resumeBannerText'), resumeDraftButton: $('#resumeDraftButton'),
   discardDraftButton: $('#discardDraftButton'), draftIdBadge: $('#draftIdBadge'), operationBase: $('#operationBase'), operationContract: $('#operationContract'), team: $('#team'),
   newTitle: $('#newTitle'), fieldCorrectionBanner: $('#fieldCorrectionBanner'), fieldCorrectionObservation: $('#fieldCorrectionObservation'), fieldCorrectionMeta: $('#fieldCorrectionMeta'),
-  crewLeader: $('#crewLeader'),
+  crewLeader: $('#crewLeader'), teamDirectoryHint: $('#teamDirectoryHint'), retryTeamDirectory: $('#retryTeamDirectory'),
   occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'),
   otherTypeSection: $('#otherTypeSection'), otherOccurrenceType: $('#otherOccurrenceType'),
   pgPostSection: $('#pgPostSection'), pgConductorSection: $('#pgConductorSection'),
@@ -74,7 +76,7 @@ const elements = {
   supervisorOccurrencesBadge: $('#supervisorOccurrencesBadge'), supervisorPendingBadge: $('#supervisorPendingBadge'), supervisorPublishedBadge: $('#supervisorPublishedBadge'), supervisorPhotosBadge: $('#supervisorPhotosBadge'), supervisorCorrectionBadge: $('#supervisorCorrectionBadge'), supervisorPendingFilters: $('#supervisorPendingFilters'),
   selectedCountLabel: $('#selectedCountLabel'), approveSelectedButton: $('#approveSelectedButton'),
   approveAllButton: $('#approveAllButton'), approveAllFooter: $('#approveAllFooter'),
-  supervisorBatchResult: $('#supervisorBatchResult'),
+  supervisorBatchResult: $('#supervisorBatchResult'), requestAllPhotoSyncButton: $('#requestAllPhotoSyncButton'), photoSyncBatchToolbar: $('#photoSyncBatchToolbar'),
   reviewDialog: $('#reviewDialog'), reviewDialogTitle: $('#reviewDialogTitle'), reviewDialogMode: $('#reviewDialogMode'),
   previousReviewButton: $('#previousReviewButton'), nextReviewButton: $('#nextReviewButton'), reviewPosition: $('#reviewPosition'),
   reviewDialogContent: $('#reviewDialogContent'), requestCorrectionButton: $('#requestCorrectionButton'),
@@ -93,7 +95,7 @@ const elements = {
   profileSwitchUser: $('#profileSwitchUser'), profileSwitchPassword: $('#profileSwitchPassword'),
   profileSwitchMessage: $('#profileSwitchMessage'), profileSwitchSubmit: $('#profileSwitchSubmit'),
   supervisorEditDialog: $('#supervisorEditDialog'), supervisorEditForm: $('#supervisorEditForm'), supervisorEditTitle: $('#supervisorEditTitle'),
-  editOperationBase: $('#editOperationBase'), editOperationContract: $('#editOperationContract'), editTeam: $('#editTeam'), editCrewLeader: $('#editCrewLeader'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
+  editOperationBase: $('#editOperationBase'), editOperationContract: $('#editOperationContract'), editTeam: $('#editTeam'), editCrewLeader: $('#editCrewLeader'), editTeamDirectoryHint: $('#editTeamDirectoryHint'), editRetryTeamDirectory: $('#editRetryTeamDirectory'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
   editOtherTypeSection: $('#editOtherTypeSection'), editOtherOccurrenceType: $('#editOtherOccurrenceType'),
   editPgPostSection: $('#editPgPostSection'), editPgConductorSection: $('#editPgConductorSection'),
   editPgPostRemoved: $('#editPgPostRemoved'), editPgPostInstalled: $('#editPgPostInstalled'),
@@ -175,6 +177,13 @@ let waitingServiceWorker = null;
 let updateReloadRequested = false;
 const photoSyncAttempts = new Set();
 const photoSyncFeedback = new Map();
+let photoSyncAllRunning = false;
+let teamDirectory = [];
+let teamDirectoryPromise = null;
+let teamDirectoryLoading = false;
+let teamDirectoryMessage = '';
+let fieldAssignmentSnapshot = null;
+let supervisorAssignmentSnapshot = null;
 
 function readSession() {
   try {
@@ -210,6 +219,7 @@ function clearSessionUiState() {
   elements.photoSyncRequests.innerHTML = '';
   photoSyncAttempts.clear();
   photoSyncFeedback.clear();
+  photoSyncAllRunning = false;
   mineFilter = 'today';
   mineAutoFilterPending = false;
   mineTeam = '';
@@ -320,6 +330,83 @@ async function ensureLocalStorage() {
   }
 }
 
+async function loadTeamDirectory() {
+  if (!session) return;
+  const revision = sessionRevision; const requestSession = session;
+  if (teamDirectoryPromise?.revision === revision) return teamDirectoryPromise.promise;
+  teamDirectoryLoading = true; renderAssignmentControls(); renderAssignmentControls(true);
+  const request = { revision, promise: null };
+  teamDirectoryPromise = request;
+  request.promise = (async () => {
+    try {
+      if (!teamDirectory.length) {
+        const cached = await getMeta(TEAM_DIRECTORY_META);
+        if (revision !== sessionRevision) return;
+        if (cached?.entries) {
+          try { teamDirectory = normalizeTeamDirectory(cached.entries); }
+          catch (error) { console.warn('[Equipes] Cache inválido; aguardando relação oficial.', error); }
+        }
+        renderAssignmentControls(); renderAssignmentControls(true);
+      }
+      if (!navigator.onLine) {
+        teamDirectoryMessage = teamDirectory.length ? 'Offline · usando a última relação válida.' : 'Não foi possível carregar a relação de equipes e chefes de turma. Conecte-se e tente novamente.';
+        return;
+      }
+      const result = await api.getTeamDirectory(requestSession.token);
+      const entries = normalizeTeamDirectory(result.entries);
+      if (revision !== sessionRevision) return;
+      teamDirectory = entries;
+      teamDirectoryMessage = '';
+      await setMeta(TEAM_DIRECTORY_META, { entries, revision: result.revision, fetchedAt: result.fetchedAt });
+    } catch (error) {
+      if (revision !== sessionRevision) return;
+      console.warn('[Equipes] Falha ao atualizar relação.', error);
+      teamDirectoryMessage = teamDirectory.length ? 'Não foi possível atualizar a relação. Usando a última relação válida; tente novamente.' : 'Não foi possível carregar a relação de equipes e chefes de turma. Tente novamente.';
+    } finally {
+      if (teamDirectoryPromise === request) { teamDirectoryPromise = null; teamDirectoryLoading = false; }
+      if (revision === sessionRevision) {
+        renderAssignmentControls(); renderAssignmentControls(true); validateStepOne(false);
+      }
+    }
+  })();
+  return request.promise;
+}
+
+function renderAssignmentControls(edit = false, selection = null) {
+  const baseInput = edit ? elements.editOperationBase : elements.operationBase;
+  const teamInput = edit ? elements.editTeam : elements.team;
+  const chiefInput = edit ? elements.editCrewLeader : elements.crewLeader;
+  const hint = edit ? elements.editTeamDirectoryHint : elements.teamDirectoryHint;
+  const retry = edit ? elements.editRetryTeamDirectory : elements.retryTeamDirectory;
+  const snapshot = edit ? supervisorAssignmentSnapshot : fieldAssignmentSnapshot;
+  const base = baseInput.value;
+  const chosen = selection?.team ?? teamInput.value;
+  const preserved = snapshot && snapshot.base === base && snapshot.team === chosen;
+  const options = teamsForBase(teamDirectory, base);
+  const entry = teamDirectoryEntry(teamDirectory, base, chosen);
+  teamInput.innerHTML = '<option value="">Selecione a equipe</option>' + options
+    .filter((item) => !preserved || normalizeText(item.team) !== normalizeText(chosen))
+    .map((item) => `<option value="${escapeHtml(item.team)}">${escapeHtml(item.team)}</option>`).join('');
+  if (chosen && (preserved || !entry)) teamInput.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(chosen)}">${escapeHtml(chosen)} · ${preserved ? 'registrada' : 'rever cadastro'}</option>`);
+  teamInput.value = preserved || !entry ? chosen : entry.team;
+  chiefInput.value = preserved ? snapshot.crewLeader : entry?.crewLeader || selection?.crewLeader || (chosen ? chiefInput.value : '');
+  teamInput.disabled = !base || !options.length;
+  hint.textContent = teamDirectoryMessage || (teamDirectoryLoading && !teamDirectory.length ? 'Carregando relação de equipes…' : !teamDirectory.length ? 'Não foi possível carregar a relação de equipes e chefes de turma.' : base && !options.length ? `Não há equipes cadastradas para ${base} na relação oficial.` : preserved ? 'Dados registrados preservados. Ao trocar Base ou Equipe, será usada a relação atual.' : 'Escolha a equipe da Base; o chefe de turma será preenchido automaticamente.');
+  retry.hidden = !teamDirectoryMessage && Boolean(teamDirectory.length) && !(base && !options.length);
+  retry.disabled = teamDirectoryLoading;
+  retry.textContent = teamDirectoryLoading ? 'Carregando…' : 'Tentar novamente';
+}
+
+function assignmentError(record, snapshot) {
+  const unchanged = snapshot && ['base', 'team', 'crewLeader'].every((field) => record[field] === snapshot[field]);
+  if (unchanged && (record.registeredAt || record.serverConfirmed || record.correctionMode)) return '';
+  if (!teamDirectory.length) return 'Não foi possível carregar a relação de equipes e chefes de turma. Tente novamente.';
+  if (!record.base) return '';
+  const entry = teamDirectoryEntry(teamDirectory, record.base, record.team);
+  if (!entry || normalizeText(entry.crewLeader) !== normalizeText(record.crewLeader)) return 'Selecione uma equipe e seu chefe de turma na relação da Base informada.';
+  return '';
+}
+
 function bindEvents() {
   elements.loginForm.addEventListener('submit', handleLogin);
   elements.logoutButton.addEventListener('click', logout);
@@ -328,12 +415,21 @@ function bindEvents() {
     if (target) navigate(target.dataset.nav);
   });
   $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav)));
-  [elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType,
+  [elements.occurrenceNumber, elements.otherOccurrenceType,
     elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd,
     elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
     elements.removedTransformerBto, elements.newTransformerCia, elements.newTransformerBto,
     elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
-  elements.operationBase.addEventListener('change', handleFormInput);
+  elements.operationBase.addEventListener('change', (event) => {
+    fieldAssignmentSnapshot = null; elements.team.value = ''; elements.crewLeader.value = '';
+    renderAssignmentControls(); void handleFormInput(event);
+  });
+  elements.team.addEventListener('change', (event) => {
+    fieldAssignmentSnapshot = null;
+    elements.crewLeader.value = teamDirectoryEntry(teamDirectory, elements.operationBase.value, elements.team.value)?.crewLeader || '';
+    void handleFormInput(event);
+  });
+  [elements.retryTeamDirectory, elements.editRetryTeamDirectory].forEach((button) => button.addEventListener('click', () => void loadTeamDirectory()));
   elements.occurrenceTypes.addEventListener('change', handleFormInput);
   elements.serviceSearch.addEventListener('input', handleCatalogInput);
   elements.serviceSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.serviceResults.hidden = true; });
@@ -377,6 +473,7 @@ function bindEvents() {
   });
   elements.mineList.addEventListener('click', handleMineAction);
   elements.photoSyncRequests.addEventListener('click', (event) => {
+    if (event.target.closest('[data-photo-sync-all]')) return void syncAllRequestedPhotos();
     const button = event.target.closest('[data-photo-sync-record]');
     if (button) void syncRequestedPhotos(button.dataset.photoSyncRecord);
   });
@@ -428,6 +525,12 @@ function bindEvents() {
   $$('[data-close-supervisor-edit]').forEach((button) => button.addEventListener('click', () => elements.supervisorEditDialog.close()));
   elements.editOccurrenceTypes.addEventListener('change', syncSupervisorEditorFromForm);
   elements.editOperationBase.addEventListener('change', handleSupervisorBaseChange);
+  elements.editTeam.addEventListener('change', () => {
+    supervisorAssignmentSnapshot = null;
+    elements.editCrewLeader.value = teamDirectoryEntry(teamDirectory, elements.editOperationBase.value, elements.editTeam.value)?.crewLeader || '';
+    syncSupervisorEditorFromForm();
+  });
+  elements.requestAllPhotoSyncButton.addEventListener('click', requestAllPhotoSync);
   elements.editServiceSearch.addEventListener('input', searchSupervisorCatalog);
   elements.editServiceResults.addEventListener('click', selectSupervisorCatalogItem);
   elements.editServicesList.addEventListener('input', handleSupervisorServiceEdit);
@@ -450,7 +553,7 @@ function bindEvents() {
   elements.photoPreviousButton.addEventListener('click', () => movePhotoGallery(-1));
   elements.photoNextButton.addEventListener('click', () => movePhotoGallery(1));
   document.addEventListener('error', handlePhotoLoadError, true);
-  window.addEventListener('online', async () => { updateNetworkUi(); await testConnection(false); if (session?.role === 'field') syncAll(false); });
+  window.addEventListener('online', async () => { updateNetworkUi(); if (session) void loadTeamDirectory(); await testConnection(false); if (session?.role === 'field') syncAll(false); });
   window.addEventListener('offline', updateNetworkUi);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') { syncAll(false); loadDailyProduction(elements.team.value, false); }
@@ -547,6 +650,8 @@ async function enterApplication() {
   elements.sessionRoleLabel.textContent = session.role === 'supervisor' ? `Supervisor · ${session.user}` : `Campo · ${session.user}`;
   $$('[data-nav="new"], [data-nav="mine"]', elements.mainNav).forEach((item) => { item.hidden = session.role === 'supervisor'; });
   elements.supervisorNav.hidden = session.role !== 'supervisor';
+  // Referência secundária: não bloqueia autenticação nem o painel.
+  void loadTeamDirectory();
   if (session.role === 'supervisor') {
     elements.resumeBanner.hidden = true;
     navigate('supervisor');
@@ -556,7 +661,6 @@ async function enterApplication() {
     }, 90000);
   } else {
     navigate('new'); detectDraft().catch((error) => console.error('[Rascunho] Falha ao recuperar dados locais.', error));
-    if (!elements.team.value) elements.team.value = localStorage.getItem(LAST_TEAM_KEY) || '';
     updateGoal(); refreshMine(false); if (navigator.onLine) { syncAll(false); loadDailyProduction(elements.team.value, false); }
   }
   updateQueueUi().catch((error) => console.error('[Fila] Falha ao atualizar o resumo local.', error));
@@ -992,6 +1096,8 @@ async function handleMaterialChange(event) {
 function validateStepOne(showErrors = false) {
   if (activeRecord) syncFormToRecord();
   const errors = activeRecord ? validateOccurrence(activeRecord) : ['Preencha os dados da ocorrência.'];
+  const relationError = activeRecord && assignmentError(activeRecord, fieldAssignmentSnapshot);
+  if (relationError) errors.push(relationError);
   elements.continueToPhotosButton.disabled = errors.length > 0;
   if (showErrors && errors.length) {
     elements.stepOneErrors.hidden = false;
@@ -1130,7 +1236,7 @@ function correctionRequest(record) {
 function correctionRequestMarkup(record) {
   if ((record?.status || record?.serverStatus) !== RECORD_STATUS.CORRECTION_REQUESTED) return '';
   const request = correctionRequest(record);
-  const meta = [request.supervisor ? `Supervisor: ${request.supervisor}` : '', request.requestedAt ? formatDateTime(request.requestedAt) : ''].filter(Boolean).join(' · ');
+  const meta = [request.supervisor ? `Supervisor: ${request.supervisor}` : '', request.requestedAt ? formatDateTime(request.lastRequestedAt || request.requestedAt) : ''].filter(Boolean).join(' · ');
   const photos = request.photoIndexes.length ? `Fotos solicitadas: ${request.photoIndexes.map(photoIndexLabel).join(', ')}` : '';
   return `<section class="correction-request-callout"><strong>CORREÇÃO SOLICITADA PELO SUPERVISOR</strong><p>${escapeHtml(request.note || request.reason || 'Consulte o Supervisor responsável.')}</p>${photos ? `<small>${escapeHtml(photos)}</small>` : ''}${meta ? `<small>${escapeHtml(meta)}</small>` : ''}</section>`;
 }
@@ -1186,7 +1292,7 @@ function occurrenceTypesText(record = {}) {
 function occurrenceDetails(record, includePhotos = true) {
   const total = occurrenceTotal(record.services || []);
   const occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
-  const transformer = occurrenceTypes.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Código: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Código: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
+  const transformer = occurrenceTypes.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Série: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Série: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
   const pgPost = occurrenceTypes.includes(TYPE_POST) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
   const pgConductor = occurrenceTypes.includes(TYPE_CONDUCTOR) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
@@ -1256,7 +1362,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
   const requestSession = session; const revision = sessionRevision;
   const storedRecord = await getRecord(recordId); if (!storedRecord || !requestSession || requestSession.role !== 'field') return null;
   const record = normalizeOccurrenceRecord(storedRecord, 'localRecord');
-  if (record.user && String(record.user) !== String(requestSession.user)) {
+  if (record.user && !sameUser(record.user, requestSession.user)) {
     console.warn('[Fila] Registro pertence a outro usuário; sincronização ignorada.', { recordId });
     return null;
   }
@@ -1271,6 +1377,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
     next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
     const submitResult = await api.submitRecord(requestSession.token, {
       recordId: next.recordId, base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
+      expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
       pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
       pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
@@ -1312,7 +1419,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
   } finally {
     await updateQueueUi();
-    if (session?.role === 'field' && (currentView === 'mine' || mineRecords.some((item) => item.recordId === recordId && openPhotoSyncRequest(item, session.user)))) refreshMine(false);
+    if (session?.role === 'field' && (currentView === 'mine' || mineRecords.some((item) => item.recordId === recordId && openPhotoSyncRequest(item, session.user)))) { if (!photoSyncAllRunning) refreshMine(false); }
   }
 }
 
@@ -1320,7 +1427,7 @@ async function syncAll(notify = false) {
   const requestSession = session;
   if (syncRunning || !requestSession || requestSession.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
   try {
-    const queue = (await getAllRecords()).filter((record) => (!record.user || String(record.user) === String(requestSession.user)) && SYNCABLE_STATUSES.has(record.status));
+    const queue = (await getAllRecords()).filter((record) => (!record.user || sameUser(record.user, requestSession.user)) && SYNCABLE_STATUSES.has(record.status));
     for (const record of queue) await syncSingleRecord(record.recordId, false);
     if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success');
   } catch (error) {
@@ -1356,7 +1463,7 @@ async function refreshMine(notify = false) {
   setBusy(elements.refreshMineButton, true, 'Atualizando…');
   const task = (async () => {
     try {
-      const localRecords = normalizeOccurrenceRecords(await getAllRecords(), 'localRecords').filter((record) => String(record.user || '') === String(requestSession.user || ''));
+      const localRecords = normalizeOccurrenceRecords(await getAllRecords(), 'localRecords').filter((record) => sameUser(record.user, requestSession.user));
       if (revision !== sessionRevision) return null;
       let serverRecords = [];
       if (navigator.onLine && endpointConfigured()) {
@@ -1423,7 +1530,7 @@ function renderMineFilters() {
 
 function renderMineList() {
   const today = operationalDate();
-  const filtered = mineRecords.filter((record) => (mineFilter === 'attention' && mineNeedsAttention(record)) || (mineFilter === 'today' && operationalDate(record.registeredAt || record.createdAt) === today) || (mineFilter === 'history' && operationalDate(record.registeredAt || record.createdAt) !== today) || mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
+  const filtered = mineRecords.filter((record) => (mineFilter === 'attention' && mineNeedsAttention(record)) || (mineFilter === 'today' && occurrenceDate(record) === today) || (mineFilter === 'history' && occurrenceDate(record) !== today) || mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
   if (!filtered.length) { elements.mineList.innerHTML = emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.'); return; }
   elements.mineList.innerHTML = filtered.map((record) => {
     const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
@@ -1440,28 +1547,37 @@ function renderPhotoSyncRequests() {
     ? uniqueRecordsById(mineRecords).filter((record) => openPhotoSyncRequest(record, session.user))
     : [];
   elements.photoSyncRequests.hidden = !requested.length;
-  elements.photoSyncRequests.innerHTML = requested.map((record) => {
+  elements.photoSyncRequests.innerHTML = (requested.length > 1 ? `<div class="photo-sync-all"><strong>${requested.length} solicitações de sincronismo</strong><button class="button button--primary" type="button" data-photo-sync-all ${photoSyncAllRunning ? 'disabled' : ''}>${photoSyncAllRunning ? 'Sincronizando…' : 'Sincronizar tudo'}</button></div>` : '') + requested.map((record) => {
     const request = openPhotoSyncRequest(record, session.user);
-    const busy = photoSyncAttempts.has(record.recordId);
-    return `<article class="photo-sync-callout"><div><strong>ATENÇÃO · SINCRONIZAÇÃO DE FOTOS SOLICITADA</strong><p>O Supervisor solicitou a sincronização das fotos da ocorrência Nº ${escapeHtml(record.occurrenceNumber || '—')}.</p><small>Mantenha este aparelho conectado à internet. As fotos pendentes precisam ser confirmadas pelo servidor.</small><small>${escapeHtml(request.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(request.requestedAt))}</small>${photoSyncFeedback.has(record.recordId) ? `<p class="photo-sync-error" role="alert">${escapeHtml(photoSyncFeedback.get(record.recordId))}</p>` : ''}</div><button class="button button--primary button--small" type="button" data-photo-sync-record="${escapeHtml(record.recordId)}" ${busy ? 'disabled' : ''}>${busy ? 'Sincronizando…' : 'Sincronizar agora'}</button></article>`;
+    const busy = photoSyncAllRunning || photoSyncAttempts.has(record.recordId);
+    return `<article class="photo-sync-callout"><div><strong>ATENÇÃO · SINCRONIZAÇÃO DE FOTOS SOLICITADA</strong><p>O Supervisor solicitou a sincronização das fotos da ocorrência Nº ${escapeHtml(record.occurrenceNumber || '—')}.</p><small>Mantenha este aparelho conectado à internet. As fotos pendentes precisam ser confirmadas pelo servidor.</small><small>${escapeHtml(request.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(request.lastRequestedAt || request.requestedAt))}</small>${photoSyncFeedback.has(record.recordId) ? `<p class="photo-sync-error" role="alert">${escapeHtml(photoSyncFeedback.get(record.recordId))}</p>` : ''}</div><button class="button button--primary button--small" type="button" data-photo-sync-record="${escapeHtml(record.recordId)}" ${busy ? 'disabled' : ''}>${busy ? 'Sincronizando…' : 'Sincronizar agora'}</button></article>`;
   }).join('');
 }
 
-async function syncRequestedPhotos(recordId) {
+async function syncRequestedPhotos(recordId, { notify = true, refresh = true } = {}) {
   if (!session || session.role !== 'field' || photoSyncAttempts.has(recordId)) return;
+  const revision = sessionRevision; const requestSession = session;
   const remote = mineRecords.find((record) => record.recordId === recordId && openPhotoSyncRequest(record, session.user));
   if (!remote) return;
   photoSyncAttempts.add(recordId); photoSyncFeedback.delete(recordId); renderPhotoSyncRequests();
   try {
     const local = await getRecord(recordId);
-    const photos = local && (!local.user || local.user === session.user) ? await getPhotosForRecord(recordId) : [];
+    const photos = local && (!local.user || sameUser(local.user, requestSession.user)) ? await getPhotosForRecord(recordId) : [];
     const stored = new Set(photos.filter((photo) => photo.blob).map((photo) => photo.photoIndex));
-    if (!local || (local.user && local.user !== session.user)) {
+    if (revision !== sessionRevision) return { ok: false, recordId };
+    if (!local || (local.user && !sameUser(local.user, requestSession.user))) {
       throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
     }
-    const serverState = await api.getRecordState(session.token, recordId);
+    const serverState = await api.getRecordState(requestSession.token, recordId);
+    if (revision !== sessionRevision) return { ok: false, recordId };
+    if (serverState.status === RECORD_STATUS.WAITING_SUPERVISOR) {
+      if (refresh) await refreshMine(false);
+      photoSyncFeedback.delete(recordId);
+      if (notify) toast('Fotos já confirmadas pelo servidor. Ocorrência disponível ao Supervisor.', 'success');
+      return { ok: true, recordId };
+    }
     if (serverState.status !== RECORD_STATUS.SYNCING_PHOTOS) {
-      await refreshMine(false);
+      if (refresh) await refreshMine(false);
       throw new ApiError('A ocorrência não está mais aguardando fotos. Atualize a lista.', 'PHOTO_SYNC_UPDATED');
     }
     const confirmed = normalizePhotoStates(serverState.photoStates);
@@ -1476,20 +1592,44 @@ async function syncRequestedPhotos(recordId) {
         localReady: stored.has(index + 1)
       }))
     };
-    if (requiredPhotoDeficit(available) > 0) {
+    const expected = normalizeArray(serverState.record?.audit?.expectedPhotoIndexes).map(Number);
+    if (requiredPhotoDeficit(available) > 0 || expected.some((index) => !confirmed[index - 1]?.confirmed && !stored.has(index))) {
       throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
     }
     const result = await syncSingleRecord(recordId, false);
     if (result?.status !== RECORD_STATUS.WAITING_SUPERVISOR || result.audit?.photoSyncRequest?.status !== 'RESOLVED') {
       throw new ApiError(result?.lastError || 'As fotos ainda não foram confirmadas pelo servidor. Tente novamente.', 'PHOTO_SYNC_PENDING');
     }
-    await refreshMine(false);
+    if (revision !== sessionRevision) return { ok: false, recordId };
+    if (refresh) await refreshMine(false);
     photoSyncFeedback.delete(recordId);
-    toast('Fotos confirmadas pelo servidor. Ocorrência encaminhada ao Supervisor.', 'success');
+    if (notify) toast('Fotos confirmadas pelo servidor. Ocorrência encaminhada ao Supervisor.', 'success');
+    return { ok: true, recordId };
   } catch (error) {
+    if (revision !== sessionRevision) return { ok: false, recordId };
     photoSyncFeedback.set(recordId, friendlyError(error));
-    toast(friendlyError(error), 'error', 5200);
+    if (notify) toast(friendlyError(error), 'error', 5200);
+    return { ok: false, recordId, message: friendlyError(error) };
   } finally { photoSyncAttempts.delete(recordId); renderPhotoSyncRequests(); }
+}
+
+async function syncAllRequestedPhotos() {
+  if (photoSyncAllRunning || !session || session.role !== 'field') return;
+  const revision = sessionRevision;
+  const ids = uniqueRecordsById(mineRecords).filter((record) => openPhotoSyncRequest(record, session.user)).map((record) => record.recordId);
+  if (!ids.length) return;
+  photoSyncAllRunning = true; renderPhotoSyncRequests();
+  let completed = 0; let pending = 0;
+  try {
+    for (const id of ids) {
+      if (revision !== sessionRevision) return;
+      const result = await syncRequestedPhotos(id, { notify: false, refresh: false });
+      if (result?.ok) completed += 1; else pending += 1;
+    }
+    if (revision !== sessionRevision) return;
+    await refreshMine(false);
+    toast(`${completed} ${completed === 1 ? 'ocorrência sincronizada' : 'ocorrências sincronizadas'}; ${pending} ${pending === 1 ? 'continua pendente' : 'continuam pendentes'}.${pending ? ' Consulte os avisos e tente no aparelho que possui as fotos.' : ''}`, pending ? 'error' : 'success', 6000);
+  } finally { if (revision === sessionRevision) { photoSyncAllRunning = false; renderPhotoSyncRequests(); } }
 }
 
 function recordCard(record, actionHtml = '') {
@@ -1536,7 +1676,7 @@ function renderFieldCorrectionBanner(record) {
   if (!active) { elements.fieldCorrectionObservation.textContent = ''; elements.fieldCorrectionMeta.textContent = ''; return; }
   const request = correctionRequest(record);
   elements.fieldCorrectionObservation.textContent = request.note || request.reason || 'Consulte o Supervisor responsável.';
-  elements.fieldCorrectionMeta.textContent = [request.supervisor ? `Supervisor: ${request.supervisor}` : '', request.requestedAt ? formatDateTime(request.requestedAt) : '', request.photoIndexes.length ? `Fotos: ${request.photoIndexes.map(photoIndexLabel).join(', ')}` : ''].filter(Boolean).join(' · ');
+  elements.fieldCorrectionMeta.textContent = [request.supervisor ? `Supervisor: ${request.supervisor}` : '', request.requestedAt ? formatDateTime(request.lastRequestedAt || request.requestedAt) : '', request.photoIndexes.length ? `Fotos: ${request.photoIndexes.map(photoIndexLabel).join(', ')}` : ''].filter(Boolean).join(' · ');
 }
 
 async function loadRecordIntoForm(record) {
@@ -1546,9 +1686,10 @@ async function loadRecordIntoForm(record) {
   if (!activeRecord.contract) activeRecord.contract = contractForBase(activeRecord.base);
   if (activeRecord.services.length && activeRecord.services.every((service) => service.contractValues && typeof service.contractValues === 'object')) applyContractToRecord(activeRecord);
   const loadingRecord = activeRecord;
+  fieldAssignmentSnapshot = { base: activeRecord.base, team: activeRecord.team, crewLeader: activeRecord.crewLeader };
   elements.operationBase.value = loadingRecord.base || '';
   updateContractOutput(elements.operationContract, elements.operationBase.value);
-  elements.operationBase.value = activeRecord.base || ''; updateContractOutput(elements.operationContract, elements.operationBase.value); elements.team.value = activeRecord.team || ''; elements.crewLeader.value = activeRecord.crewLeader || ''; elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
+  elements.operationBase.value = activeRecord.base || ''; updateContractOutput(elements.operationContract, elements.operationBase.value); renderAssignmentControls(false, activeRecord); elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
   elements.otherOccurrenceType.value = activeRecord.otherOccurrenceType || '';
   elements.pgPostRemoved.value = activeRecord.pgPostRemoved || activeRecord.pg1 || ''; elements.pgPostInstalled.value = activeRecord.pgPostInstalled || activeRecord.pg2 || '';
@@ -1581,7 +1722,8 @@ function resetForm({ preserveTeam = false } = {}) {
   const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
   catalogSearchRequestId += 1; materialSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearTimeout(materialSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
   [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.materialSearch, elements.observation].forEach((input) => { input.value = ''; });
-  elements.team.value = team;
+  fieldAssignmentSnapshot = null;
+  renderAssignmentControls();
   renderFieldCorrectionBanner(null);
   updateContractOutput(elements.operationContract, '');
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = false; });
@@ -1687,14 +1829,7 @@ function supervisorPublishedRecords() {
 }
 
 function dateForSupervisorRecord(record) {
-  let value = record.registeredAt || record.createdAt || record.updatedAt;
-  if (supervisorTab === 'published') {
-    const timeline = Array.isArray(record.audit?.timeline) ? record.audit.timeline : [];
-    const publication = [...timeline].reverse().find((event) => ['PUBLICADA', 'APROVADA_E_PUBLICADA'].includes(event.action));
-    value = record.publishedAt || record.approvedAt || publication?.at || record.reviewedAt || '';
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return value;
-  return value ? operationalDate(value) : '';
+  return occurrenceDate(record);
 }
 
 function supervisorFilterRange() {
@@ -1718,8 +1853,7 @@ function filteredSupervisorRecords() {
       && (!base || normalizeText(record.base) === base)
       && (!team || normalizeText(record.team) === team)
       && (!type || normalizeOccurrenceTypes(record.occurrenceTypes).includes(type))
-      && (!from || (date && date >= from))
-      && (!to || (date && date <= to));
+      && dateInRange(date, { from, to });
   });
 }
 
@@ -1786,7 +1920,7 @@ function pendingSupervisorCard(record) {
   const meta = status === RECORD_STATUS.CORRECTION_REQUESTED
     ? correctionRequestMarkup(record)
     : `<div class="status-chip status-chip--info">Fotos sendo sincronizadas · ${photoCount}/5</div>`;
-  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${syncRequest ? '<span class="status-chip status-chip--warning">SINCRONISMO SOLICITADO</span>' : ''}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><div class="button-row">${status === RECORD_STATUS.SYNCING_PHOTOS ? `<button class="button button--warning button--small" type="button" data-request-photo-sync="${escapeHtml(record.recordId)}" ${syncRequest ? 'disabled' : ''}>${syncRequest ? 'Sincronismo solicitado' : 'Solicitar sincronismo'}</button>` : ''}<button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></div></footer></div></article>`;
+  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${syncRequest ? '<span class="status-chip status-chip--warning">SINCRONISMO SOLICITADO</span>' : ''}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><div class="button-row">${status === RECORD_STATUS.SYNCING_PHOTOS ? `<button class="button button--warning button--small" type="button" data-request-photo-sync="${escapeHtml(record.recordId)}" ${supervisorMutationRunning ? 'disabled' : ''}>${syncRequest ? 'Solicitar novamente' : 'Solicitar sincronismo'}</button>` : ''}<button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></div></footer></div></article>`;
 }
 
 function publishedSupervisorCard(record) {
@@ -1797,6 +1931,9 @@ function renderSupervisorList(error = null) {
   const loadError = error || supervisorLoadError;
   const visibleRecords = filteredSupervisorRecords();
   const activeRecords = supervisorActiveRecords();
+  const photoSyncArea = supervisorTab === 'pending' && supervisorPendingFilter === 'photos';
+  elements.photoSyncBatchToolbar.hidden = !photoSyncArea;
+  elements.requestAllPhotoSyncButton.disabled = supervisorMutationRunning || supervisorLoading || Boolean(loadError) || !visibleRecords.length;
   renderSupervisorNavigation();
   elements.approveAllFooter.hidden = supervisorTab !== 'occurrences' || !visibleRecords.length;
   elements.supervisorList.setAttribute('aria-busy', String(supervisorLoading));
@@ -1901,8 +2038,8 @@ function updateSupervisorReviewActions() {
   elements.requestCorrectionButton.hidden = !activeSupervisorRecord || ![RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS].includes(status);
   elements.requestCorrectionButton.textContent = issues.length ? `Solicitar correção · ${issues.map(photoIndexLabel).join(', ')}` : 'Solicitar correção';
   elements.requestPhotoSyncButton.hidden = status !== RECORD_STATUS.SYNCING_PHOTOS;
-  elements.requestPhotoSyncButton.disabled = Boolean(openPhotoSyncRequest(activeSupervisorRecord));
-  elements.requestPhotoSyncButton.textContent = openPhotoSyncRequest(activeSupervisorRecord) ? 'Sincronismo solicitado' : 'Solicitar sincronismo';
+  elements.requestPhotoSyncButton.disabled = supervisorMutationRunning;
+  elements.requestPhotoSyncButton.textContent = openPhotoSyncRequest(activeSupervisorRecord) ? 'Solicitar novamente' : 'Solicitar sincronismo';
   elements.approveButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   elements.rejectButton.hidden = status !== RECORD_STATUS.WAITING_SUPERVISOR;
   if (readOnly) {
@@ -1975,7 +2112,8 @@ function openSupervisorEditor() {
   supervisorEditRecord.services = normalizeServices(supervisorEditRecord.services).map((service) => ({ ...service, lineId: service.lineId || generateUuid() }));
   supervisorEditRecord.materials = normalizeMaterials(supervisorEditRecord.materials).map((material) => ({ ...material, lineId: material.lineId || generateUuid() }));
   elements.supervisorEditTitle.textContent = `Corrigir ocorrência ${supervisorEditRecord.occurrenceNumber}`;
-  elements.editOperationBase.value = supervisorEditRecord.base || ''; updateContractOutput(elements.editOperationContract, supervisorEditRecord.base); elements.editTeam.value = supervisorEditRecord.team || ''; elements.editCrewLeader.value = supervisorEditRecord.crewLeader || ''; elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
+  supervisorAssignmentSnapshot = { base: supervisorEditRecord.base, team: supervisorEditRecord.team, crewLeader: supervisorEditRecord.crewLeader };
+  elements.editOperationBase.value = supervisorEditRecord.base || ''; updateContractOutput(elements.editOperationContract, supervisorEditRecord.base); renderAssignmentControls(true, supervisorEditRecord); elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
   elements.editOtherOccurrenceType.value = supervisorEditRecord.otherOccurrenceType || '';
   elements.editPgPostRemoved.value = supervisorEditRecord.pgPostRemoved || supervisorEditRecord.pg1 || ''; elements.editPgPostInstalled.value = supervisorEditRecord.pgPostInstalled || supervisorEditRecord.pg2 || '';
@@ -1990,6 +2128,8 @@ function openSupervisorEditor() {
 
 function handleSupervisorBaseChange() {
   if (!supervisorEditRecord) return;
+  supervisorAssignmentSnapshot = null; elements.editTeam.value = ''; elements.editCrewLeader.value = '';
+  renderAssignmentControls(true);
   clearTimeout(supervisorEditSearchTimer);
   supervisorEditCatalogRequestId += 1;
   elements.editServiceResults.hidden = true;
@@ -2106,7 +2246,9 @@ async function saveSupervisorCorrection(event) {
   const reviewedId = activeSupervisorRecord.recordId;
   const beforeIds = [...reviewOrder];
   const draft = syncSupervisorEditorFromForm();
-  const errors = validateOccurrence(draft); if (errors.length) { elements.supervisorEditErrors.innerHTML = errors.map((error) => `• ${escapeHtml(error)}`).join('<br>'); return; }
+  const errors = validateOccurrence(draft);
+  const relationError = assignmentError(draft, supervisorAssignmentSnapshot); if (relationError) errors.push(relationError);
+  if (errors.length) { elements.supervisorEditErrors.innerHTML = errors.map((error) => `• ${escapeHtml(error)}`).join('<br>'); return; }
   if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }
   supervisorMutationRunning = true;
   setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
@@ -2149,17 +2291,38 @@ async function decideSupervisor(decision) {
 
 async function requestPhotoSync(recordId) {
   const record = supervisorPendingRecords.find((item) => item.recordId === recordId);
-  if (!record || record.status !== RECORD_STATUS.SYNCING_PHOTOS || openPhotoSyncRequest(record) || supervisorMutationRunning) return;
+  if (!record || record.status !== RECORD_STATUS.SYNCING_PHOTOS || supervisorMutationRunning) return;
   supervisorMutationRunning = true;
   try {
-    if (!await confirmAction('Solicitar sincronismo?', `A equipe responsável pela ocorrência ${record.occurrenceNumber} receberá um aviso para retomar o envio das fotos pendentes.`, 'Solicitar', 'warning')) return;
+    if (!await confirmAction('Solicitar sincronismo?', `${record.user || 'O usuário responsável'} receberá um aviso para retomar o envio das fotos pendentes da ocorrência ${record.occurrenceNumber}.`, 'Solicitar', 'warning')) return;
     setBusy(elements.requestPhotoSyncButton, true, 'Salvando…');
     await api.supervisorAction(session.token, 'request_photo_sync', recordId);
     if (elements.reviewDialog.open) elements.reviewDialog.close();
     await refreshSupervisor(false);
-    toast('Sincronismo solicitado à equipe responsável.', 'success');
+    toast(openPhotoSyncRequest(record) ? 'Sincronismo solicitado novamente ao usuário responsável.' : 'Sincronismo solicitado ao usuário responsável.', 'success');
   } catch (error) { toast(friendlyError(error), 'error'); }
   finally { supervisorMutationRunning = false; setBusy(elements.requestPhotoSyncButton, false); updateSupervisorReviewActions(); }
+}
+
+async function requestAllPhotoSync() {
+  if (supervisorMutationRunning || supervisorLoading || supervisorLoadError || supervisorTab !== 'pending' || supervisorPendingFilter !== 'photos') return;
+  const ids = uniqueRecordsById(filteredSupervisorRecords()).filter((record) => record.status === RECORD_STATUS.SYNCING_PHOTOS).map((record) => record.recordId);
+  if (!ids.length) return;
+  if (ids.length > 200) { toast('Use os filtros para solicitar até 200 ocorrências em um único lote.', 'error'); return; }
+  supervisorMutationRunning = true; renderSupervisorList();
+  try {
+    if (!await confirmAction('Solicitar sincronismo de todas?', `Será enviado ou renovado o aviso ao usuário responsável por cada uma das ${ids.length} ocorrências com fotos pendentes exibidas.`, 'Solicitar de todas', 'warning')) return;
+    setBusy(elements.requestAllPhotoSyncButton, true, 'Solicitando…');
+    const result = await api.requestPhotoSyncBatch(session.token, ids);
+    const results = normalizeArray(result.results, 'requestPhotoSyncBatch.results');
+    const requested = results.filter((item) => item.ok).length;
+    const failed = ids.length - requested;
+    await refreshSupervisor(false);
+    elements.supervisorBatchResult.hidden = false;
+    elements.supervisorBatchResult.textContent = `${requested} solicitações enviadas/renovadas; ${failed} não realizadas.${failed ? ' ' + results.filter((item) => !item.ok).map((item) => item.message).join(' · ') : ''}`;
+    toast(elements.supervisorBatchResult.textContent, failed ? 'error' : 'success', 6000);
+  } catch (error) { toast(friendlyError(error), 'error'); }
+  finally { supervisorMutationRunning = false; setBusy(elements.requestAllPhotoSyncButton, false); renderSupervisorList(); }
 }
 
 function validateDecisionSubmission(event) {

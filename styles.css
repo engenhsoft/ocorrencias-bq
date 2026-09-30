@@ -208,6 +208,12 @@ p { color: var(--muted); line-height: 1.55; }
 .photo-sync-callout small { color: var(--muted); font-size: 0.73rem; }
 .photo-sync-callout .photo-sync-error { color: var(--red-600); font-weight: 700; }
 .photo-sync-callout .button { flex: 0 0 auto; }
+.photo-sync-all { min-width: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; padding: 1rem; overflow-wrap: anywhere; }
+.photo-sync-all > p { flex: 1 1 16rem; margin: 0; }
+.photo-sync-all .button { max-width: 100%; white-space: normal; }
+.team-directory-status { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.team-directory-status > p { flex: 1 1 15rem; margin: 0; overflow-wrap: anywhere; }
+.field input[readonly] { background: var(--surface-soft, #f4f6f9); }
 
 .app-layout { width: min(100%, 1440px); margin: 0 auto; display: grid; }
 .main-nav { z-index: 25; display: flex; }
@@ -491,6 +497,7 @@ p { color: var(--muted); line-height: 1.55; }
   .resume-banner { align-items: flex-start; flex-direction: column; }
   .photo-sync-callout { align-items: stretch; flex-direction: column; }
   .photo-sync-callout .button { width: 100%; }
+  .photo-sync-all .button { width: 100%; }
   .page-heading { flex-direction: column; }
   .page-heading--with-actions { align-items: stretch; }
   .heading-actions, .heading-actions .button { width: 100%; }

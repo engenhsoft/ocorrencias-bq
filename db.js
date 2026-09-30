@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue } from './core.js?v=2026.09.28.1';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.09.30.1';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;
@@ -261,7 +261,7 @@ export async function getQueueSummary(owner) {
   const records = owner === undefined
     ? allRecords
     : owner
-      ? allRecords.filter((record) => !String(record.user || '').trim() || String(record.user) === String(owner))
+      ? allRecords.filter((record) => !String(record.user || '').trim() || sameUser(record.user, owner))
       : [];
   const photos = [];
   for (const record of records) photos.push(...await getPhotosForRecord(record.recordId));
