@@ -1,4 +1,4 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.01.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.01.2';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -15,17 +15,38 @@ export function endpointConfigured() {
 
 export async function parseResponse(response) {
   const text = await response.text();
+  const unavailable = () => new ApiError('Servidor temporariamente indisponível. Tente novamente.', 'HTTP_SERVER_ERROR', { status: response.status });
   let data;
   try { data = JSON.parse(text); } catch {
+    if (response.status >= 500) throw unavailable();
     throw new ApiError('O servidor retornou uma resposta inválida.', 'INVALID_SERVER_RESPONSE', { status: response.status, text: text.slice(0, 220) });
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (response.status >= 500) throw unavailable();
     throw new ApiError('O servidor retornou uma resposta inválida.', 'INVALID_SERVER_RESPONSE', { status: response.status, responseType: Array.isArray(data) ? 'array' : typeof data });
   }
   if (!response.ok || data.ok === false || data.success === false) {
-    throw new ApiError(data.message || `Falha no servidor (${response.status}).`, data.error || 'SERVER_ERROR', data);
+    throw new ApiError(data.message || `Falha no servidor (${response.status}).`, data.error || (response.status >= 500 ? 'HTTP_SERVER_ERROR' : 'SERVER_ERROR'), { ...data, status: response.status });
   }
   return data;
+}
+
+export async function loadOccurrenceDataset(request, validate, { initial = false, isCurrent = () => true } = {}) {
+  const transient = (error) => error instanceof ApiError && (
+    ['TIMEOUT', 'NETWORK_ERROR', 'HTTP_SERVER_ERROR', 'SERVICE_UNAVAILABLE', 'TEMPORARILY_UNAVAILABLE'].includes(error.code)
+    || (error.code === 'SERVER_ERROR' && error.details?.status >= 500)
+  );
+  try {
+    const result = await request();
+    return isCurrent() ? validate(result) : null;
+  } catch (error) {
+    if (!isCurrent()) return null;
+    if (!initial || !transient(error)) throw error;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  if (!isCurrent()) return null;
+  const result = await request();
+  return isCurrent() ? validate(result) : null;
 }
 
 async function withTimeout(promiseFactory, timeoutMs) {
@@ -136,8 +157,8 @@ export const api = Object.freeze({
   }, { timeoutMs: 60000 }),
   getRecordState: (token, recordId) => apiRequest('getRecordState', { token, recordId }),
   getDailyTeamProduction: (token, team, date, recordId = '') => apiRequest('getDailyTeamProduction', { token, team, date, recordId }),
-  listMine: (token) => apiRequest('listMine', { token }),
-  listPending: (token) => apiRequest('listPending', { token }),
+  listMine: (token) => apiRequest('listMine', { token }, { timeoutMs: 60000 }),
+  listPending: (token) => apiRequest('listPending', { token }, { timeoutMs: 60000 }),
   listPublishedRecords: (token, recordIds) => apiRequest('listPublishedRecords', { token, recordIds }),
   supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
   supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 }),

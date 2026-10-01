@@ -1,0 +1,116 @@
+--- a/Código.gs
++++ b/Código.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.01.1',
++  version: '2026.10.01.2',
+   contract: 'OCORRENCIAS-BQ-SERVICE-SNAPSHOT-v11',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -308,24 +308,31 @@
+ 
+ function listMine_(payload) {
+   const auth = requireSession_(payload.token, ['field']);
+-  ensureOperationalSheets_();
+-  const services = loadServicesMap_(); const materials = loadMaterialsMap_(); const byId = {};
+-  [sheet_(APP.officialSheet), sheet_(APP.pendingSheet)].forEach(function (source) {
+-    dataRows_(source, COL.WIDTH).forEach(function (values) {
++  const spreadsheet = spreadsheet_();
++  ensureOperationalSheets_(spreadsheet);
++  const services = loadServicesMap_(spreadsheet); const materials = loadMaterialsMap_(spreadsheet); const byId = {};
++  const pendingRows = dataRows_(sheet_(APP.pendingSheet, spreadsheet), COL.WIDTH);
++  const officialRows = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH);
++  [officialRows, pendingRows].forEach(function (rows) {
++    rows.forEach(function (values) {
+       if (sameUser_(values[COL.USER - 1], auth.user)) byId[String(values[COL.ID - 1])] = recordFromRow_(values, services, materials);
+     });
+   });
+-  const dailyTotals = buildDailyTotals_();
++  const dailyTotals = buildDailyTotals_([pendingRows, officialRows]);
+   const records = Object.keys(byId).map(function (id) { return attachDailyProduction_(byId[id], dailyTotals); }).sort(sortNewest_);
+   return { ok: true, success: true, records: records };
+ }
+ 
+ function listPending_(payload) {
+-  requireSession_(payload.token, ['supervisor']); ensureOperationalSheets_();
+-  const services = loadServicesMap_(); const materials = loadMaterialsMap_();
+-  const dailyTotals = buildDailyTotals_();
++  requireSession_(payload.token, ['supervisor']);
++  const spreadsheet = spreadsheet_();
++  ensureOperationalSheets_(spreadsheet);
++  const services = loadServicesMap_(spreadsheet); const materials = loadMaterialsMap_(spreadsheet);
++  const pendingRows = dataRows_(sheet_(APP.pendingSheet, spreadsheet), COL.WIDTH);
++  const officialRows = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH);
++  const dailyTotals = buildDailyTotals_([pendingRows, officialRows]);
+   const pendingRowsById = {}; const metricById = {}; const publishedIds = {};
+-  dataRows_(sheet_(APP.pendingSheet), COL.WIDTH).forEach(function (values) {
++  pendingRows.forEach(function (values) {
+     const recordId = String(values[COL.ID - 1] || '');
+     if (!recordId) return;
+     const previous = pendingRowsById[recordId];
+@@ -334,7 +341,7 @@
+       metricById[recordId] = { recordId: recordId, status: operationalStatusFromValues_(values) };
+     }
+   });
+-  dataRows_(sheet_(APP.officialSheet), COL.WIDTH).forEach(function (values) {
++  officialRows.forEach(function (values) {
+     const recordId = String(values[COL.ID - 1] || '');
+     if (!recordId) return;
+     const status = String(values[COL.STATUS - 1] || '');
+@@ -1023,15 +1030,15 @@
+   for (let offset = ids.length - 1; offset >= 0; offset -= 1) if (String(ids[offset][0]) === recordId) sheet.deleteRow(offset + 2);
+ }
+ 
+-function loadServicesMap_() {
+-  const map = {}; dataRows_(sheet_(APP.servicesSheet), SERVICE_HEADERS.length).forEach(function (row) {
++function loadServicesMap_(spreadsheet) {
++  const map = {}; dataRows_(sheet_(APP.servicesSheet, spreadsheet), SERVICE_HEADERS.length).forEach(function (row) {
+     const id = String(row[0] || ''); if (!id) return; if (!map[id]) map[id] = [];
+     map[id].push({ catalogKey: String(row[8] || ''), code: String(row[1] || ''), catalogText: String(row[2] || ''), unit: String(row[3] || ''), quantity: Number(row[4]) || 0, referenceValue: Number(row[5]) || 0, totalValue: Number(row[6]) || 0, group: String(row[7] || ''), origin: APP.catalogSheet });
+   }); return map;
+ }
+ 
+-function loadMaterialsMap_() {
+-  const map = {}; displayRows_(sheet_(APP.materialsSheet), MATERIAL_HEADERS.length).forEach(function (row) {
++function loadMaterialsMap_(spreadsheet) {
++  const map = {}; displayRows_(sheet_(APP.materialsSheet, spreadsheet), MATERIAL_HEADERS.length).forEach(function (row) {
+     const id = String(row[0] || ''); if (!id) return; if (!map[id]) map[id] = [];
+     const decoded = normalizeMaterial_({ code: String(row[4] || ''), description: row[5] || row[1], unit: row[6], quantity: comparableQuantity_(row[2]) });
+     map[id].push(decoded);
+@@ -1183,8 +1190,8 @@
+ function validTransformerCode_(value) { return !invalidTransformerIdentifier_(value); }
+ function validTransformerCia_(value) { return !invalidTransformerIdentifier_(value); }
+ 
+-function ensureOperationalSheets_() {
+-  const spreadsheet = spreadsheet_();
++function ensureOperationalSheets_(spreadsheet) {
++  spreadsheet = spreadsheet || spreadsheet_();
+   [[APP.pendingSheet, MAIN_HEADERS], [APP.officialSheet, MAIN_HEADERS], [APP.servicesSheet, SERVICE_HEADERS], [APP.materialsSheet, MATERIAL_HEADERS], [APP.historySheet, HISTORY_HEADERS]].forEach(function (definition) {
+     let sheet = spreadsheet.getSheetByName(definition[0]); if (!sheet) sheet = spreadsheet.insertSheet(definition[0]);
+     if (sheet.getMaxColumns() < definition[1].length) sheet.insertColumnsAfter(sheet.getMaxColumns(), definition[1].length - sheet.getMaxColumns());
+@@ -1195,7 +1202,7 @@
+ 
+ function spreadsheet_() { return SpreadsheetApp.openById(APP.spreadsheetId); }
+ function flushSheets_() { if (SpreadsheetApp && typeof SpreadsheetApp.flush === 'function') SpreadsheetApp.flush(); }
+-function sheet_(name) { const sheet = spreadsheet_().getSheetByName(name); if (!sheet) throw apiError_('SHEET_NOT_FOUND', 'Aba necessária não encontrada: ' + name + '.'); return sheet; }
++function sheet_(name, spreadsheet) { const sheet = (spreadsheet || spreadsheet_()).getSheetByName(name); if (!sheet) throw apiError_('SHEET_NOT_FOUND', 'Aba necessária não encontrada: ' + name + '.'); return sheet; }
+ function dataRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getValues(); }
+ function displayRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues(); }
+ function dataRowsWithNumbers_(sheet, width) { return dataRows_(sheet, width).map(function (values, index) { return { row: index + 2, values: values }; }); }
+@@ -1205,10 +1212,11 @@
+ function emptyRow_() { return Array(COL.WIDTH).fill(''); }
+ function padArray_(values, length) { const result = (values || []).slice(0, length); while (result.length < length) result.push(''); return result; }
+ 
+-function buildDailyTotals_() {
++function buildDailyTotals_(sourceRows) {
+   const byId = {};
+-  [sheet_(APP.pendingSheet), sheet_(APP.officialSheet)].forEach(function (source) {
+-    dataRows_(source, COL.WIDTH).forEach(function (values) {
++  const rowsBySheet = sourceRows || [dataRows_(sheet_(APP.pendingSheet), COL.WIDTH), dataRows_(sheet_(APP.officialSheet), COL.WIDTH)];
++  rowsBySheet.forEach(function (rows) {
++    rows.forEach(function (values) {
+       const id = String(values[COL.ID - 1] || '');
+       const team = String(values[COL.TEAM - 1] || '');
+       const date = operationalDateFromValue_(values[COL.REGISTERED_AT - 1]);

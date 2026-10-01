@@ -45,7 +45,7 @@ test('login não aguarda a carga secundária do Supervisor', () => {
 
 test('Supervisor diferencia carregando, erro e lista sem duplicar request', () => {
   assert.match(appSource, /supervisorRefreshPromise && supervisorRefreshRevision === revision/);
-  assert.match(appSource, /Carregando painel…/);
+  assert.match(appSource, /Carregando ocorrências…/);
   assert.match(appSource, /Falha ao atualizar/);
   assert.match(appSource, /aria-busy/);
 });

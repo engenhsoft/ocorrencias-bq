@@ -107,7 +107,7 @@ test('login e troca de perfil rejeitam submissões concorrentes', () => {
   assert.match(appSource, /async function handleLogin\(event\) \{\s*event\.preventDefault\(\);\s*if \(loginRunning\) return;/);
   assert.match(appSource, /finally \{ loginRunning = false; setBusy\(elements\.loginButton, false\); \}/);
   assert.match(appSource, /async function handleProfileSwitch\(event\) \{\s*event\.preventDefault\(\);\s*if \(profileSwitchRunning\) return;/);
-  assert.match(appSource, /await ensureLocalStorage\(\);\s*const result = await api\.login/);
+  assert.doesNotMatch(appSource.match(/async function handleLogin\(event\) \{[\s\S]*?\n\}/)?.[0], /await ensureLocalStorage/);
 });
 
 test('login termina loading após falha e aceita nova tentativa sem duplicar chamada', async () => {
@@ -159,6 +159,8 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
     getRecord: async () => structuredClone(stored),
     putRecord: async (record) => { stored = structuredClone(record); statuses.push(stored.status); },
     normalizeOccurrenceRecord: (record) => record, navigator: { onLine: true },
+    sameUser: core.sameUser,
+    normalizePhotoStates: core.normalizePhotoStates,
     RECORD_STATUS: { PENDING: 'PENDENTE_ENVIO', SYNCING_DATA: 'SINCRONIZANDO_DADOS', SYNCING_PHOTOS: 'FOTOS_SENDO_SINCRONIZADAS', ERROR: 'ERRO', WAITING_SUPERVISOR: 'AGUARDANDO_SUPERVISOR' },
     dailyProduction: { totalExcludingRecord: 0 }, dailyGoalProjection: () => ({ percentage: 0 }),
     serializeServicesForBackend: () => [], serializeMaterialsForBackend: () => [], occurrenceTotal: () => 0,

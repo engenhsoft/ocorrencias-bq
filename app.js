@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.01.1';
+} from './core.js?v=2026.10.01.2';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.01.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.10.01.1';
+} from './db.js?v=2026.10.01.2';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.01.2';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -153,6 +153,9 @@ let supervisorRefreshPromise = null;
 let supervisorRefreshRevision = -1;
 let mineRefreshPromise = null;
 let mineRefreshRevision = -1;
+let mineServerDataLoaded = false;
+let mineLoading = false;
+let mineLoadError = null;
 const recordSyncPromises = new Map();
 let deferredInstallPrompt = null;
 let supervisorRefreshTimer = 0;
@@ -215,6 +218,9 @@ function clearSessionUiState() {
   activeRecord = null;
   clearPreviewUrls();
   mineRecords = [];
+  mineServerDataLoaded = false;
+  mineLoading = false;
+  mineLoadError = null;
   elements.photoSyncRequests.hidden = true;
   elements.photoSyncRequests.innerHTML = '';
   photoSyncAttempts.clear();
@@ -316,10 +322,10 @@ async function initialize() {
   updateNetworkUi();
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
   setupServiceWorker();
-  try { await ensureLocalStorage(); }
-  catch (error) { showLogin(); elements.loginMessage.textContent = friendlyError(error); return; }
+  // O armazenamento continua protegido por timeout, mas não faz parte da autenticação.
+  void ensureLocalStorage().catch((error) => toast(friendlyError(error), 'error', 6000));
   if (session) await enterApplication();
-  else { showLogin(); await updateQueueUi(); }
+  else { showLogin(); void updateQueueUi().catch((error) => console.error('[Fila] Falha ao atualizar o resumo local.', error)); }
 }
 
 async function ensureLocalStorage() {
@@ -557,7 +563,7 @@ function bindEvents() {
   window.addEventListener('offline', updateNetworkUi);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') { syncAll(false); loadDailyProduction(elements.team.value, false); }
-    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'supervisor' && !supervisorMutationRunning) refreshSupervisor(false);
+    if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'supervisor' && supervisorDataLoaded && !supervisorMutationRunning) refreshSupervisor(false);
   });
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault(); deferredInstallPrompt = event; elements.installButton.hidden = false;
@@ -634,7 +640,6 @@ async function handleLogin(event) {
   loginRunning = true;
   setBusy(elements.loginButton, true, 'Entrando…');
   try {
-    await ensureLocalStorage();
     const result = await api.login(user, password, role);
     clearSessionUiState();
     persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
@@ -657,7 +662,7 @@ async function enterApplication() {
     navigate('supervisor');
     clearInterval(supervisorRefreshTimer);
     supervisorRefreshTimer = setInterval(() => {
-      if (document.visibilityState === 'visible' && navigator.onLine && !supervisorMutationRunning) refreshSupervisor(false);
+      if (supervisorDataLoaded && document.visibilityState === 'visible' && navigator.onLine && !supervisorMutationRunning) refreshSupervisor(false);
     }, 90000);
   } else {
     navigate('new'); detectDraft().catch((error) => console.error('[Rascunho] Falha ao recuperar dados locais.', error));
@@ -1456,31 +1461,65 @@ async function testConnection(notify = true) {
   finally { setBusy(elements.testConnectionButton, false); }
 }
 
+function assertServerRecordList(records, label) {
+  if (!Array.isArray(records) || records.some((record) => !record || typeof record !== 'object' || Array.isArray(record) || typeof record.recordId !== 'string' || !record.recordId.trim())) {
+    throw new ApiError('O servidor retornou uma lista de ocorrências incompleta. Tente novamente.', 'INVALID_OCCURRENCE_PAYLOAD', { label });
+  }
+}
+
 async function refreshMine(notify = false) {
   const requestSession = session; const revision = sessionRevision;
   if (!requestSession || requestSession.role !== 'field') return null;
   if (mineRefreshPromise && mineRefreshRevision === revision) return mineRefreshPromise;
+  const initial = !mineServerDataLoaded;
+  const isCurrent = () => revision === sessionRevision && session?.role === 'field';
+  mineLoading = true; mineLoadError = null;
   setBusy(elements.refreshMineButton, true, 'Atualizando…');
+  renderMineList();
   const task = (async () => {
     try {
-      const localRecords = normalizeOccurrenceRecords(await getAllRecords(), 'localRecords').filter((record) => sameUser(record.user, requestSession.user));
-      if (revision !== sessionRevision) return null;
-      let serverRecords = [];
-      if (navigator.onLine && endpointConfigured()) {
+      let localRecords = []; let serverRecords = []; let localError = null; let serverError = null; let serverLoaded = false;
+      const renderAvailable = () => {
+        if (!isCurrent()) return;
+        mineRecords = mergeRecordCollections(localRecords, serverRecords);
+        setupMineTeams(); renderMineFilters(); renderMineList(); renderPhotoSyncRequests();
+      };
+      // As duas fontes começam juntas; uma resposta remota válida pode aparecer antes do banco local.
+      const localTask = (async () => {
         try {
-          const result = await api.listMine(requestSession.token);
-          if (revision !== sessionRevision) return null;
-          serverRecords = normalizeOccurrenceRecords(result.records, 'listMine.records');
-        } catch (error) { if (revision === sessionRevision && notify) toast(friendlyError(error), 'error'); }
-      }
-      if (revision !== sessionRevision) return null;
+          localRecords = normalizeOccurrenceRecords(await getAllRecords(), 'localRecords').filter((record) => sameUser(record.user, requestSession.user));
+          if (initial && (localRecords.length || mineServerDataLoaded)) renderAvailable();
+        } catch (error) { localError = error; }
+      })();
+      const serverTask = (async () => {
+        if (!navigator.onLine || !endpointConfigured()) return;
+        try {
+          const records = await loadOccurrenceDataset(
+            () => api.listMine(requestSession.token),
+            (result) => { assertServerRecordList(result.records, 'listMine.records'); return normalizeOccurrenceRecords(result.records, 'listMine.records'); },
+            { initial, isCurrent }
+          );
+          if (!isCurrent() || records === null) return;
+          serverRecords = records; serverLoaded = true; mineServerDataLoaded = true;
+          if (initial) renderAvailable();
+        } catch (error) { serverError = error; }
+      })();
+      await Promise.all([localTask, serverTask]);
+      if (!isCurrent()) return null;
+      if (serverError?.code === 'AUTH_REQUIRED') { logout(); return null; }
+      mineLoadError = serverError || (localError && !serverLoaded ? localError : null);
+      if (localError) console.error('[Minhas ocorrências] Falha ao ler dados locais.', localError);
+      mineLoading = false;
       mineRecords = mergeRecordCollections(localRecords, serverRecords);
       if (mineAutoFilterPending) { mineFilter = mineRecords.some(mineNeedsAttention) ? 'attention' : 'today'; mineAutoFilterPending = false; }
-      setupMineTeams(); renderMineFilters(); renderMineList(); renderPhotoSyncRequests(); await refreshMineGoal(false); return mineRecords;
+      renderAvailable();
+      void refreshMineGoal(false).catch((error) => console.error('[Produção] Falha ao atualizar meta diária.', error));
+      if (mineLoadError && notify) toast(friendlyError(mineLoadError), 'error');
+      return mineLoadError && !mineRecords.length ? null : mineRecords;
     } catch (error) {
-      if (revision !== sessionRevision) return null;
+      if (!isCurrent()) return null;
       console.error('[Minhas ocorrências] Falha ao atualizar.', error);
-      if (!mineRecords.length) elements.mineList.innerHTML = emptyState('Não foi possível carregar', 'Tente atualizar novamente.');
+      mineLoading = false; mineLoadError = error; renderMineList();
       if (notify) toast('Não foi possível atualizar suas ocorrências. Tente novamente.', 'error');
       return null;
     }
@@ -1529,10 +1568,16 @@ function renderMineFilters() {
 }
 
 function renderMineList() {
+  elements.mineList.setAttribute('aria-busy', String(mineLoading));
+  const failure = mineLoadError ? `${emptyState('Não foi possível atualizar as ocorrências', friendlyError(mineLoadError))}<div class="empty-state-action"><button class="button button--primary" type="button" data-mine-retry>Tentar novamente</button></div>` : '';
+  if (failure && !mineRecords.length) { elements.mineList.innerHTML = failure; return; }
+  if (mineLoading && !mineServerDataLoaded && !mineRecords.length) {
+    elements.mineList.innerHTML = emptyState('Carregando ocorrências…', 'Aguarde enquanto buscamos seus registros.'); return;
+  }
   const today = operationalDate();
   const filtered = mineRecords.filter((record) => (mineFilter === 'attention' && mineNeedsAttention(record)) || (mineFilter === 'today' && occurrenceDate(record) === today) || (mineFilter === 'history' && occurrenceDate(record) !== today) || mineFilter === 'all' || (mineFilter === 'draft' && record.status === RECORD_STATUS.DRAFT) || (mineFilter === 'pending' && SYNCABLE_STATUSES.has(record.status)) || (mineFilter === 'waiting' && record.status === RECORD_STATUS.WAITING_SUPERVISOR) || (mineFilter === 'correction' && record.status === RECORD_STATUS.CORRECTION_REQUESTED) || (mineFilter === 'approved' && [RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(record.status)) || (mineFilter === 'rejected' && record.status === RECORD_STATUS.REJECTED));
-  if (!filtered.length) { elements.mineList.innerHTML = emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.'); return; }
-  elements.mineList.innerHTML = filtered.map((record) => {
+  if (!filtered.length) { elements.mineList.innerHTML = failure + emptyState('Nenhuma ocorrência nesta visão', 'Quando houver registros com este status, eles aparecerão aqui.'); return; }
+  elements.mineList.innerHTML = failure + filtered.map((record) => {
     const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
     if (record.status === RECORD_STATUS.DRAFT) actions.push(`<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`);
     else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED) actions.push(`<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`);
@@ -1647,6 +1692,7 @@ function openScrollableDialog(dialog, body) {
 }
 
 async function handleMineAction(event) {
+  if (event.target.closest('[data-mine-retry]')) return refreshMine(true);
   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
   const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId);
@@ -1747,13 +1793,23 @@ async function refreshSupervisor(notify = false) {
   renderSupervisorList();
   const task = (async () => {
     try {
-      const result = await api.listPending(requestSession.token);
+      const result = await loadOccurrenceDataset(() => api.listPending(requestSession.token), (result) => {
+        if (!Array.isArray(result.records) || !Array.isArray(result.pendingRecords) || !Array.isArray(result.metricRecords)) {
+          throw new ApiError('O servidor retornou um painel incompleto. Tente novamente.', 'INVALID_SUPERVISOR_PAYLOAD');
+        }
+        assertServerRecordList(result.records, 'listPending.records');
+        assertServerRecordList(result.pendingRecords, 'listPending.pendingRecords');
+        assertServerRecordList(result.metricRecords, 'listPending.metricRecords');
+        return {
+          records: uniqueRecordsById(normalizeOccurrenceRecords(result.records, 'listPending.records')),
+          pendingRecords: uniqueRecordsById(normalizeOccurrenceRecords(result.pendingRecords, 'listPending.pendingRecords')),
+          metricRecords: result.metricRecords
+        };
+      }, { initial: !supervisorDataLoaded, isCurrent: () => revision === sessionRevision && session?.role === 'supervisor' });
       if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
-      if (!Array.isArray(result.records) || !Array.isArray(result.pendingRecords) || (result.metricRecords != null && !Array.isArray(result.metricRecords))) {
-        throw new ApiError('O servidor retornou um painel incompleto. Tente novamente.', 'INVALID_SUPERVISOR_PAYLOAD');
-      }
-      const records = uniqueRecordsById(normalizeOccurrenceRecords(result.records, 'listPending.records'));
-      const pendingRecords = uniqueRecordsById(normalizeOccurrenceRecords(result.pendingRecords, 'listPending.pendingRecords'));
+      if (!result) return null;
+      const records = result.records;
+      const pendingRecords = result.pendingRecords;
       const metricSource = result.metricRecords || [];
       const metricRecords = uniqueRecordsById(metricSource.length ? metricSource : [...records, ...pendingRecords]);
       supervisorPhotoFailures.clear();
@@ -1946,8 +2002,8 @@ function renderSupervisorList(error = null) {
   }
   if (supervisorLoading && !supervisorDataLoaded) {
     elements.approveAllFooter.hidden = true;
-    setSupervisorSummary('Carregando painel…', 'loading');
-    elements.supervisorList.innerHTML = emptyState('Carregando painel do Supervisor', 'Aguarde enquanto buscamos ocorrências e pendências em uma única carga.');
+    setSupervisorSummary('Carregando ocorrências…', 'loading');
+    elements.supervisorList.innerHTML = emptyState('Carregando ocorrências…', 'Aguarde enquanto buscamos ocorrências e pendências em uma única carga.');
     updateSupervisorSelectionUi(); return;
   }
   const { from, to } = supervisorFilterRange();

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.01.1';
-export const APP_BUILD = '2026-10-01-approval-service-snapshots';
+export const APP_VERSION = '2026.10.01.2';
+export const APP_BUILD = '2026-10-01-login-initial-load';
 
 export const TEAM_GOAL = 6000;
 
