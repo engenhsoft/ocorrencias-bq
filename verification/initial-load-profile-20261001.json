@@ -1,0 +1,2471 @@
+{
+  "initialBranch": "hotfix/login-initial-load-20261001",
+  "finalBranch": "hotfix/initial-load-profile-20261001",
+  "initialHead": "64b33e8075d0f42932ea28a7c0ebff5785f82c1f",
+  "remoteInitialHead": "64b33e8075d0f42932ea28a7c0ebff5785f82c1f",
+  "initialFrontendRelease": "2026.10.01.2",
+  "finalFrontendRelease": "2026.10.01.2",
+  "initialBackendRelease": "2026.10.01.2",
+  "finalBackendRelease": "2026.10.01.3",
+  "initialDeploymentVersion": 22,
+  "realApplicationLogin": false,
+  "operationalWrites": 0,
+  "backendBefore": [
+    {
+      "sample": 1,
+      "phases": {
+        "credentialReference": {
+          "ms": 54,
+          "selfMs": 54,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 24,
+          "selfMs": 24,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 814,
+          "selfMs": 814,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 346,
+          "selfMs": 346,
+          "calls": 18
+        },
+        "headers": {
+          "ms": 1224,
+          "selfMs": 1224,
+          "calls": 5
+        },
+        "servicesRead": {
+          "ms": 129,
+          "selfMs": 129,
+          "calls": 1
+        },
+        "servicesMap": {
+          "ms": 219,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "materialsRead": {
+          "ms": 132,
+          "selfMs": 132,
+          "calls": 1
+        },
+        "materialsMap": {
+          "ms": 220,
+          "selfMs": 11,
+          "calls": 1
+        },
+        "pendingRead": {
+          "ms": 9,
+          "selfMs": 9,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 16,
+          "selfMs": 16,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "photoReadOnly": {
+          "ms": 4515,
+          "selfMs": 4515,
+          "calls": 164
+        },
+        "recordAssembly": {
+          "ms": 4542,
+          "selfMs": 27,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 7286,
+          "selfMs": 58,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 8,
+          "selfMs": 8,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 10,
+          "cells": 10
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 8,
+          "cells": 8
+        },
+        {
+          "sheet": "HISTORICO_APROVACOES_OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 19,
+          "cells": 19
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 2,
+          "column": 1,
+          "rows": 409,
+          "columns": 10,
+          "cells": 4090
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 2,
+          "column": 1,
+          "rows": 466,
+          "columns": 8,
+          "cells": 3728
+        },
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 46,
+          "cells": 3542
+        }
+      ],
+      "photoCacheHits": 164,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 83,
+      "backendMs": 7301,
+      "payloadBytes": 386088,
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 13467
+    },
+    {
+      "sample": 2,
+      "phases": {
+        "credentialReference": {
+          "ms": 38,
+          "selfMs": 38,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 46,
+          "selfMs": 46,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 419,
+          "selfMs": 419,
+          "calls": 18
+        },
+        "headers": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 5
+        },
+        "servicesRead": {
+          "ms": 125,
+          "selfMs": 125,
+          "calls": 1
+        },
+        "servicesMap": {
+          "ms": 261,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "materialsRead": {
+          "ms": 156,
+          "selfMs": 156,
+          "calls": 1
+        },
+        "materialsMap": {
+          "ms": 243,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "pendingRead": {
+          "ms": 6,
+          "selfMs": 6,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 13,
+          "selfMs": 13,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "photoReadOnly": {
+          "ms": 4408,
+          "selfMs": 4408,
+          "calls": 164
+        },
+        "recordAssembly": {
+          "ms": 4426,
+          "selfMs": 18,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 5182,
+          "selfMs": 25,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 10,
+          "cells": 10
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 8,
+          "cells": 8
+        },
+        {
+          "sheet": "HISTORICO_APROVACOES_OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 19,
+          "cells": 19
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 2,
+          "column": 1,
+          "rows": 409,
+          "columns": 10,
+          "cells": 4090
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 2,
+          "column": 1,
+          "rows": 466,
+          "columns": 8,
+          "cells": 3728
+        },
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 46,
+          "cells": 3542
+        }
+      ],
+      "photoCacheHits": 164,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 87,
+      "backendMs": 5196,
+      "payloadBytes": 386088,
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 13467
+    },
+    {
+      "sample": 1,
+      "phases": {
+        "credentialReference": {
+          "ms": 16,
+          "selfMs": 16,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 16,
+          "selfMs": 16,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 1102,
+          "selfMs": 1102,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 384,
+          "selfMs": 384,
+          "calls": 18
+        },
+        "headers": {
+          "ms": 597,
+          "selfMs": 597,
+          "calls": 5
+        },
+        "servicesRead": {
+          "ms": 115,
+          "selfMs": 115,
+          "calls": 1
+        },
+        "servicesMap": {
+          "ms": 184,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "materialsRead": {
+          "ms": 845,
+          "selfMs": 845,
+          "calls": 1
+        },
+        "materialsMap": {
+          "ms": 924,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "pendingRead": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 8,
+          "selfMs": 8,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "photoReadOnly": {
+          "ms": 1847,
+          "selfMs": 1847,
+          "calls": 164
+        },
+        "recordAssembly": {
+          "ms": 1860,
+          "selfMs": 13,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 4955,
+          "selfMs": 31,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 10,
+          "cells": 10
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 8,
+          "cells": 8
+        },
+        {
+          "sheet": "HISTORICO_APROVACOES_OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 19,
+          "cells": 19
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 2,
+          "column": 1,
+          "rows": 409,
+          "columns": 10,
+          "cells": 4090
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 2,
+          "column": 1,
+          "rows": 466,
+          "columns": 8,
+          "cells": 3728
+        },
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 46,
+          "cells": 3542
+        }
+      ],
+      "photoCacheHits": 164,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 36,
+      "backendMs": 4967,
+      "payloadBytes": 386088,
+      "payloadSha256": "774cf767629a9c48ba616a22d83b4127767e65c5a1b9481eb6ec9dc409bd9248",
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 13467
+    },
+    {
+      "sample": 2,
+      "phases": {
+        "credentialReference": {
+          "ms": 16,
+          "selfMs": 16,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 21,
+          "selfMs": 21,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 1674,
+          "selfMs": 1674,
+          "calls": 18
+        },
+        "headers": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 5
+        },
+        "servicesRead": {
+          "ms": 100,
+          "selfMs": 100,
+          "calls": 1
+        },
+        "servicesMap": {
+          "ms": 193,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "materialsRead": {
+          "ms": 109,
+          "selfMs": 109,
+          "calls": 1
+        },
+        "materialsMap": {
+          "ms": 1029,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "pendingRead": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 8,
+          "selfMs": 8,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 0,
+          "selfMs": 0,
+          "calls": 1
+        },
+        "photoReadOnly": {
+          "ms": 2388,
+          "selfMs": 2388,
+          "calls": 164
+        },
+        "recordAssembly": {
+          "ms": 2399,
+          "selfMs": 11,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 4315,
+          "selfMs": 13,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 46,
+          "cells": 46
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 10,
+          "cells": 10
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 8,
+          "cells": 8
+        },
+        {
+          "sheet": "HISTORICO_APROVACOES_OCORRENCIAS",
+          "row": 1,
+          "column": 1,
+          "rows": 1,
+          "columns": 19,
+          "cells": 19
+        },
+        {
+          "sheet": "OCORRENCIAS_SERVICOS",
+          "row": 2,
+          "column": 1,
+          "rows": 409,
+          "columns": 10,
+          "cells": 4090
+        },
+        {
+          "sheet": "OCORRENCIAS_MATERIAIS",
+          "row": 2,
+          "column": 1,
+          "rows": 466,
+          "columns": 8,
+          "cells": 3728
+        },
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 46,
+          "cells": 3542
+        }
+      ],
+      "photoCacheHits": 164,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 39,
+      "backendMs": 4326,
+      "payloadBytes": 386088,
+      "payloadSha256": "774cf767629a9c48ba616a22d83b4127767e65c5a1b9481eb6ec9dc409bd9248",
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 13467
+    }
+  ],
+  "backendAfter": [
+    {
+      "sample": 1,
+      "phases": {
+        "credentialReference": {
+          "ms": 99,
+          "selfMs": 99,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 55,
+          "selfMs": 55,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 810,
+          "selfMs": 810,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 187,
+          "selfMs": 187,
+          "calls": 4
+        },
+        "pendingRead": {
+          "ms": 120,
+          "selfMs": 120,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 141,
+          "selfMs": 141,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "photoBatchCache": {
+          "ms": 134,
+          "selfMs": 134,
+          "calls": 1
+        },
+        "recordAssembly": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 1427,
+          "selfMs": 28,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 41,
+          "cells": 3157
+        }
+      ],
+      "photoCacheHits": 0,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 158,
+      "backendMs": 1439,
+      "payloadBytes": 386088,
+      "payloadSha256": "774cf767629a9c48ba616a22d83b4127767e65c5a1b9481eb6ec9dc409bd9248",
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 5135
+    },
+    {
+      "sample": 2,
+      "phases": {
+        "credentialReference": {
+          "ms": 86,
+          "selfMs": 86,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 70,
+          "selfMs": 70,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 437,
+          "selfMs": 437,
+          "calls": 4
+        },
+        "pendingRead": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 17,
+          "selfMs": 17,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "photoBatchCache": {
+          "ms": 44,
+          "selfMs": 44,
+          "calls": 1
+        },
+        "recordAssembly": {
+          "ms": 7,
+          "selfMs": 7,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 532,
+          "selfMs": 17,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 14,
+          "selfMs": 14,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 16,
+          "selfMs": 16,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 41,
+          "cells": 3157
+        }
+      ],
+      "photoCacheHits": 0,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 158,
+      "backendMs": 562,
+      "payloadBytes": 386088,
+      "payloadSha256": "774cf767629a9c48ba616a22d83b4127767e65c5a1b9481eb6ec9dc409bd9248",
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 5135
+    },
+    {
+      "sample": 1,
+      "phases": {
+        "credentialReference": {
+          "ms": 8,
+          "selfMs": 8,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 9,
+          "selfMs": 9,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 195,
+          "selfMs": 195,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 107,
+          "selfMs": 107,
+          "calls": 4
+        },
+        "pendingRead": {
+          "ms": 269,
+          "selfMs": 269,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 87,
+          "selfMs": 87,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "photoBatchCache": {
+          "ms": 25,
+          "selfMs": 25,
+          "calls": 1
+        },
+        "recordAssembly": {
+          "ms": 4,
+          "selfMs": 4,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 709,
+          "selfMs": 21,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 5,
+          "selfMs": 5,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 41,
+          "cells": 3157
+        }
+      ],
+      "photoCacheHits": 0,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 22,
+      "backendMs": 719,
+      "payloadBytes": 386088,
+      "payloadSha256": "774cf767629a9c48ba616a22d83b4127767e65c5a1b9481eb6ec9dc409bd9248",
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 5135
+    },
+    {
+      "sample": 2,
+      "phases": {
+        "credentialReference": {
+          "ms": 9,
+          "selfMs": 9,
+          "calls": 1
+        },
+        "signingReference": {
+          "ms": 8,
+          "selfMs": 8,
+          "calls": 1
+        },
+        "authCodeFixture": {
+          "ms": 1,
+          "selfMs": 1,
+          "calls": 1
+        },
+        "spreadsheetOpen": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 1
+        },
+        "metadata": {
+          "ms": 208,
+          "selfMs": 208,
+          "calls": 4
+        },
+        "pendingRead": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 1
+        },
+        "officialRead": {
+          "ms": 8,
+          "selfMs": 8,
+          "calls": 1
+        },
+        "dailyTotals": {
+          "ms": 0,
+          "selfMs": 0,
+          "calls": 1
+        },
+        "photoBatchCache": {
+          "ms": 11,
+          "selfMs": 11,
+          "calls": 1
+        },
+        "recordAssembly": {
+          "ms": 2,
+          "selfMs": 2,
+          "calls": 34
+        },
+        "initialDataset": {
+          "ms": 241,
+          "selfMs": 7,
+          "calls": 1
+        },
+        "serialization": {
+          "ms": 4,
+          "selfMs": 4,
+          "calls": 1
+        },
+        "responseBuild": {
+          "ms": 3,
+          "selfMs": 3,
+          "calls": 1
+        }
+      },
+      "reads": [
+        {
+          "sheet": "OCORRENCIAS_AGUARDANDO_SUPERVISOR",
+          "row": 2,
+          "column": 1,
+          "rows": 43,
+          "columns": 46,
+          "cells": 1978
+        },
+        {
+          "sheet": "OCORRENCIAS",
+          "row": 2,
+          "column": 1,
+          "rows": 77,
+          "columns": 41,
+          "cells": 3157
+        }
+      ],
+      "photoCacheHits": 0,
+      "photoDriveReads": 0,
+      "privatePhotos": 0,
+      "authCodeMs": 20,
+      "backendMs": 248,
+      "payloadBytes": 386088,
+      "payloadSha256": "774cf767629a9c48ba616a22d83b4127767e65c5a1b9481eb6ec9dc409bd9248",
+      "records": 30,
+      "pendingRecords": 4,
+      "metricRecords": 120,
+      "readCells": 5135
+    }
+  ],
+  "frontendBefore": {
+    "version": "2026.10.01.2",
+    "environment": "Node VM, código real de normalização/renderização HTML; DOM e transporte simulados; não mede pintura no Safari.",
+    "realApplicationLogin": false,
+    "warningCount": 6600,
+    "results": [
+      {
+        "scenario": "rápido",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 0,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 0.039,
+          "authMs": 0.003,
+          "bootstrapMs": 0.017,
+          "backendWaitMs": 0.018,
+          "parseMs": 0.426,
+          "normalizationMs": 0.178,
+          "renderHtmlMs": 7.459,
+          "afterLoginMs": 8.194,
+          "firstContentMs": 8.231
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.138,
+              "T2": 0.153,
+              "T3": 0.194,
+              "T4": 0.262,
+              "T5": 0.885,
+              "T6": 0.936,
+              "T7": 2.352,
+              "T8": 22.093
+            },
+            "loginMs": 0.262,
+            "authMs": 0.015,
+            "bootstrapMs": 0.109,
+            "backendWaitMs": 0.052,
+            "parseMs": 0.431,
+            "normalizationMs": 0.756,
+            "renderHtmlMs": 19.927,
+            "afterLoginMs": 21.832,
+            "firstContentMs": 22.093,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.02,
+              "T2": 0.023,
+              "T3": 0.036,
+              "T4": 0.039,
+              "T5": 0.302,
+              "T6": 0.32,
+              "T7": 0.909,
+              "T8": 6.128
+            },
+            "loginMs": 0.039,
+            "authMs": 0.003,
+            "bootstrapMs": 0.017,
+            "backendWaitMs": 0.018,
+            "parseMs": 0.408,
+            "normalizationMs": 0.124,
+            "renderHtmlMs": 5.202,
+            "afterLoginMs": 6.089,
+            "firstContentMs": 6.128,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.019,
+              "T2": 0.022,
+              "T3": 0.034,
+              "T4": 0.037,
+              "T5": 0.076,
+              "T6": 0.089,
+              "T7": 0.747,
+              "T8": 8.231
+            },
+            "loginMs": 0.037,
+            "authMs": 0.003,
+            "bootstrapMs": 0.015,
+            "backendWaitMs": 0.014,
+            "parseMs": 0.426,
+            "normalizationMs": 0.178,
+            "renderHtmlMs": 7.459,
+            "afterLoginMs": 8.194,
+            "firstContentMs": 8.231,
+            "requests": 1,
+            "htmlBytes": 69482
+          }
+        ]
+      },
+      {
+        "scenario": "atraso controlado",
+        "fixture": {
+          "authDelayMs": 40,
+          "backendDelayMs": 120,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 40.391,
+          "authMs": 40.295,
+          "bootstrapMs": 0.074,
+          "backendWaitMs": 120.383,
+          "parseMs": 0.445,
+          "normalizationMs": 0.243,
+          "renderHtmlMs": 6.171,
+          "afterLoginMs": 127.871,
+          "firstContentMs": 168.28
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.027,
+              "T2": 40.224,
+              "T3": 40.281,
+              "T4": 40.296,
+              "T5": 40.412,
+              "T6": 160.776,
+              "T7": 161.517,
+              "T8": 166.618
+            },
+            "loginMs": 40.296,
+            "authMs": 40.196,
+            "bootstrapMs": 0.073,
+            "backendWaitMs": 120.364,
+            "parseMs": 0.445,
+            "normalizationMs": 0.173,
+            "renderHtmlMs": 5.076,
+            "afterLoginMs": 126.322,
+            "firstContentMs": 166.618,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.025,
+              "T2": 40.32,
+              "T3": 40.392,
+              "T4": 40.409,
+              "T5": 40.603,
+              "T6": 160.987,
+              "T7": 162.123,
+              "T8": 168.28
+            },
+            "loginMs": 40.409,
+            "authMs": 40.295,
+            "bootstrapMs": 0.089,
+            "backendWaitMs": 120.383,
+            "parseMs": 0.777,
+            "normalizationMs": 0.243,
+            "renderHtmlMs": 6.171,
+            "afterLoginMs": 127.871,
+            "firstContentMs": 168.28,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.021,
+              "T2": 40.318,
+              "T3": 40.375,
+              "T4": 40.391,
+              "T5": 40.495,
+              "T6": 160.948,
+              "T7": 161.775,
+              "T8": 169.053
+            },
+            "loginMs": 40.391,
+            "authMs": 40.297,
+            "bootstrapMs": 0.074,
+            "backendWaitMs": 120.452,
+            "parseMs": 0.431,
+            "normalizationMs": 0.292,
+            "renderHtmlMs": 7.253,
+            "afterLoginMs": 128.661,
+            "firstContentMs": 169.053,
+            "requests": 1,
+            "htmlBytes": 69482
+          }
+        ]
+      },
+      {
+        "scenario": "primeira chamada fria simulada",
+        "fixture": {
+          "authDelayMs": 100,
+          "backendDelayMs": 500,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 100.459,
+          "authMs": 100.333,
+          "bootstrapMs": 0.083,
+          "backendWaitMs": 500.736,
+          "parseMs": 0.435,
+          "normalizationMs": 0.197,
+          "renderHtmlMs": 6.026,
+          "afterLoginMs": 507.632,
+          "firstContentMs": 608.097
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.024,
+              "T2": 100.379,
+              "T3": 100.441,
+              "T4": 100.459,
+              "T5": 100.777,
+              "T6": 601.625,
+              "T7": 602.53,
+              "T8": 609.018
+            },
+            "loginMs": 100.459,
+            "authMs": 100.355,
+            "bootstrapMs": 0.08,
+            "backendWaitMs": 500.849,
+            "parseMs": 0.576,
+            "normalizationMs": 0.197,
+            "renderHtmlMs": 6.457,
+            "afterLoginMs": 508.559,
+            "firstContentMs": 609.018,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.021,
+              "T2": 99.978,
+              "T3": 100.038,
+              "T4": 100.061,
+              "T5": 100.183,
+              "T6": 600.104,
+              "T7": 600.817,
+              "T8": 606.468
+            },
+            "loginMs": 100.061,
+            "authMs": 99.957,
+            "bootstrapMs": 0.083,
+            "backendWaitMs": 499.92,
+            "parseMs": 0.435,
+            "normalizationMs": 0.163,
+            "renderHtmlMs": 5.624,
+            "afterLoginMs": 506.408,
+            "firstContentMs": 606.468,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.026,
+              "T2": 100.36,
+              "T3": 100.446,
+              "T4": 100.465,
+              "T5": 100.569,
+              "T6": 601.305,
+              "T7": 602.04,
+              "T8": 608.097
+            },
+            "loginMs": 100.465,
+            "authMs": 100.333,
+            "bootstrapMs": 0.105,
+            "backendWaitMs": 500.736,
+            "parseMs": 0.413,
+            "normalizationMs": 0.205,
+            "renderHtmlMs": 6.026,
+            "afterLoginMs": 507.632,
+            "firstContentMs": 608.097,
+            "requests": 1,
+            "htmlBytes": 69482
+          }
+        ]
+      },
+      {
+        "scenario": "resposta grande",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 0,
+          "records": 2000,
+          "payloadBytes": 4406944
+        },
+        "median": {
+          "loginMs": 0.057,
+          "authMs": 0.006,
+          "bootstrapMs": 0.024,
+          "backendWaitMs": 0.017,
+          "parseMs": 16.245,
+          "normalizationMs": 7.406,
+          "renderHtmlMs": 209.969,
+          "afterLoginMs": 235.901,
+          "firstContentMs": 235.958
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.032,
+              "T2": 0.039,
+              "T3": 0.057,
+              "T4": 0.062,
+              "T5": 0.116,
+              "T6": 0.134,
+              "T7": 23.368,
+              "T8": 250.23
+            },
+            "loginMs": 0.062,
+            "authMs": 0.007,
+            "bootstrapMs": 0.024,
+            "backendWaitMs": 0.018,
+            "parseMs": 14.848,
+            "normalizationMs": 6.679,
+            "renderHtmlMs": 226.481,
+            "afterLoginMs": 250.168,
+            "firstContentMs": 250.23,
+            "requests": 1,
+            "htmlBytes": 2785786
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.027,
+              "T2": 0.032,
+              "T3": 0.051,
+              "T4": 0.057,
+              "T5": 0.111,
+              "T6": 0.126,
+              "T7": 25.321,
+              "T8": 235.958
+            },
+            "loginMs": 0.057,
+            "authMs": 0.005,
+            "bootstrapMs": 0.024,
+            "backendWaitMs": 0.015,
+            "parseMs": 16.245,
+            "normalizationMs": 7.406,
+            "renderHtmlMs": 209.969,
+            "afterLoginMs": 235.901,
+            "firstContentMs": 235.958,
+            "requests": 1,
+            "htmlBytes": 2785786
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.027,
+              "T2": 0.032,
+              "T3": 0.05,
+              "T4": 0.055,
+              "T5": 0.109,
+              "T6": 0.126,
+              "T7": 38.306,
+              "T8": 234.944
+            },
+            "loginMs": 0.055,
+            "authMs": 0.006,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 0.017,
+            "parseMs": 22.102,
+            "normalizationMs": 14.167,
+            "renderHtmlMs": 196.193,
+            "afterLoginMs": 234.888,
+            "firstContentMs": 234.944,
+            "requests": 1,
+            "htmlBytes": 2785786
+          }
+        ]
+      },
+      {
+        "scenario": "vazio válido",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 0,
+          "records": 0,
+          "payloadBytes": 53
+        },
+        "median": {
+          "loginMs": 0.045,
+          "authMs": 0.002,
+          "bootstrapMs": 0.023,
+          "backendWaitMs": 0.014,
+          "parseMs": 0.003,
+          "normalizationMs": 0.002,
+          "renderHtmlMs": 0.026,
+          "afterLoginMs": 0.117,
+          "firstContentMs": 0.162
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.026,
+              "T2": 0.03,
+              "T3": 0.047,
+              "T4": 0.053,
+              "T5": 0.106,
+              "T6": 0.122,
+              "T7": 0.151,
+              "T8": 0.221
+            },
+            "loginMs": 0.053,
+            "authMs": 0.004,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 0.016,
+            "parseMs": 0.01,
+            "normalizationMs": 0.002,
+            "renderHtmlMs": 0.026,
+            "afterLoginMs": 0.167,
+            "firstContentMs": 0.221,
+            "requests": 1,
+            "htmlBytes": 192
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.017,
+              "T2": 0.019,
+              "T3": 0.031,
+              "T4": 0.034,
+              "T5": 0.072,
+              "T6": 0.086,
+              "T7": 0.106,
+              "T8": 0.136
+            },
+            "loginMs": 0.034,
+            "authMs": 0.002,
+            "bootstrapMs": 0.016,
+            "backendWaitMs": 0.013,
+            "parseMs": 0.003,
+            "normalizationMs": 0.001,
+            "renderHtmlMs": 0.021,
+            "afterLoginMs": 0.102,
+            "firstContentMs": 0.136,
+            "requests": 1,
+            "htmlBytes": 192
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.018,
+              "T2": 0.02,
+              "T3": 0.042,
+              "T4": 0.045,
+              "T5": 0.098,
+              "T6": 0.112,
+              "T7": 0.13,
+              "T8": 0.162
+            },
+            "loginMs": 0.045,
+            "authMs": 0.002,
+            "bootstrapMs": 0.025,
+            "backendWaitMs": 0.014,
+            "parseMs": 0.003,
+            "normalizationMs": 0.003,
+            "renderHtmlMs": 0.029,
+            "afterLoginMs": 0.117,
+            "firstContentMs": 0.162,
+            "requests": 1,
+            "htmlBytes": 192
+          }
+        ]
+      },
+      {
+        "scenario": "transitório",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 5,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 0.052,
+          "authMs": 0.006,
+          "bootstrapMs": 0.023,
+          "backendWaitMs": 611.758,
+          "parseMs": 0.631,
+          "normalizationMs": 0.351,
+          "renderHtmlMs": 6.777,
+          "afterLoginMs": 620.054,
+          "firstContentMs": 620.1
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.018,
+              "T2": 0.022,
+              "T3": 0.043,
+              "T4": 0.046,
+              "T5": 0.247,
+              "T6": 612.005,
+              "T7": 613.269,
+              "T8": 620.1
+            },
+            "loginMs": 0.046,
+            "authMs": 0.004,
+            "bootstrapMs": 0.024,
+            "backendWaitMs": 611.758,
+            "parseMs": 0.631,
+            "normalizationMs": 0.483,
+            "renderHtmlMs": 6.772,
+            "afterLoginMs": 620.054,
+            "firstContentMs": 620.1,
+            "requests": 2,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.024,
+              "T2": 0.03,
+              "T3": 0.046,
+              "T4": 0.052,
+              "T5": 0.1,
+              "T6": 614.14,
+              "T7": 615.422,
+              "T8": 626.317
+            },
+            "loginMs": 0.052,
+            "authMs": 0.006,
+            "bootstrapMs": 0.022,
+            "backendWaitMs": 614.041,
+            "parseMs": 0.749,
+            "normalizationMs": 0.351,
+            "renderHtmlMs": 10.836,
+            "afterLoginMs": 626.266,
+            "firstContentMs": 626.317,
+            "requests": 2,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.034,
+              "T2": 0.04,
+              "T3": 0.058,
+              "T4": 0.063,
+              "T5": 0.139,
+              "T6": 611.382,
+              "T7": 612.279,
+              "T8": 619.109
+            },
+            "loginMs": 0.063,
+            "authMs": 0.006,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 611.243,
+            "parseMs": 0.497,
+            "normalizationMs": 0.272,
+            "renderHtmlMs": 6.777,
+            "afterLoginMs": 619.046,
+            "firstContentMs": 619.109,
+            "requests": 2,
+            "htmlBytes": 69482
+          }
+        ]
+      }
+    ]
+  },
+  "frontendAfter": {
+    "version": "2026.10.01.2",
+    "environment": "Node VM, código real de normalização/renderização HTML; DOM e transporte simulados; não mede pintura no Safari.",
+    "realApplicationLogin": false,
+    "warningCount": 6600,
+    "results": [
+      {
+        "scenario": "rápido",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 0,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 0.058,
+          "authMs": 0.006,
+          "bootstrapMs": 0.022,
+          "backendWaitMs": 0.016,
+          "parseMs": 0.445,
+          "normalizationMs": 0.167,
+          "renderHtmlMs": 7.015,
+          "afterLoginMs": 7.803,
+          "firstContentMs": 7.862
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.208,
+              "T2": 0.226,
+              "T3": 0.274,
+              "T4": 0.344,
+              "T5": 1.008,
+              "T6": 1.059,
+              "T7": 2.55,
+              "T8": 22.27
+            },
+            "loginMs": 0.344,
+            "authMs": 0.018,
+            "bootstrapMs": 0.119,
+            "backendWaitMs": 0.051,
+            "parseMs": 0.445,
+            "normalizationMs": 0.828,
+            "renderHtmlMs": 19.916,
+            "afterLoginMs": 21.926,
+            "firstContentMs": 22.27,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.026,
+              "T2": 0.031,
+              "T3": 0.047,
+              "T4": 0.052,
+              "T5": 0.1,
+              "T6": 0.115,
+              "T7": 0.653,
+              "T8": 7.622
+            },
+            "loginMs": 0.052,
+            "authMs": 0.005,
+            "bootstrapMs": 0.021,
+            "backendWaitMs": 0.015,
+            "parseMs": 0.357,
+            "normalizationMs": 0.123,
+            "renderHtmlMs": 6.95,
+            "afterLoginMs": 7.57,
+            "firstContentMs": 7.622,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.03,
+              "T2": 0.037,
+              "T3": 0.054,
+              "T4": 0.058,
+              "T5": 0.115,
+              "T6": 0.132,
+              "T7": 0.827,
+              "T8": 7.862
+            },
+            "loginMs": 0.058,
+            "authMs": 0.006,
+            "bootstrapMs": 0.022,
+            "backendWaitMs": 0.016,
+            "parseMs": 0.461,
+            "normalizationMs": 0.167,
+            "renderHtmlMs": 7.015,
+            "afterLoginMs": 7.803,
+            "firstContentMs": 7.862,
+            "requests": 1,
+            "htmlBytes": 69482
+          }
+        ]
+      },
+      {
+        "scenario": "atraso controlado",
+        "fixture": {
+          "authDelayMs": 40,
+          "backendDelayMs": 120,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 41.076,
+          "authMs": 40.967,
+          "bootstrapMs": 0.082,
+          "backendWaitMs": 120.538,
+          "parseMs": 0.49,
+          "normalizationMs": 0.242,
+          "renderHtmlMs": 7.373,
+          "afterLoginMs": 128.768,
+          "firstContentMs": 169.844
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.118,
+              "T2": 41.282,
+              "T3": 41.346,
+              "T4": 41.364,
+              "T5": 41.456,
+              "T6": 161.994,
+              "T7": 163.079,
+              "T8": 174.705
+            },
+            "loginMs": 41.364,
+            "authMs": 41.164,
+            "bootstrapMs": 0.082,
+            "backendWaitMs": 120.538,
+            "parseMs": 0.689,
+            "normalizationMs": 0.242,
+            "renderHtmlMs": 11.594,
+            "afterLoginMs": 133.341,
+            "firstContentMs": 174.705,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.028,
+              "T2": 40.344,
+              "T3": 40.422,
+              "T4": 40.44,
+              "T5": 41.013,
+              "T6": 161.557,
+              "T7": 162.38,
+              "T8": 167.968
+            },
+            "loginMs": 40.44,
+            "authMs": 40.317,
+            "bootstrapMs": 0.096,
+            "backendWaitMs": 120.543,
+            "parseMs": 0.49,
+            "normalizationMs": 0.209,
+            "renderHtmlMs": 5.574,
+            "afterLoginMs": 127.528,
+            "firstContentMs": 167.968,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.029,
+              "T2": 40.996,
+              "T3": 41.056,
+              "T4": 41.076,
+              "T5": 41.191,
+              "T6": 161.637,
+              "T7": 162.446,
+              "T8": 169.844
+            },
+            "loginMs": 41.076,
+            "authMs": 40.967,
+            "bootstrapMs": 0.08,
+            "backendWaitMs": 120.446,
+            "parseMs": 0.462,
+            "normalizationMs": 0.242,
+            "renderHtmlMs": 7.373,
+            "afterLoginMs": 128.768,
+            "firstContentMs": 169.844,
+            "requests": 1,
+            "htmlBytes": 69482
+          }
+        ]
+      },
+      {
+        "scenario": "primeira chamada fria simulada",
+        "fixture": {
+          "authDelayMs": 100,
+          "backendDelayMs": 500,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 100.511,
+          "authMs": 100.359,
+          "bootstrapMs": 0.109,
+          "backendWaitMs": 500.856,
+          "parseMs": 0.438,
+          "normalizationMs": 0.172,
+          "renderHtmlMs": 6.324,
+          "afterLoginMs": 508.394,
+          "firstContentMs": 608.849
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.027,
+              "T2": 100.386,
+              "T3": 100.449,
+              "T4": 100.511,
+              "T5": 100.86,
+              "T6": 601.716,
+              "T7": 602.405,
+              "T8": 607.789
+            },
+            "loginMs": 100.511,
+            "authMs": 100.359,
+            "bootstrapMs": 0.125,
+            "backendWaitMs": 500.856,
+            "parseMs": 0.438,
+            "normalizationMs": 0.14,
+            "renderHtmlMs": 5.354,
+            "afterLoginMs": 507.279,
+            "firstContentMs": 607.789,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.034,
+              "T2": 101.171,
+              "T3": 101.248,
+              "T4": 101.271,
+              "T5": 101.398,
+              "T6": 602.369,
+              "T7": 603.224,
+              "T8": 611.452
+            },
+            "loginMs": 101.271,
+            "authMs": 101.137,
+            "bootstrapMs": 0.1,
+            "backendWaitMs": 500.97,
+            "parseMs": 0.51,
+            "normalizationMs": 0.172,
+            "renderHtmlMs": 8.217,
+            "afterLoginMs": 510.181,
+            "firstContentMs": 611.452,
+            "requests": 1,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.031,
+              "T2": 100.346,
+              "T3": 100.437,
+              "T4": 100.455,
+              "T5": 100.555,
+              "T6": 601.286,
+              "T7": 602.493,
+              "T8": 608.849
+            },
+            "loginMs": 100.455,
+            "authMs": 100.316,
+            "bootstrapMs": 0.109,
+            "backendWaitMs": 500.732,
+            "parseMs": 0.419,
+            "normalizationMs": 0.62,
+            "renderHtmlMs": 6.324,
+            "afterLoginMs": 508.394,
+            "firstContentMs": 608.849,
+            "requests": 1,
+            "htmlBytes": 69482
+          }
+        ]
+      },
+      {
+        "scenario": "resposta grande",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 0,
+          "records": 2000,
+          "payloadBytes": 4406944
+        },
+        "median": {
+          "loginMs": 0.061,
+          "authMs": 0.006,
+          "bootstrapMs": 0.023,
+          "backendWaitMs": 0.016,
+          "parseMs": 16.116,
+          "normalizationMs": 6.376,
+          "renderHtmlMs": 212.133,
+          "afterLoginMs": 236.593,
+          "firstContentMs": 236.654
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.073,
+              "T2": 0.084,
+              "T3": 0.111,
+              "T4": 0.116,
+              "T5": 0.178,
+              "T6": 0.207,
+              "T7": 26.024,
+              "T8": 285.894
+            },
+            "loginMs": 0.116,
+            "authMs": 0.011,
+            "bootstrapMs": 0.032,
+            "backendWaitMs": 0.029,
+            "parseMs": 16.116,
+            "normalizationMs": 7.726,
+            "renderHtmlMs": 259.314,
+            "afterLoginMs": 285.777,
+            "firstContentMs": 285.894,
+            "requests": 1,
+            "htmlBytes": 2785786
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.031,
+              "T2": 0.037,
+              "T3": 0.056,
+              "T4": 0.061,
+              "T5": 0.116,
+              "T6": 0.132,
+              "T7": 24.144,
+              "T8": 236.654
+            },
+            "loginMs": 0.061,
+            "authMs": 0.006,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 0.016,
+            "parseMs": 15.938,
+            "normalizationMs": 6.376,
+            "renderHtmlMs": 212.133,
+            "afterLoginMs": 236.593,
+            "firstContentMs": 236.654,
+            "requests": 1,
+            "htmlBytes": 2785786
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.023,
+              "T2": 0.028,
+              "T3": 0.047,
+              "T4": 0.052,
+              "T5": 0.101,
+              "T6": 0.117,
+              "T7": 32.38,
+              "T8": 236.084
+            },
+            "loginMs": 0.052,
+            "authMs": 0.006,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 0.016,
+            "parseMs": 26.368,
+            "normalizationMs": 4.292,
+            "renderHtmlMs": 203.288,
+            "afterLoginMs": 236.033,
+            "firstContentMs": 236.084,
+            "requests": 1,
+            "htmlBytes": 2785786
+          }
+        ]
+      },
+      {
+        "scenario": "vazio válido",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 0,
+          "records": 0,
+          "payloadBytes": 53
+        },
+        "median": {
+          "loginMs": 0.037,
+          "authMs": 0.003,
+          "bootstrapMs": 0.016,
+          "backendWaitMs": 0.014,
+          "parseMs": 0.004,
+          "normalizationMs": 0.001,
+          "renderHtmlMs": 0.02,
+          "afterLoginMs": 0.107,
+          "firstContentMs": 0.145
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.025,
+              "T2": 0.031,
+              "T3": 0.049,
+              "T4": 0.054,
+              "T5": 0.105,
+              "T6": 0.123,
+              "T7": 0.154,
+              "T8": 0.25
+            },
+            "loginMs": 0.054,
+            "authMs": 0.006,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 0.017,
+            "parseMs": 0.01,
+            "normalizationMs": 0.003,
+            "renderHtmlMs": 0.027,
+            "afterLoginMs": 0.196,
+            "firstContentMs": 0.25,
+            "requests": 1,
+            "htmlBytes": 192
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.018,
+              "T2": 0.022,
+              "T3": 0.034,
+              "T4": 0.037,
+              "T5": 0.078,
+              "T6": 0.092,
+              "T7": 0.112,
+              "T8": 0.145
+            },
+            "loginMs": 0.037,
+            "authMs": 0.003,
+            "bootstrapMs": 0.016,
+            "backendWaitMs": 0.014,
+            "parseMs": 0.003,
+            "normalizationMs": 0.001,
+            "renderHtmlMs": 0.02,
+            "afterLoginMs": 0.107,
+            "firstContentMs": 0.145,
+            "requests": 1,
+            "htmlBytes": 192
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.019,
+              "T2": 0.021,
+              "T3": 0.033,
+              "T4": 0.036,
+              "T5": 0.075,
+              "T6": 0.089,
+              "T7": 0.107,
+              "T8": 0.137
+            },
+            "loginMs": 0.036,
+            "authMs": 0.002,
+            "bootstrapMs": 0.015,
+            "backendWaitMs": 0.014,
+            "parseMs": 0.004,
+            "normalizationMs": 0.001,
+            "renderHtmlMs": 0.019,
+            "afterLoginMs": 0.101,
+            "firstContentMs": 0.137,
+            "requests": 1,
+            "htmlBytes": 192
+          }
+        ]
+      },
+      {
+        "scenario": "transitório",
+        "fixture": {
+          "authDelayMs": 0,
+          "backendDelayMs": 5,
+          "records": 50,
+          "payloadBytes": 110142
+        },
+        "median": {
+          "loginMs": 0.051,
+          "authMs": 0.005,
+          "bootstrapMs": 0.023,
+          "backendWaitMs": 611.277,
+          "parseMs": 0.474,
+          "normalizationMs": 0.14,
+          "renderHtmlMs": 8.725,
+          "afterLoginMs": 620.775,
+          "firstContentMs": 620.836
+        },
+        "samples": [
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.018,
+              "T2": 0.023,
+              "T3": 0.035,
+              "T4": 0.038,
+              "T5": 0.076,
+              "T6": 611.902,
+              "T7": 612.62,
+              "T8": 619.021
+            },
+            "loginMs": 0.038,
+            "authMs": 0.005,
+            "bootstrapMs": 0.014,
+            "backendWaitMs": 611.826,
+            "parseMs": 0.479,
+            "normalizationMs": 0.135,
+            "renderHtmlMs": 6.355,
+            "afterLoginMs": 618.983,
+            "firstContentMs": 619.021,
+            "requests": 2,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.023,
+              "T2": 0.028,
+              "T3": 0.044,
+              "T4": 0.051,
+              "T5": 0.098,
+              "T6": 611.375,
+              "T7": 612.09,
+              "T8": 624.444
+            },
+            "loginMs": 0.051,
+            "authMs": 0.005,
+            "bootstrapMs": 0.023,
+            "backendWaitMs": 611.277,
+            "parseMs": 0.458,
+            "normalizationMs": 0.144,
+            "renderHtmlMs": 12.285,
+            "afterLoginMs": 624.393,
+            "firstContentMs": 624.444,
+            "requests": 2,
+            "htmlBytes": 69482
+          },
+          {
+            "points": {
+              "T0": 0,
+              "T1": 0.027,
+              "T2": 0.036,
+              "T3": 0.056,
+              "T4": 0.062,
+              "T5": 0.118,
+              "T6": 611.314,
+              "T7": 612.071,
+              "T8": 620.836
+            },
+            "loginMs": 0.062,
+            "authMs": 0.009,
+            "bootstrapMs": 0.026,
+            "backendWaitMs": 611.195,
+            "parseMs": 0.474,
+            "normalizationMs": 0.14,
+            "renderHtmlMs": 8.725,
+            "afterLoginMs": 620.775,
+            "firstContentMs": 620.836,
+            "requests": 2,
+            "htmlBytes": 69482
+          }
+        ]
+      }
+    ]
+  },
+  "httpBefore": [
+    {
+      "action": "health",
+      "http": 200,
+      "elapsedMs": 21177.33,
+      "ok": true,
+      "version": "2026.10.01.2",
+      "error": null
+    },
+    {
+      "action": "invalid-login",
+      "http": 200,
+      "elapsedMs": 13396.45,
+      "ok": false,
+      "version": "2026.10.01.2",
+      "error": "INVALID_CREDENTIALS"
+    },
+    {
+      "action": "health",
+      "http": 200,
+      "elapsedMs": 14513.14,
+      "ok": true,
+      "version": "2026.10.01.2",
+      "error": null
+    },
+    {
+      "action": "invalid-login",
+      "http": 200,
+      "elapsedMs": 17765.2,
+      "ok": false,
+      "version": "2026.10.01.2",
+      "error": "INVALID_CREDENTIALS"
+    },
+    {
+      "action": "health",
+      "http": 200,
+      "elapsedMs": 22687.43,
+      "ok": true,
+      "version": "2026.10.01.2",
+      "error": null
+    }
+  ],
+  "httpBeforeExecutionDurations": [
+    {
+      "action": "health",
+      "time": "2026-10-01T13:28:04-03:00",
+      "executionMs": 682
+    },
+    {
+      "action": "invalid-login",
+      "time": "2026-10-01T13:28:22-03:00",
+      "executionMs": 590
+    },
+    {
+      "action": "health",
+      "time": "2026-10-01T13:28:36-03:00",
+      "executionMs": 883
+    },
+    {
+      "action": "invalid-login",
+      "time": "2026-10-01T13:28:50-03:00",
+      "executionMs": 769
+    },
+    {
+      "action": "health",
+      "time": "2026-10-01T13:29:16-03:00",
+      "executionMs": 703
+    }
+  ],
+  "tests": {
+    "performance": 13,
+    "loginInitial": 45,
+    "snapshotApproval": 40,
+    "operationalPackage": 55,
+    "operationalStability": 9,
+    "loginSupervisorDecimal": 17,
+    "total": 179,
+    "failed": 0,
+    "pwa": "passed",
+    "supervisorNavigation": "passed"
+  },
+  "backendMedianBeforeMs": 5081.5,
+  "backendMedianAfterMs": 640.5,
+  "backendReductionPct": 87.4,
+  "sourceSha256": "14177f5d63d00fbc0a5537e96217141f2ac41b466d25350f102ec1c8d1631031",
+  "httpAfter": [
+    {
+      "action": "health",
+      "http": 200,
+      "clientStartedUtc": "2026-10-01T17:08:24.014413+00:00",
+      "elapsedMs": 14607.9,
+      "ok": true,
+      "version": "2026.10.01.3",
+      "error": null,
+      "serverTimestamp": "2026-10-01T14:08:32-03:00",
+      "redirects": [
+        {
+          "http": 302,
+          "elapsedMs": 8265.75
+        }
+      ]
+    },
+    {
+      "action": "invalid-login",
+      "http": 200,
+      "clientStartedUtc": "2026-10-01T17:08:38.622745+00:00",
+      "elapsedMs": 18053.9,
+      "ok": false,
+      "version": "2026.10.01.3",
+      "error": "INVALID_CREDENTIALS",
+      "serverTimestamp": null,
+      "redirects": [
+        {
+          "http": 302,
+          "elapsedMs": 11594.23
+        }
+      ]
+    },
+    {
+      "action": "health",
+      "http": 200,
+      "clientStartedUtc": "2026-10-01T17:08:56.677089+00:00",
+      "elapsedMs": 16271.31,
+      "ok": true,
+      "version": "2026.10.01.3",
+      "error": null,
+      "serverTimestamp": "2026-10-01T14:09:06-03:00",
+      "redirects": [
+        {
+          "http": 302,
+          "elapsedMs": 9528.29
+        }
+      ]
+    },
+    {
+      "action": "invalid-login",
+      "http": 200,
+      "clientStartedUtc": "2026-10-01T17:09:12.948700+00:00",
+      "elapsedMs": 16817.33,
+      "ok": false,
+      "version": "2026.10.01.3",
+      "error": "INVALID_CREDENTIALS",
+      "serverTimestamp": null,
+      "redirects": [
+        {
+          "http": 302,
+          "elapsedMs": 9425.25
+        }
+      ]
+    },
+    {
+      "action": "health",
+      "http": 200,
+      "clientStartedUtc": "2026-10-01T17:09:29.766363+00:00",
+      "elapsedMs": 18528.65,
+      "ok": true,
+      "version": "2026.10.01.3",
+      "error": null,
+      "serverTimestamp": "2026-10-01T14:09:38-03:00",
+      "redirects": [
+        {
+          "http": 302,
+          "elapsedMs": 8813.26
+        }
+      ]
+    }
+  ],
+  "finalDeploymentVersion": 23,
+  "sameDeploymentConfirmed": true,
+  "httpAfterExecutionDurations": [
+    {
+      "action": "health",
+      "time": "2026-10-01T14:08:31-03:00",
+      "executionMs": 844
+    },
+    {
+      "action": "invalid-login",
+      "time": "2026-10-01T14:08:47-03:00",
+      "executionMs": 1060
+    },
+    {
+      "action": "health",
+      "time": "2026-10-01T14:09:05-03:00",
+      "executionMs": 519
+    },
+    {
+      "action": "invalid-login",
+      "time": "2026-10-01T14:09:21-03:00",
+      "executionMs": 503
+    },
+    {
+      "action": "health",
+      "time": "2026-10-01T14:09:37-03:00",
+      "executionMs": 751
+    }
+  ]
+}

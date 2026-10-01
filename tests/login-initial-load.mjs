@@ -289,12 +289,14 @@ function backendHarness(source) {
 }
 const beforeAfter = {};
 for (const action of ['listPending_', 'listMine_']) {
-  test(`${action}: payload preservado, sete aberturas viram uma e seis leituras viram quatro`, () => {
+  test(`${action}: payload preservado com uma abertura e somente as leituras necessárias`, () => {
     const old = backendHarness(baseline), fixed = backendHarness(backend);
     const oldPayload = old.c[action]({ token: 'fixture' }), fixedPayload = fixed.c[action]({ token: 'fixture' });
     assert.deepEqual(plain(fixedPayload), plain(oldPayload));
     assert.deepEqual(old.counts(), { opens: 7, dataReads: 6, headerReads: 5, writes: 0 });
-    assert.deepEqual(fixed.counts(), { opens: 1, dataReads: 4, headerReads: 5, writes: 0 });
+    assert.deepEqual(fixed.counts(), action === 'listPending_'
+      ? { opens: 1, dataReads: 2, headerReads: 0, writes: 0 }
+      : { opens: 1, dataReads: 4, headerReads: 5, writes: 0 });
     beforeAfter[action] = { before: old.counts(), after: fixed.counts() };
   });
 }

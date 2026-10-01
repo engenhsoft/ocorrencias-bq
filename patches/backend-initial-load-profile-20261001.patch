@@ -1,0 +1,98 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.01.2',
++  version: '2026.10.01.3',
+   contract: 'OCORRENCIAS-BQ-SERVICE-SNAPSHOT-v11',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -326,10 +326,10 @@
+ function listPending_(payload) {
+   requireSession_(payload.token, ['supervisor']);
+   const spreadsheet = spreadsheet_();
+-  ensureOperationalSheets_(spreadsheet);
+-  const services = loadServicesMap_(spreadsheet); const materials = loadMaterialsMap_(spreadsheet);
++  // A lista é somente leitura; pendências já contêm seus snapshots na própria linha.
++  const services = {}; const materials = {};
+   const pendingRows = dataRows_(sheet_(APP.pendingSheet, spreadsheet), COL.WIDTH);
+-  const officialRows = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH);
++  const officialRows = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.CREW_LEADER);
+   const dailyTotals = buildDailyTotals_([pendingRows, officialRows]);
+   const pendingRowsById = {}; const metricById = {}; const publishedIds = {};
+   pendingRows.forEach(function (values) {
+@@ -362,16 +362,17 @@
+   const operationalRows = Object.keys(pendingRowsById)
+     .filter(function (recordId) { return !publishedIds[recordId]; })
+     .map(function (recordId) { return pendingRowsById[recordId]; });
+-  const records = operationalRows
+-    .filter(function (values) { return operationalStatusFromValues_(values) === STATUS.WAITING_SUPERVISOR; })
+-    .map(function (values) { return attachDailyProduction_(recordFromRow_(values, services, materials), dailyTotals); })
++  const waitingRows = operationalRows.filter(function (values) { return operationalStatusFromValues_(values) === STATUS.WAITING_SUPERVISOR; });
++  const photoPendingRows = operationalRows.filter(function (values) {
++    const status = operationalStatusFromValues_(values);
++    return status === STATUS.SYNCING_PHOTOS || status === STATUS.CORRECTION_REQUESTED;
++  });
++  const publicPhotoCache = cachedPublicPhotosForRows_(waitingRows.concat(photoPendingRows));
++  const records = waitingRows
++    .map(function (values) { return attachDailyProduction_(recordFromRow_(values, services, materials, publicPhotoCache), dailyTotals); })
+     .sort(sortNewest_);
+-  const pendingRecords = operationalRows
+-    .filter(function (values) {
+-      const status = operationalStatusFromValues_(values);
+-      return status === STATUS.SYNCING_PHOTOS || status === STATUS.CORRECTION_REQUESTED;
+-    })
+-    .map(function (values) { return recordFromRow_(values, services, materials); })
++  const pendingRecords = photoPendingRows
++    .map(function (values) { return recordFromRow_(values, services, materials, publicPhotoCache); })
+     .sort(sortNewest_);
+   return { ok: true, success: true, records: records, pendingRecords: pendingRecords, metricRecords: Object.keys(metricById).map(function (recordId) { return metricById[recordId]; }) };
+ }
+@@ -1050,9 +1051,9 @@
+
+ function recordFromValuesAt_(values) { return recordFromRow_(values, loadServicesMap_(), loadMaterialsMap_()); }
+
+-function recordFromRow_(values, servicesMap, materialsMap) {
+-  const id = String(values[COL.ID - 1] || ''); const photos = values.slice(COL.PHOTO_1 - 1, COL.PHOTO_5).map(photoUrlForClient_); const uploadKeys = values.slice(COL.UPLOAD_KEY_1 - 1, COL.UPLOAD_KEY_5).map(String);
+-  const transformerPhotos = { removed: photoUrlForClient_(values[COL.TRAFO_REMOVED_PHOTO - 1]), installed: photoUrlForClient_(values[COL.TRAFO_INSTALLED_PHOTO - 1]) };
++function recordFromRow_(values, servicesMap, materialsMap, publicPhotoCache) {
++  const id = String(values[COL.ID - 1] || ''); const photos = values.slice(COL.PHOTO_1 - 1, COL.PHOTO_5).map(function (value) { return photoUrlForClient_(value, publicPhotoCache); }); const uploadKeys = values.slice(COL.UPLOAD_KEY_1 - 1, COL.UPLOAD_KEY_5).map(String);
++  const transformerPhotos = { removed: photoUrlForClient_(values[COL.TRAFO_REMOVED_PHOTO - 1], publicPhotoCache), installed: photoUrlForClient_(values[COL.TRAFO_INSTALLED_PHOTO - 1], publicPhotoCache) };
+   const transformerUploadKeys = [String(values[COL.TRAFO_REMOVED_UPLOAD_KEY - 1] || ''), String(values[COL.TRAFO_INSTALLED_UPLOAD_KEY - 1] || '')];
+   const status = operationalStatusFromValues_(values); const audit = safeJson_(values[COL.AUDIT - 1], {});
+   const base = String(values[COL.BASE - 1] || ''); const contract = String(values[COL.CONTRACT - 1] || contractForBase_(base));
+@@ -1321,10 +1322,30 @@
+     cache.put('photo-public-' + fileId, '1', 21600); return true;
+   } catch (error) { return false; }
+ }
+-function photoUrlForClient_(value) {
++function cachedPublicPhotosForRows_(rows) {
++  const keys = {};
++  rows.forEach(function (values) {
++    values.slice(COL.PHOTO_1 - 1, COL.PHOTO_5).concat([values[COL.TRAFO_REMOVED_PHOTO - 1], values[COL.TRAFO_INSTALLED_PHOTO - 1]]).forEach(function (value) {
++      const fileId = extractDriveFileId_(String(value || ''));
++      if (fileId) keys['photo-public-' + fileId] = true;
++    });
++  });
++  const names = Object.keys(keys); const found = {};
++  if (!names.length) return found;
++  try {
++    const cache = CacheService.getScriptCache();
++    for (let offset = 0; offset < names.length; offset += 500) {
++      const cached = cache.getAll(names.slice(offset, offset + 500)) || {};
++      Object.keys(cached).forEach(function (key) { if (cached[key]) found[key] = cached[key]; });
++    }
++  } catch (error) { /* Falha no pré-carregamento mantém a conferência individual existente. */ }
++  return found;
++}
++
++function photoUrlForClient_(value, publicPhotoCache) {
+   const text = String(value || ''); if (!text) return '';
+   const fileId = extractDriveFileId_(text); if (!fileId) return text;
+-  return ensurePhotoPublic_(fileId) ? publicPhotoUrl_(fileId) : '';
++  return ((publicPhotoCache && publicPhotoCache['photo-public-' + fileId]) || ensurePhotoPublic_(fileId)) ? publicPhotoUrl_(fileId) : '';
+ }
+
+ function trashDriveFileFromUrl_(url) { const fileId = extractDriveFileId_(url); if (!fileId) return; try { DriveApp.getFileById(fileId).setTrashed(true); } catch (error) {} }
