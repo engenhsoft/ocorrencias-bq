@@ -1,5 +1,5 @@
 import {
-  APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates,
+  APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.09.30.1';
+} from './core.js?v=2026.10.01.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.09.30.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.09.30.1';
+} from './db.js?v=2026.10.01.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog } from './api.js?v=2026.10.01.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -2004,11 +2004,7 @@ function handleSupervisorListClick(event) {
 
 function handleSupervisorSelection(event) { const checkbox = event.target.closest('[data-supervisor-select]'); if (!checkbox) return; if (checkbox.checked) selectedSupervisorIds.add(checkbox.dataset.supervisorSelect); else selectedSupervisorIds.delete(checkbox.dataset.supervisorSelect); updateSupervisorSelectionUi(); }
 function supervisorPricingIssues(record) {
-  const expectedContract = contractForBase(record?.base);
-  if (!expectedContract || String(record?.contract || '') !== expectedContract) return ['Contrato incompatível com a Sub-base.'];
-  if (record?.pricingIssue) return [String(record.pricingIssue)];
-  const invalid = normalizeServices(record?.services).find((service) => service.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract);
-  return invalid ? [`Serviço sem valor cadastrado para o contrato ${expectedContract}.`] : [];
+  return serviceSnapshotErrors(record?.services);
 }
 function selectableSupervisorRecords() { return filteredSupervisorRecords().filter((record) => record.status === RECORD_STATUS.WAITING_SUPERVISOR && !photoIssueIndexes(record, supervisorPhotoFailures.get(record.recordId) || []).length && !supervisorPricingIssues(record).length); }
 function selectAllSupervisorVisible() { if (elements.selectAllVisible.checked) selectableSupervisorRecords().forEach((record) => selectedSupervisorIds.add(record.recordId)); else selectedSupervisorIds.clear(); $$('[data-supervisor-select]').forEach((checkbox) => { checkbox.checked = selectedSupervisorIds.has(checkbox.dataset.supervisorSelect); }); updateSupervisorSelectionUi(); }
@@ -2133,14 +2129,9 @@ function handleSupervisorBaseChange() {
   clearTimeout(supervisorEditSearchTimer);
   supervisorEditCatalogRequestId += 1;
   elements.editServiceResults.hidden = true;
-  const previousBase = supervisorEditRecord.base;
   syncSupervisorEditorFromForm();
-  if (supervisorEditRecord.base !== previousBase) {
-    const result = applyContractToRecord(supervisorEditRecord);
-    renderSupervisorEditServices();
-    if (result.missingCodes.length && supervisorEditRecord.services.length && result.contract) elements.supervisorEditErrors.textContent = `Serviço sem valor cadastrado para o contrato ${result.contract}.`;
-    else elements.supervisorEditErrors.textContent = '';
-  }
+  renderSupervisorEditServices();
+  elements.supervisorEditErrors.textContent = '';
   updateContractOutput(elements.editOperationContract, supervisorEditRecord.base);
 }
 
@@ -2152,7 +2143,7 @@ function syncSupervisorEditorFromForm() {
   const hasConductor = occurrenceTypes.includes(TYPE_CONDUCTOR); elements.editPgConductorSection.hidden = !hasConductor;
   const hasOther = occurrenceTypes.includes(TYPE_OTHER); elements.editOtherTypeSection.hidden = !hasOther;
   supervisorEditRecord = {
-    ...supervisorEditRecord, base: elements.editOperationBase.value, contract: contractForBase(elements.editOperationBase.value), team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
+    ...supervisorEditRecord, base: elements.editOperationBase.value, contract: elements.editOperationBase.value === activeSupervisorRecord?.base ? (activeSupervisorRecord.contract || contractForBase(elements.editOperationBase.value)) : contractForBase(elements.editOperationBase.value), team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
     otherOccurrenceType: hasOther ? elements.editOtherOccurrenceType.value.trim() : '',
     pgPostRemoved: hasPost ? elements.editPgPostRemoved.value.trim() : '', pgPostInstalled: hasPost ? elements.editPgPostInstalled.value.trim() : '',
     pgConductorStart: hasConductor ? elements.editPgConductorStart.value.trim() : '', pgConductorEnd: hasConductor ? elements.editPgConductorEnd.value.trim() : '', observation: elements.editObservation.value.trim(),
@@ -2194,7 +2185,7 @@ function selectSupervisorCatalogItem(event) {
   if (!contract) { elements.supervisorEditErrors.textContent = 'Selecione a Sub-base para definir o contrato e os valores dos serviços.'; return; }
   const priced = priceServiceForContract(item, contract);
   if (priced.referenceValue == null) { elements.supervisorEditErrors.textContent = `Serviço sem valor cadastrado para o contrato ${contract}.`; return; }
-  const existing = supervisorEditRecord.services.find((service) => service.catalogKey === item.catalogKey);
+  const existing = supervisorEditRecord.services.find((service) => service.catalogKey === item.catalogKey && service.code === item.code);
   if (existing) existing.quantity = Math.max(1, parseServiceQuantity(existing.quantity) || 1);
   else supervisorEditRecord.services.push({ ...priced, lineId: generateUuid(), quantity: 1, totalValue: priced.referenceValue });
   elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; renderSupervisorEditServices();
@@ -2246,7 +2237,7 @@ async function saveSupervisorCorrection(event) {
   const reviewedId = activeSupervisorRecord.recordId;
   const beforeIds = [...reviewOrder];
   const draft = syncSupervisorEditorFromForm();
-  const errors = validateOccurrence(draft);
+  const errors = validateOccurrence(draft, { historicalServices: true });
   const relationError = assignmentError(draft, supervisorAssignmentSnapshot); if (relationError) errors.push(relationError);
   if (errors.length) { elements.supervisorEditErrors.innerHTML = errors.map((error) => `• ${escapeHtml(error)}`).join('<br>'); return; }
   if (!supervisorCorrectionChanges(activeSupervisorRecord, draft).length) { elements.supervisorEditErrors.textContent = 'Nenhuma alteração foi identificada.'; return; }

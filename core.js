@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.09.30.1';
-export const APP_BUILD = '2026-09-30-dates-photo-sync-team-directory';
+export const APP_VERSION = '2026.10.01.1';
+export const APP_BUILD = '2026-10-01-approval-service-snapshots';
 
 export const TEAM_GOAL = 6000;
 
@@ -265,6 +265,21 @@ export function serializeServicesForBackend(value) {
     const quantity = parseServiceQuantity(service.quantity);
     return { ...service, quantity: Number.isFinite(quantity) ? quantity : service.quantity };
   });
+}
+
+export function serviceSnapshotErrors(value) {
+  if (!Array.isArray(value) || !value.length) return ['A ocorrência não possui um snapshot válido dos serviços.'];
+  const errors = [];
+  value.forEach((service, index) => {
+    const quantity = parseServiceQuantity(service?.quantity);
+    const unitValue = service?.referenceValue;
+    const total = service?.totalValue;
+    const validNumber = (number) => ['number', 'string'].includes(typeof number) && String(number).trim() !== '' && Number.isFinite(Number(number)) && Number(number) >= 0;
+    if (!service || typeof service !== 'object' || Array.isArray(service) || !String(service.code || '').trim() || !String(service.catalogText || '').trim() || !(quantity > 0) || !validNumber(unitValue) || !validNumber(total)) {
+      errors.push(`Snapshot histórico inválido no serviço ${index + 1}.`);
+    }
+  });
+  return errors;
 }
 
 export function normalizeOccurrenceTypes(value) {
@@ -549,14 +564,14 @@ export function goalProgress(total, goal = TEAM_GOAL) {
   };
 }
 
-export function validateOccurrence(record = {}) {
+export function validateOccurrence(record = {}, { historicalServices = false } = {}) {
   const errors = [];
   const types = normalizeOccurrenceTypes(record.occurrenceTypes);
   const services = normalizeServices(record.services);
   const materials = normalizeMaterials(record.materials, 'materials');
   const expectedContract = contractForBase(record.base);
   if (!OPERATION_BASES.includes(String(record.base || '').trim())) errors.push('Selecione a Sub-base.');
-  else if (!record.contract || String(record.contract) !== expectedContract) errors.push('O contrato da Sub-base está inválido. Selecione novamente a Sub-base.');
+  else if (!historicalServices && (!record.contract || String(record.contract) !== expectedContract)) errors.push('O contrato da Sub-base está inválido. Selecione novamente a Sub-base.');
   if (!String(record.team || '').trim()) errors.push('Informe a equipe.');
   if (!String(record.crewLeader || '').trim()) errors.push('Informe o chefe de turma.');
   if (!String(record.occurrenceNumber || '').trim()) errors.push('Informe o Nº da ocorrência.');
@@ -581,7 +596,8 @@ export function validateOccurrence(record = {}) {
     if (!transformerPhotoReady(record, 'installed')) errors.push('Adicione a evidência do transformador instalado.');
   }
   if (!services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
-  services.forEach((service, index) => {
+  if (historicalServices) errors.push(...serviceSnapshotErrors(record.services));
+  else services.forEach((service, index) => {
     if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
     if (!(parseServiceQuantity(service?.quantity) > 0)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
     if (service?.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract) {
