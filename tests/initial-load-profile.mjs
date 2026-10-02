@@ -16,7 +16,7 @@ const backendHarness = vm.runInNewContext(sheetClass + '\n' + extract(existing, 
 const plain = value => JSON.parse(JSON.stringify(value));
 const tests = []; const test = (name, run) => tests.push({ name, run });
 
-function harness(source, mode = 'warm') {
+function harness(source, mode = 'warm', includePublishedPendingCopy = false) {
   const h = backendHarness(source), { APP, COL, STATUS } = h.c.meta;
   const reads = [], cache = new Map(), permissions = new Map();
   const calls = { individualCache: 0, bulkCache: 0, drive: 0, sharing: 0 };
@@ -53,9 +53,11 @@ function harness(source, mode = 'warm') {
   }
   // Uma cópia mais antiga não deve vencer o UUID; o número de ocorrência se repete.
   const duplicate = rows[1].slice(); duplicate[COL.UPDATED_AT - 1] = '2026-09-01T09:00:00-03:00'; duplicate[COL.TOTAL - 1] = 999; rows.push(duplicate);
-  // Registro publicado e sua cópia pendente devem continuar fora da lista operacional.
-  const published = h.sheets.get(APP.officialSheet).rows[1];
-  const copy = template.slice(); copy[COL.ID - 1] = published[COL.ID - 1]; rows.push(copy);
+  // Cenário de publicação interrompida é verificado separadamente: sua origem continua acionável.
+  if (includePublishedPendingCopy) {
+    const published = h.sheets.get(APP.officialSheet).rows[1];
+    const copy = template.slice(); copy[COL.ID - 1] = published[COL.ID - 1]; rows.push(copy);
+  }
   h.c.CacheService = { getScriptCache: () => ({
     get(key) { calls.individualCache++; return cache.get(key) || null; },
     getAll(keys) { calls.bulkCache++; if (mode === 'batch-error') throw Error('batch unavailable'); return Object.fromEntries(keys.filter(key => cache.has(key)).map(key => [key, cache.get(key)])); },
@@ -126,10 +128,20 @@ test('Campo mantém fontes, detalhes e quantidade de leituras anteriores', () =>
   assert.deepEqual(plain(after.c.listMine_({ token: 'fixture-only' })), plain(before.c.listMine_({ token: 'fixture-only' })));
   assert.deepEqual(after.counts(), before.counts()); assert.equal(after.calls.bulkCache, 0);
 });
-test('login, sessão, validações, mutações e sincronismo não foram alterados', () => {
-  for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorAction_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listMine_', 'listPublishedRecords_']) {
+test('login, sessão, edição, fotos e leituras alheias à publicação não foram alteradas', () => {
+  for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listMine_', 'listPublishedRecords_']) {
     assert.equal(extract(fixed, name), extract(baseline, name), name);
   }
+});
+test('cópia de publicação ainda pendente permanece acionável com dois ranges e sem histórico', () => {
+  const before = harness(baseline, 'warm', true), after = harness(fixed, 'warm', true);
+  const a = before.c.listPending_({ token: 'fixture-only' }), b = after.c.listPending_({ token: 'fixture-only' });
+  assert.equal(b.records.length, a.records.length + 1);
+  const id = after.sheets.get(after.c.meta.APP.officialSheet).rows[1][0];
+  assert.equal(b.records.filter(record => record.recordId === id).length, 1);
+  assert.equal(b.metricRecords.find(record => record.recordId === id).status, 'AGUARDANDO_SUPERVISOR');
+  assert.equal(after.counts().dataReads, 2); assert.equal(after.counts().writes, 0);
+  assert.equal(after.calls.bulkCache, 1);
 });
 test('mais de 500 referências usa lotes limitados e preserva todas as chaves', () => {
   const h = harness(fixed); const { COL } = h.c.meta; const rows = []; const requested = [];

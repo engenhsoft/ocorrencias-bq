@@ -1,0 +1,490 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.01.3',
++  version: '2026.10.02.1',
+   contract: 'OCORRENCIAS-BQ-SERVICE-SNAPSHOT-v11',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -346,7 +346,7 @@
+     if (!recordId) return;
+     const status = String(values[COL.STATUS - 1] || '');
+     const audit = safeJson_(values[COL.AUDIT - 1], {});
+-    if (status === STATUS.PUBLISHED && audit.publicationState !== 'RECONCILIACAO_NECESSARIA') {
++    if (status === STATUS.PUBLISHED && !pendingRowsById[recordId] && audit.publicationState !== 'RECONCILIACAO_NECESSARIA') {
+       publishedIds[recordId] = true;
+       metricById[recordId] = {
+         recordId: recordId, status: STATUS.PUBLISHED,
+@@ -449,8 +449,9 @@
+   const reason = cleanText_(payload.reason, 600); const note = cleanText_(payload.note, 1200);
+   if (['approve', 'reject', 'request_correction', 'request_photo_sync'].indexOf(decision) < 0) throw apiError_('INVALID_DECISION', 'Decisão inválida.');
+   if (decision !== 'approve' && decision !== 'request_photo_sync' && !reason) throw apiError_('REASON_REQUIRED', 'Informe o motivo.');
++  const photoIssueIndexes = normalizePhotoIndexes_(payload.photoIssueIndexes);
++  if (decision === 'approve') return applySupervisorDecision_(auth, recordId, decision, reason, note, photoIssueIndexes);
+   const lock = LockService.getScriptLock(); lock.waitLock(30000);
+-  const photoIssueIndexes = normalizePhotoIndexes_(payload.photoIssueIndexes);
+   try { return decision === 'request_photo_sync' ? requestPhotoSync_(auth, recordId) : applySupervisorDecision_(auth, recordId, decision, reason, note, photoIssueIndexes); }
+   finally { lock.releaseLock(); }
+ }
+@@ -505,24 +506,15 @@
+ }
+ 
+ function approveBatch_(payload) {
+-  const auth = requireSession_(payload.token, ['supervisor']); ensureOperationalSheets_();
+-  const requested = Array.isArray(payload.recordIds) ? payload.recordIds.map(String).filter(function (id, index, all) { return all.indexOf(id) === index; }) : [];
+-  const all = Boolean(payload.all); const pending = sheet_(APP.pendingSheet);
+-  const eligibleIds = dataRowsWithNumbers_(pending, COL.WIDTH).filter(function (item) {
+-    const values = item.values; const id = String(values[COL.ID - 1] || '');
+-    return operationalStatusFromValues_(values) === STATUS.WAITING_SUPERVISOR && recordReadyForSupervisorValues_(values) && (all || requested.indexOf(id) >= 0);
+-  }).map(function (item) { return String(item.values[COL.ID - 1]); });
+-  const batchLimit = 3;
+-  const candidates = eligibleIds.slice(0, batchLimit);
++  const auth = requireSession_(payload.token, ['supervisor']);
++  const requested = Array.isArray(payload.recordIds) ? payload.recordIds.map(requireUuid_).filter(function (id, index, all) { return all.indexOf(id) === index; }) : [];
++  const eligibleIds = payload.all ? dataRows_(sheet_(APP.pendingSheet), COL.WIDTH).filter(function (values) { return operationalStatusFromValues_(values) === STATUS.WAITING_SUPERVISOR && recordReadyForSupervisorValues_(values); }).map(function (values) { return String(values[COL.ID - 1]); }).filter(function (id, index, all) { return all.indexOf(id) === index; }) : requested;
++  const batchLimit = 3; const candidates = eligibleIds.slice(0, batchLimit);
+   const results = candidates.map(function (id) {
+-    const lock = LockService.getScriptLock();
+     try {
+-      lock.waitLock(30000);
+       const result = applySupervisorDecision_(auth, id, 'approve', '', cleanText_(payload.note, 1200));
+-      return { ok: true, success: true, recordId: id, status: result.status || STATUS.PUBLISHED };
+-    } catch (error) {
+-      return { ok: false, success: false, recordId: id, code: error.code || 'SERVER_ERROR', message: String(error.message || error), details: error.details || null };
+-    } finally { try { lock.releaseLock(); } catch (ignored) {} }
++      return { ok: true, success: true, recordId: id, status: result.status || STATUS.PUBLISHED, idempotent: Boolean(result.idempotent), alreadyPublished: Boolean(result.alreadyPublished), reconciliationState: result.reconciliationState };
++    } catch (error) { return { ok: false, success: false, recordId: id, code: error.code || 'SERVER_ERROR', message: String(error.message || error), details: error.details || null }; }
+   });
+   const approvedCount = results.filter(function (result) { return result.ok; }).length;
+   const skipped = results.filter(function (result) { return !result.ok; });
+@@ -530,13 +522,8 @@
+ }
+ 
+ function applySupervisorDecision_(auth, recordId, decision, reason, note, reportedPhotoIssues) {
+-  const pending = sheet_(APP.pendingSheet); const official = sheet_(APP.officialSheet);
+-  const officialFound = findRowById_(official, recordId);
+-  if (decision === 'approve' && officialFound) {
+-    const integrity = verifyPublishedIntegrity_(recordId, { repair: true, cleanupPending: true, actor: auth.user });
+-    const repaired = findRowById_(official, recordId);
+-    return Object.assign(stateResponse_(recordFromValuesAt_(repaired.values), false, true), { idempotent: true, integrity: integrity });
+-  }
++  if (decision === 'approve') return approvePublication_(auth, recordId, note, reportedPhotoIssues);
++  const pending = sheet_(APP.pendingSheet);
+   const found = findRowById_(pending, recordId);
+   if (!found) {
+     throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada na fila do supervisor.');
+@@ -549,50 +536,6 @@
+     if ([STATUS.WAITING_SUPERVISOR, STATUS.SYNCING_PHOTOS].indexOf(previousStatus) < 0) throw apiError_('RECORD_NOT_READY', 'A ocorrência não está disponível para solicitar correção.');
+   } else if (previousStatus !== STATUS.WAITING_SUPERVISOR || photoIssues.length) throw apiError_('RECORD_NOT_READY', 'A ocorrência ainda não está apta para esta decisão.');
+   const reviewedAt = nowIso_();
+-  if (decision === 'approve') {
+-    const original = recordFromValuesAt_(found.values);
+-    const model = validateAndNormalizeRecord_(original, { serviceMode: 'snapshot', original: original });
+-    const registeredAt = found.values[COL.REGISTERED_AT - 1] || original.registeredAt || nowIso_();
+-    const operationalDate = operationalDateFromValue_(registeredAt);
+-    model.goalPercentage = (dailyTotalForTeamDate_(model.team, operationalDate, recordId) + model.totalServices) / APP.teamGoal * 100;
+-    const photoUrls = found.values.slice(COL.PHOTO_1 - 1, COL.PHOTO_5);
+-    const uploadKeys = found.values.slice(COL.UPLOAD_KEY_1 - 1, COL.UPLOAD_KEY_5);
+-    const transformerPhotoUrls = [found.values[COL.TRAFO_REMOVED_PHOTO - 1], found.values[COL.TRAFO_INSTALLED_PHOTO - 1]];
+-    const transformerUploadKeys = [found.values[COL.TRAFO_REMOVED_UPLOAD_KEY - 1], found.values[COL.TRAFO_INSTALLED_UPLOAD_KEY - 1]];
+-    const audit = safeJson_(found.values[COL.AUDIT - 1], {});
+-    audit.finalServices = model.services.map(function (service) { return Object.assign({}, service); });
+-    audit.finalMaterials = model.materials.map(function (material) { return Object.assign({}, material, { code: String(material.code || '') }); });
+-    audit.publicationState = 'RECONCILIACAO_NECESSARIA';
+-    audit.publicationStartedAt = reviewedAt;
+-    audit.pricingValidation = { mode: 'SNAPSHOT_HISTORICO', base: model.base, reportedContract: original.contract || '', derivedContract: contractForBase_(model.base), validatedAt: reviewedAt };
+-    let published = buildMainRow_(model, original.user, registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, STATUS.PUBLISHED, '', note, auth.user, reviewedAt, audit);
+-    const existing = findRowById_(official, recordId);
+-    if (existing) official.getRange(existing.row, 1, 1, COL.WIDTH).setValues([published]); else official.appendRow(published);
+-    try {
+-      replaceServiceRows_(recordId, model.services);
+-      replaceMaterialRows_(recordId, model.materials, model.occurrenceNumber);
+-      const integrationRecord = Object.assign({}, model, { registeredAt: isoValue_(registeredAt), transformerPhotos: { removed: String(transformerPhotoUrls[0] || ''), installed: String(transformerPhotoUrls[1] || '') } });
+-      const transformerIntegration = integrateTransformersOnApproval_(integrationRecord);
+-      delete audit.pendingServices; delete audit.pendingMaterials;
+-      audit.transformerIntegration = transformerIntegration; audit.lastTransformerIntegration = transformerIntegration;
+-      audit.publicationState = 'PUBLICADA'; audit.publishedAt = reviewedAt;
+-      appendAuditTimeline_(audit, 'APROVADA_E_PUBLICADA', auth.user, reviewedAt, transformerIntegration.applies ? 'Integração de transformadores concluída' : 'Publicação concluída');
+-      published = buildMainRow_(model, original.user, registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, STATUS.PUBLISHED, '', note, auth.user, reviewedAt, audit);
+-      const publishedRow = findRowById_(official, recordId);
+-      official.getRange(publishedRow.row, 1, 1, COL.WIDTH).setValues([published]);
+-      const publishedRecord = recordFromRow_(published, singletonServicesMap_(recordId, model.services), singletonMaterialsMap_(recordId, model.materials));
+-      appendHistoryOnce_(publishedRecord, auth.user, 'APROVADA_E_PUBLICADA', previousStatus, STATUS.PUBLISHED, '', note, reviewedAt);
+-      const integrity = verifyPublishedIntegrity_(recordId, { repair: true, cleanupPending: true, actor: auth.user });
+-      return Object.assign(stateResponse_(recordFromValuesAt_(findRowById_(official, recordId).values), false, true), { transformerIntegration: transformerIntegration, integrity: integrity });
+-    } catch (error) {
+-      audit.publicationState = 'RECONCILIACAO_NECESSARIA';
+-      audit.lastPublicationError = { code: error.code || 'SERVER_ERROR', message: String(error.message || error), at: nowIso_() };
+-      const partial = buildMainRow_(model, original.user, registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, STATUS.PUBLISHED, '', note, auth.user, reviewedAt, audit);
+-      const partialRow = findRowById_(official, recordId);
+-      if (partialRow) official.getRange(partialRow.row, 1, 1, COL.WIDTH).setValues([partial]);
+-      throw apiError_(error.code || 'PUBLISHED_RECONCILIATION_REQUIRED', String(error.message || error), Object.assign({ recordId: recordId, state: 'PUBLICACAO_PARCIAL_RECONCILIAVEL' }, error.details || {}));
+-    }
+-  }
+   const nextStatus = decision === 'reject' ? STATUS.REJECTED : STATUS.CORRECTION_REQUESTED;
+   const updated = found.values.slice();
+   updated[COL.STATUS - 1] = nextStatus; updated[COL.REASON - 1] = reason; updated[COL.SUPERVISOR_NOTE - 1] = decision === 'request_correction' ? (note || reason) : note; updated[COL.SUPERVISOR - 1] = auth.user; updated[COL.REVIEWED_AT - 1] = reviewedAt; updated[COL.UPDATED_AT - 1] = reviewedAt;
+@@ -750,7 +693,7 @@
+   if (options.serviceMode === 'snapshot') model.services = record.services.map(validateServiceSnapshot_);
+   else if (options.serviceMode === 'edit') model.services = servicesForSupervisorEdit_(record.services, options.original.services, contractForBase_(model.base));
+   else model.services = record.services.map(function (service, index) { return validateCatalogService_(service, index, model.contract); });
+-  if (!Array.isArray(record.materials) || !record.materials.length) throw apiError_('MATERIAL_REQUIRED', 'Informe o material aplicado.');
++  if (!Array.isArray(record.materials) || (!record.materials.length && options.serviceMode !== 'snapshot')) throw apiError_('MATERIAL_REQUIRED', 'Informe o material aplicado.');
+   model.materials = record.materials.map(function (material, index) {
+     const decoded = normalizeMaterial_(material); const description = cleanText_(decoded.description, 1000); const quantity = Number(decoded.quantity);
+     if (!description) throw apiError_('MATERIAL_REQUIRED', 'Informe o material aplicado no item ' + (index + 1) + '.');
+@@ -954,69 +897,17 @@
+ 
+ function verifyPublishedIntegrityRoute_(payload) {
+   const auth = requireSession_(payload.token, ['supervisor']);
+-  const recordId = requireUuid_(payload.recordId);
+-  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+-  try { return verifyPublishedIntegrity_(recordId, { repair: Boolean(payload.repair), cleanupPending: Boolean(payload.cleanupPending), actor: auth.user }); }
+-  finally { lock.releaseLock(); }
++  return verifyPublishedIntegrity_(requireUuid_(payload.recordId), { repair: Boolean(payload.repair), cleanupPending: Boolean(payload.cleanupPending), actor: auth.user });
+ }
+ 
+ function verifyPublishedIntegrity_(recordId, options) {
+   options = options || {};
+-  ensureOperationalSheets_();
+-  const official = sheet_(APP.officialSheet);
+-  const matches = findRowsById_(official, recordId);
+-  if (matches.length !== 1) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A ocorrência publicada não possui uma única linha oficial.', { recordId: recordId, officialRows: matches.length });
+-  let values = matches[0].values;
+-  if (String(values[COL.STATUS - 1] || '') !== STATUS.PUBLISHED) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A ocorrência oficial não está marcada como PUBLICADA.', { recordId: recordId });
+-  const occurrenceNumber = String(values[COL.OCCURRENCE_NUMBER - 1] || '');
+-  const expectedServices = publishedServicesFromValues_(values);
+-  const expectedMaterials = publishedMaterialsFromValues_(values);
+-  const servicesSheet = sheet_(APP.servicesSheet);
+-  const materialsSheet = sheet_(APP.materialsSheet);
+-  let actualServices = serviceRowsForRecord_(servicesSheet, recordId);
+-  let actualMaterials = materialRowsForRecord_(materialsSheet, recordId);
+-  const repairs = [];
+-  if (!sameServiceSet_(expectedServices, actualServices)) {
+-    if (!options.repair) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'Os serviços publicados divergem do conjunto final.', { recordId: recordId });
+-    replaceServiceRows_(recordId, expectedServices); repairs.push('SERVICOS');
+-    actualServices = serviceRowsForRecord_(servicesSheet, recordId);
+-  }
+-  const occurrenceNumbersOk = actualMaterials.every(function (material) { return String(material.occurrenceNumber || '') === occurrenceNumber; });
+-  if (!sameMaterialSet_(expectedMaterials, actualMaterials) || !occurrenceNumbersOk) {
+-    if (!options.repair) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'Os materiais publicados divergem do conjunto final.', { recordId: recordId });
+-    replaceMaterialRows_(recordId, expectedMaterials, occurrenceNumber); repairs.push('MATERIAIS');
+-    actualMaterials = materialRowsForRecord_(materialsSheet, recordId);
+-  }
+-  if (!sameServiceSet_(expectedServices, actualServices) || !sameMaterialSet_(expectedMaterials, actualMaterials) || actualMaterials.some(function (material) { return String(material.occurrenceNumber || '') !== occurrenceNumber; })) {
+-    throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A reconciliação final não pôde ser confirmada.', { recordId: recordId });
+-  }
+-
+-  const audit = safeJson_(values[COL.AUDIT - 1], {});
+-  const finalEvent = finalPublicationEvent_(audit);
+-  const actor = cleanText_(options.actor || (finalEvent && finalEvent.actor) || values[COL.SUPERVISOR - 1], 120);
+-  const publishedAt = isoValue_((finalEvent && finalEvent.at) || values[COL.REVIEWED_AT - 1]);
+-  if (!actor || !publishedAt) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'Não há evidência inequívoca de supervisor e data para concluir o histórico.', { recordId: recordId });
+-  const types = String(values[COL.TYPES - 1] || '').split(' | ').filter(Boolean);
+-  let transformerIntegration = audit.transformerIntegration || audit.lastTransformerIntegration || null;
+-  if (types.indexOf(TYPES[0]) >= 0 && (audit.publicationState === 'RECONCILIACAO_NECESSARIA' || transformerIntegration)) {
+-    const integrityRecord = recordFromRow_(values, singletonServicesMap_(recordId, expectedServices), singletonMaterialsMap_(recordId, expectedMaterials));
+-    transformerIntegration = integrateTransformersOnApproval_(integrityRecord);
+-    audit.transformerIntegration = transformerIntegration; audit.lastTransformerIntegration = transformerIntegration;
+-  }
+-  if (!finalEvent) appendAuditTimeline_(audit, 'APROVADA_E_PUBLICADA', actor, publishedAt, transformerIntegration && transformerIntegration.applies ? 'Integração de transformadores concluída' : 'Publicação concluída');
+-  audit.finalServices = expectedServices.map(function (service) { return Object.assign({}, service); });
+-  audit.finalMaterials = expectedMaterials.map(function (material) { return Object.assign({}, material, { code: String(material.code || '') }); });
+-  audit.publicationState = 'PUBLICADA';
+-  audit.integrity = { state: 'INTEGRITY_OK', checkedAt: nowIso_(), version: APP.version, repairs: repairs };
+-  official.getRange(matches[0].row, COL.AUDIT).setValue(JSON.stringify(audit));
+-  official.getRange(matches[0].row, COL.UPDATED_AT).setValue(nowIso_());
+-  values = official.getRange(matches[0].row, 1, 1, COL.WIDTH).getValues()[0];
+-  const record = recordFromRow_(values, singletonServicesMap_(recordId, expectedServices), singletonMaterialsMap_(recordId, expectedMaterials));
+-  appendHistoryOnce_(record, actor, 'APROVADA_E_PUBLICADA', STATUS.WAITING_SUPERVISOR, STATUS.PUBLISHED, '', '', publishedAt);
+-  if (options.cleanupPending) deleteRowsById_(sheet_(APP.pendingSheet), recordId, COL.ID);
+-  const pendingCopies = findRowsById_(sheet_(APP.pendingSheet), recordId).length;
+-  if (options.cleanupPending && pendingCopies) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A cópia pendente não pôde ser removida após a confirmação integral.', { recordId: recordId, pendingCopies: pendingCopies });
+-  return { ok: true, success: true, recordId: recordId, state: 'INTEGRITY_OK', officialRows: 1, services: actualServices.length, materials: actualMaterials.length, pendingCopies: pendingCopies, repairs: repairs, transformerIntegration: transformerIntegration };
++  const expected = preparePublicationSnapshot_(recordId, options.actor || 'Supervisor', '', []);
++  if (options.repair) return reconcilePublication_(recordId, expected, { cleanupPending: Boolean(options.cleanupPending) }).integrity;
++  const state = publicationStateForId_(expected.sheets, recordId);
++  const plan = bindPublicationExpectation_(recordId, expected, state);
++  if (!inspectPublication_(recordId, plan, state).complete) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A publicação ainda está incompleta. Tente aprovar novamente para concluir.', { recordId: recordId });
++  return { ok: true, success: true, recordId: recordId, state: 'INTEGRITY_OK', officialRows: 1, services: state.services.length, materials: state.materials.length, finalHistoryEvents: 1, pendingCopies: state.pending.length, repairs: [] };
+ }
+ 
+ function finalPublicationEvent_(audit) {
+@@ -1073,7 +964,7 @@
+ }
+ 
+ function pendingServicesFromRow_(values, audit, contract) {
+-  if (Array.isArray(audit.pendingServices) && audit.pendingServices.length) return audit.pendingServices.map(function (service) { return Object.assign({}, service); });
++  if (Array.isArray(audit.pendingServices)) return audit.pendingServices.map(function (service) { return Object.assign({}, service); });
+   return String(values[COL.SERVICES_SUMMARY - 1] || '').split(/\n+/).map(function (line) {
+     const parts = line.split(/\s+\|\s+/); const title = parts[0] || ''; const separator = title.indexOf(' — ');
+     const quantityMatch = String(parts[1] || '').match(/^([\d.,]+)\s*(.*)$/);
+@@ -1088,7 +979,7 @@
+ }
+ 
+ function pendingMaterialsFromRow_(values, audit) {
+-  if (Array.isArray(audit.pendingMaterials) && audit.pendingMaterials.length) return audit.pendingMaterials.map(normalizeMaterial_);
++  if (Array.isArray(audit.pendingMaterials)) return audit.pendingMaterials.map(normalizeMaterial_);
+   const parsed = []; const structuredDescriptions = {};
+   String(values[COL.MATERIALS_SUMMARY - 1] || '').split(/\n+/).forEach(function (line) {
+     const text = String(line || '').trim(); if (!text) return;
+@@ -1405,3 +1296,256 @@
+   ensureOperationalSheets_();
+   return { ok: true, version: APP.version, catalog: sheet_(APP.catalogSheet).getName(), goal: APP.teamGoal, sheets: [APP.pendingSheet, APP.officialSheet, APP.servicesSheet, APP.materialsSheet, APP.historySheet] };
+ }
++
++/** A origem é lida e validada antes do lock; somente o commit usa exclusão mútua. */
++function approvePublication_(auth, recordId, note, reportedPhotoIssues) {
++  const expected = preparePublicationSnapshot_(recordId, auth.user, note, reportedPhotoIssues);
++  const result = reconcilePublication_(recordId, expected);
++  // Fotos/produção para a resposta ficam fora da seção crítica.
++  return Object.assign(stateResponse_(recordFromRow_(result.values, singletonServicesMap_(recordId, expected.model.services), singletonMaterialsMap_(recordId, expected.model.materials)), false, true), {
++    idempotent: result.wasAlreadyComplete, alreadyPublished: result.wasAlreadyComplete,
++    reconciliationState: result.initialState, integrity: result.integrity, transformerIntegration: result.transformerIntegration
++  });
++}
++
++function publicationSheets_() {
++  const spreadsheet = spreadsheet_();
++  return { pending: sheet_(APP.pendingSheet, spreadsheet), official: sheet_(APP.officialSheet, spreadsheet),
++    services: sheet_(APP.servicesSheet, spreadsheet), materials: sheet_(APP.materialsSheet, spreadsheet), history: sheet_(APP.historySheet, spreadsheet) };
++}
++
++/** Localiza a identidade na coluna A e lê apenas seus blocos contíguos. */
++function publicationRowsForId_(sheet, recordId, width) {
++  const lastRow = sheet.getLastRow();
++  if (lastRow < 2) return [];
++  const idRange = sheet.getRange(2, 1, lastRow - 1, 1);
++  let rowNumbers;
++  if (typeof idRange.createTextFinder === 'function') {
++    rowNumbers = idRange.createTextFinder(recordId).matchEntireCell(true).matchCase(true).useRegularExpression(false).findAll().map(function (cell) { return cell.getRow(); });
++  } else {
++    // Compatibilidade com harnesses e superfícies sem TextFinder; uma leitura da coluna.
++    rowNumbers = idRange.getDisplayValues().map(function (row, index) { return String(row[0]) === recordId ? index + 2 : 0; }).filter(Boolean);
++  }
++  rowNumbers.sort(function (left, right) { return left - right; });
++  const result = [];
++  for (let index = 0; index < rowNumbers.length;) {
++    const start = rowNumbers[index]; let end = index + 1;
++    while (end < rowNumbers.length && rowNumbers[end] === rowNumbers[end - 1] + 1) end += 1;
++    sheet.getRange(start, 1, end - index, width).getValues().forEach(function (values, offset) { result.push({ row: start + offset, values: padArray_(values, width) }); });
++    index = end;
++  }
++  return result;
++}
++
++function publicationStateForId_(sheets, recordId) {
++  return { pending: publicationRowsForId_(sheets.pending, recordId, COL.WIDTH), official: publicationRowsForId_(sheets.official, recordId, COL.WIDTH),
++    services: publicationRowsForId_(sheets.services, recordId, SERVICE_HEADERS.length), materials: publicationRowsForId_(sheets.materials, recordId, MATERIAL_HEADERS.length),
++    history: publicationRowsForId_(sheets.history, recordId, HISTORY_HEADERS.length).filter(function (item) { return String(item.values[3]) === 'APROVADA_E_PUBLICADA'; }) };
++}
++
++function publicationCanonical_(value) {
++  if (value instanceof Date) return isoValue_(value);
++  if (Array.isArray(value)) return value.map(publicationCanonical_);
++  if (value && typeof value === 'object') {
++    const sorted = {}; Object.keys(value).sort().forEach(function (key) { sorted[key] = publicationCanonical_(value[key]); }); return sorted;
++  }
++  return value;
++}
++function publicationJson_(value) { return JSON.stringify(publicationCanonical_(value)); }
++function publicationText_(value) { return String(value == null ? '' : value); }
++function publicationNumber_(value) {
++  const text = publicationText_(value).trim(); const number = typeof value === 'number' ? value : Number(text.replace(',', '.'));
++  return text && Number.isFinite(number) ? number : { invalidNumber: text };
++}
++
++function publicationConflict_(recordId, table, expected, existing) {
++  const details = { recordId: recordId, state: 'CONFLICT', table: table, expected: expected, existing: existing };
++  console.error('[Publication conflict] ' + publicationJson_(details));
++  throw apiError_('PUBLISHED_RECONCILIATION_CONFLICT', 'Esta ocorrência tem registros publicados que divergem da conferência. Os dados foram preservados. Solicite a análise do responsável pelo aplicativo.', details);
++}
++
++/** Snapshot em memória; nenhuma consulta ao catálogo nem alteração de evidências. */
++function preparePublicationSnapshot_(recordId, actor, note, reportedPhotoIssues) {
++  const sheets = publicationSheets_();
++  const pending = publicationRowsForId_(sheets.pending, recordId, COL.WIDTH);
++  const official = publicationRowsForId_(sheets.official, recordId, COL.WIDTH);
++  if (pending.length > 1) publicationConflict_(recordId, APP.pendingSheet, 1, pending.length);
++  if (official.length > 1) publicationConflict_(recordId, APP.officialSheet, 1, official.length);
++  const source = pending[0] || official[0];
++  if (!source) throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada na fila ou nas publicações.');
++  const values = source.values.slice(); const audit = safeJson_(values[COL.AUDIT - 1], {});
++  const hasTransformer = String(values[COL.TYPES - 1] || '').split(' | ').indexOf(TYPES[0]) >= 0;
++  if ((reportedPhotoIssues || []).some(function (index) { return index > 5; }) && !hasTransformer) throw apiError_('INVALID_PHOTO_INDEX', 'Fotos específicas de Trafo só podem ser solicitadas em ocorrência de Trafo.');
++  if (pending.length && (operationalStatusFromValues_(values) !== STATUS.WAITING_SUPERVISOR || photoIssueIndexesFromValues_(values).length || (reportedPhotoIssues || []).length)) {
++    throw apiError_('RECORD_NOT_READY', 'A ocorrência ainda não está apta para esta decisão.');
++  }
++  if (!pending.length && String(values[COL.STATUS - 1]) !== STATUS.PUBLISHED) publicationConflict_(recordId, APP.officialSheet, STATUS.PUBLISHED, values[COL.STATUS - 1]);
++  const services = pending.length ? pendingServicesFromRow_(values, audit, String(values[COL.CONTRACT - 1] || '')) : publishedServicesFromValues_(values);
++  const materials = pending.length ? pendingMaterialsFromRow_(values, audit) : publishedMaterialsFromValues_(values);
++  // Marcar apenas a disponibilidade já armazenada evita operações de Drive na preparação.
++  const photoCache = {};
++  values.slice(COL.PHOTO_1 - 1, COL.PHOTO_5).concat([values[COL.TRAFO_REMOVED_PHOTO - 1], values[COL.TRAFO_INSTALLED_PHOTO - 1]]).forEach(function (url) { const id = extractDriveFileId_(url); if (id) photoCache['photo-public-' + id] = '1'; });
++  const original = recordFromRow_(values, singletonServicesMap_(recordId, services), singletonMaterialsMap_(recordId, materials), photoCache);
++  const model = validateAndNormalizeRecord_(original, { serviceMode: 'snapshot', original: original });
++  model.goalPercentage = official.length ? Number(official[0].values[COL.GOAL_PERCENTAGE - 1]) : (dailyTotalForTeamDate_(model.team, operationalDateFromValue_(values[COL.REGISTERED_AT - 1]), recordId) + model.totalServices) / APP.teamGoal * 100;
++  return { model: model, original: original, sourceValues: values, sourceKind: pending.length ? 'pending' : 'official', sourceFingerprint: publicationJson_(values),
++    actor: actor, note: note || '', reviewedAt: nowIso_(), sheets: sheets };
++}
++
++function publicationServiceSignature_(row) {
++  return publicationJson_([publicationText_(row[0]), publicationText_(row[1]), publicationText_(row[2]), publicationText_(row[3]),
++    publicationNumber_(row[4]), publicationNumber_(row[5]), publicationNumber_(row[6]), publicationText_(row[7]), publicationText_(row[8])]);
++}
++function publicationMaterialSignature_(row) {
++  return publicationJson_([publicationText_(row[0]), publicationText_(row[4]), publicationText_(row[5]), publicationText_(row[6]),
++    publicationNumber_(row[2]), publicationText_(row[1]), publicationText_(row[7])]);
++}
++
++/** A cardinalidade de cada assinatura importa, inclusive para linhas idênticas. */
++function publicationMultiset_(recordId, table, expectedRows, actualRows, signature) {
++  const expected = {}; const existing = {};
++  expectedRows.forEach(function (row) { const key = signature(row); expected[key] = (expected[key] || 0) + 1; });
++  actualRows.forEach(function (item) { const key = signature(item.values); existing[key] = (existing[key] || 0) + 1; });
++  Object.keys(existing).forEach(function (key) { if (!expected[key] || existing[key] > expected[key]) publicationConflict_(recordId, table, expected, existing); });
++  const used = {}; const missing = expectedRows.filter(function (row) { const key = signature(row); used[key] = (used[key] || 0) + 1; return used[key] > (existing[key] || 0); });
++  return { missing: missing, expected: expected, existing: existing };
++}
++
++function publicationAuditSource_(audit) {
++  const source = JSON.parse(JSON.stringify(audit || {}));
++  ['pendingServices', 'pendingMaterials', 'finalServices', 'finalMaterials', 'pricingValidation', 'publicationState', 'publicationStartedAt', 'publishedAt', 'lastPublicationError', 'transformerIntegration', 'lastTransformerIntegration', 'integrity'].forEach(function (key) { delete source[key]; });
++  if (Array.isArray(source.timeline)) source.timeline = source.timeline.filter(function (event) { return !event || event.action !== 'APROVADA_E_PUBLICADA'; });
++  return source;
++}
++function publicationMainSignature_(values) {
++  return publicationJson_(values.map(function (value, index) {
++    if (index === COL.UPDATED_AT - 1) return ''; // carimbo de persistência
++    if (index === COL.AUDIT - 1) return publicationAuditSource_(safeJson_(value, {}));
++    if ([COL.TOTAL - 1, COL.GOAL_PERCENTAGE - 1].indexOf(index) >= 0) return publicationNumber_(value);
++    if ([COL.REGISTERED_AT - 1, COL.REVIEWED_AT - 1].indexOf(index) >= 0) return isoValue_(value);
++    return publicationText_(value);
++  }));
++}
++
++function bindPublicationExpectation_(recordId, snapshot, state) {
++  if (state.official.length > 1) publicationConflict_(recordId, APP.officialSheet, 1, state.official.length);
++  if (state.pending.length > 1) publicationConflict_(recordId, APP.pendingSheet, 1, state.pending.length);
++  if (state.history.length > 1) publicationConflict_(recordId, APP.historySheet, 1, state.history.length);
++  if (snapshot.sourceKind === 'pending' && state.pending.length && publicationJson_(state.pending[0].values) !== snapshot.sourceFingerprint) {
++    throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A ocorrência foi atualizada durante a conferência. Abra novamente e tente aprovar.');
++  }
++  if (!state.pending.length && !state.official.length) throw apiError_('RECORD_NOT_FOUND', 'A origem da ocorrência não está mais disponível.');
++  if (snapshot.sourceKind === 'official' && state.pending.length) throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A ocorrência voltou à fila durante a conferência. Abra novamente antes de aprovar.');
++  const existing = state.official[0] && state.official[0].values; const history = state.history[0] && state.history[0].values;
++  const actor = existing ? publicationText_(existing[COL.SUPERVISOR - 1]) : (history ? publicationText_(history[2]) : snapshot.actor);
++  const reviewedAt = existing ? isoValue_(existing[COL.REVIEWED_AT - 1]) : (history ? isoValue_(history[1]) : snapshot.reviewedAt);
++  const note = existing ? publicationText_(existing[COL.SUPERVISOR_NOTE - 1]) : (history ? publicationText_(history[7]) : snapshot.note);
++  if (!actor || !reviewedAt) publicationConflict_(recordId, APP.officialSheet, 'Supervisor e data da publicação', { actor: actor, reviewedAt: reviewedAt });
++  const model = Object.assign({}, snapshot.model);
++  if (existing) model.goalPercentage = Number(existing[COL.GOAL_PERCENTAGE - 1]);
++  const audit = JSON.parse(JSON.stringify(safeJson_(snapshot.sourceValues[COL.AUDIT - 1], {})));
++  audit.finalServices = model.services.map(function (service) { return Object.assign({}, service); });
++  audit.finalMaterials = model.materials.map(function (material) { return Object.assign({}, material, { code: String(material.code || '') }); });
++  audit.publicationState = 'RECONCILIACAO_NECESSARIA'; audit.publicationStartedAt = reviewedAt;
++  audit.pricingValidation = { mode: 'SNAPSHOT_HISTORICO', base: model.base, reportedContract: snapshot.original.contract || '', derivedContract: contractForBase_(model.base), validatedAt: reviewedAt };
++  const source = snapshot.sourceValues;
++  const main = buildMainRow_(model, snapshot.original.user, source[COL.REGISTERED_AT - 1], source.slice(COL.PHOTO_1 - 1, COL.PHOTO_5), source.slice(COL.UPLOAD_KEY_1 - 1, COL.UPLOAD_KEY_5),
++    [source[COL.TRAFO_REMOVED_PHOTO - 1], source[COL.TRAFO_INSTALLED_PHOTO - 1]], [source[COL.TRAFO_REMOVED_UPLOAD_KEY - 1], source[COL.TRAFO_INSTALLED_UPLOAD_KEY - 1]], STATUS.PUBLISHED, '', note, actor, reviewedAt, audit);
++  const services = model.services.map(function (service) { return [recordId, service.code, service.catalogText, service.unit, snapshotQuantity_(service.quantity), snapshotNumber_(service.referenceValue), snapshotNumber_(service.totalValue), service.group || '', service.catalogKey || '', reviewedAt]; });
++  const materials = model.materials.map(function (material) { return [recordId, material.description, material.quantity, reviewedAt, String(material.code || ''), material.description, material.unit || '', String(model.occurrenceNumber)]; });
++  const types = model.occurrenceTypes.map(function (type) { return type === 'OUTRO' && model.otherOccurrenceType ? type + ' — ' + model.otherOccurrenceType : type; }).join(' | ');
++  const historyRow = [recordId, reviewedAt, actor, 'APROVADA_E_PUBLICADA', STATUS.WAITING_SUPERVISOR, STATUS.PUBLISHED, '', note, model.occurrenceNumber, model.team, types, model.base, model.crewLeader,
++    model.pgPostRemoved, model.pgPostInstalled, model.pgConductorStart, model.pgConductorEnd, source[COL.TRAFO_REMOVED_PHOTO - 1] || '', source[COL.TRAFO_INSTALLED_PHOTO - 1] || ''];
++  return { main: main, services: services, materials: materials, history: historyRow, audit: audit, model: model, actor: actor, reviewedAt: reviewedAt };
++}
++
++function inspectPublication_(recordId, expected, state) {
++  if (state.official.length > 1) publicationConflict_(recordId, APP.officialSheet, 1, state.official.length);
++  if (state.history.length > 1) publicationConflict_(recordId, APP.historySheet, 1, state.history.length);
++  if (state.official.length) {
++    const values = state.official[0].values;
++    if (publicationMainSignature_(values) !== publicationMainSignature_(expected.main)) publicationConflict_(recordId, APP.officialSheet, publicationMainSignature_(expected.main), publicationMainSignature_(values));
++    const audit = safeJson_(values[COL.AUDIT - 1], {});
++    // Snapshots completos no oficial também não podem ocultar uma divergência da origem.
++    if (Array.isArray(audit.finalServices) && publicationJson_(audit.finalServices) !== publicationJson_(expected.model.services)) publicationConflict_(recordId, APP.officialSheet + '.finalServices', expected.model.services, audit.finalServices);
++    if (Array.isArray(audit.finalMaterials) && publicationJson_(audit.finalMaterials.map(normalizeMaterial_)) !== publicationJson_(expected.model.materials.map(normalizeMaterial_))) publicationConflict_(recordId, APP.officialSheet + '.finalMaterials', expected.model.materials, audit.finalMaterials);
++  }
++  if (state.history.length && publicationJson_(state.history[0].values.map(function (value, index) { return index === 1 ? isoValue_(value) : publicationText_(value); })) !== publicationJson_(expected.history.map(function (value, index) { return index === 1 ? isoValue_(value) : publicationText_(value); }))) {
++    publicationConflict_(recordId, APP.historySheet, expected.history, state.history[0].values);
++  }
++  const services = publicationMultiset_(recordId, APP.servicesSheet, expected.services, state.services, publicationServiceSignature_);
++  const materials = publicationMultiset_(recordId, APP.materialsSheet, expected.materials, state.materials, publicationMaterialSignature_);
++  const artifactsComplete = state.official.length === 1 && !services.missing.length && !materials.missing.length;
++  const complete = artifactsComplete && state.history.length === 1;
++  const started = state.official.length || state.services.length || state.materials.length || state.history.length;
++  return { state: complete && !state.pending.length ? 'COMPLETE' : (started ? 'PARTIAL_RECONCILABLE' : 'NOT_STARTED'), artifactsComplete: artifactsComplete, complete: complete, services: services, materials: materials };
++}
++
++function appendPublicationRows_(sheet, rows, textColumns) {
++  if (!rows.length) return;
++  const start = sheet.getLastRow() + 1;
++  if (typeof sheet.getMaxRows === 'function' && start + rows.length - 1 > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), start + rows.length - 1 - sheet.getMaxRows());
++  (textColumns || []).forEach(function (column) { const range = sheet.getRange(start, column, rows.length, 1); if (typeof range.setNumberFormat === 'function') range.setNumberFormat('@'); });
++  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
++  flushSheets_();
++}
++
++/** Único commit para aprovação individual, lote e reparação explicitamente solicitada. */
++function reconcilePublication_(recordId, snapshot, options) {
++  options = options || {}; const sheets = snapshot.sheets;
++  const lock = LockService.getScriptLock(); let acquired = false;
++  try {
++    lock.waitLock(30000); acquired = true;
++    let state = publicationStateForId_(sheets, recordId);
++    const expected = bindPublicationExpectation_(recordId, snapshot, state);
++    const initial = inspectPublication_(recordId, expected, state);
++    const repairs = []; let transformerIntegration = state.official.length ? (safeJson_(state.official[0].values[COL.AUDIT - 1], {}).transformerIntegration || null) : null;
++    if (!initial.complete) {
++      if (!state.official.length) { appendPublicationRows_(sheets.official, [expected.main], [COL.ID, COL.OCCURRENCE_NUMBER, COL.CONTRACT]); repairs.push('OCORRENCIAS'); }
++      appendPublicationRows_(sheets.services, initial.services.missing, [1, 2, 9]); if (initial.services.missing.length) repairs.push('SERVICOS');
++      appendPublicationRows_(sheets.materials, initial.materials.missing, [1, 5, 8]); if (initial.materials.missing.length) repairs.push('MATERIAIS');
++      state = publicationStateForId_(sheets, recordId);
++      const afterArtifacts = inspectPublication_(recordId, expected, state);
++      if (!afterArtifacts.artifactsComplete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Os dados foram preservados; tente aprovar novamente.', { recordId: recordId });
++      const integrationRecord = Object.assign({}, expected.model, { registeredAt: isoValue_(expected.main[COL.REGISTERED_AT - 1]), transformerPhotos: { removed: String(expected.main[COL.TRAFO_REMOVED_PHOTO - 1] || ''), installed: String(expected.main[COL.TRAFO_INSTALLED_PHOTO - 1] || '') } });
++      transformerIntegration = integrateTransformersOnApproval_(integrationRecord);
++      // O evento final só é gravado depois de confirmar os três conjuntos finais.
++      if (!state.history.length) { appendPublicationRows_(sheets.history, [expected.history], [1, 9]); repairs.push('HISTORICO'); }
++    }
++    state = publicationStateForId_(sheets, recordId);
++    if (!inspectPublication_(recordId, expected, state).complete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Os dados foram preservados; tente aprovar novamente.', { recordId: recordId });
++    // Retomada após o histórico: a integração pode ter ocorrido antes de seu resultado entrar na auditoria.
++    if (!transformerIntegration && expected.model.occurrenceTypes.indexOf(TYPES[0]) >= 0) {
++      transformerIntegration = integrateTransformersOnApproval_(Object.assign({}, expected.model, { registeredAt: isoValue_(expected.main[COL.REGISTERED_AT - 1]), transformerPhotos: { removed: String(expected.main[COL.TRAFO_REMOVED_PHOTO - 1] || ''), installed: String(expected.main[COL.TRAFO_INSTALLED_PHOTO - 1] || '') } }));
++    }
++    const currentAudit = safeJson_(state.official[0].values[COL.AUDIT - 1], {});
++    if (currentAudit.publicationState !== 'PUBLICADA' || !finalPublicationEvent_(currentAudit)) {
++      const audit = expected.audit;
++      delete audit.pendingServices; delete audit.pendingMaterials; delete audit.lastPublicationError;
++      audit.publicationState = 'PUBLICADA'; audit.publishedAt = expected.reviewedAt;
++      transformerIntegration = transformerIntegration || currentAudit.transformerIntegration || currentAudit.lastTransformerIntegration || { applies: false, removed: 'NÃO_SE_APLICA', installed: 'NÃO_SE_APLICA', processedAt: expected.reviewedAt };
++      audit.transformerIntegration = transformerIntegration; audit.lastTransformerIntegration = transformerIntegration;
++      const timeline = Array.isArray(audit.timeline) ? audit.timeline : [];
++      if (!timeline.some(function (event) { return event && event.action === 'APROVADA_E_PUBLICADA'; })) timeline.push({ action: 'APROVADA_E_PUBLICADA', actor: expected.actor, at: expected.reviewedAt, detail: transformerIntegration.applies ? 'Integração de transformadores concluída' : 'Publicação concluída' });
++      audit.timeline = timeline;
++      sheets.official.getRange(state.official[0].row, COL.AUDIT, 1, 2).setValues([[JSON.stringify(audit), nowIso_()]]); flushSheets_();
++    }
++    // Releitura independente imediatamente antes de retirar a fonte da fila.
++    state = publicationStateForId_(sheets, recordId);
++    if (!inspectPublication_(recordId, expected, state).complete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Tente aprovar novamente.', { recordId: recordId });
++    if (options.cleanupPending !== false) {
++      if (state.pending.length > 1) publicationConflict_(recordId, APP.pendingSheet, 1, state.pending.length);
++      if (state.pending.length && snapshot.sourceKind === 'pending' && publicationJson_(state.pending[0].values) !== snapshot.sourceFingerprint) throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A ocorrência foi atualizada durante a conferência. Os dados foram preservados; abra novamente.');
++      state.pending.slice().sort(function (left, right) { return right.row - left.row; }).forEach(function (item) { sheets.pending.deleteRow(item.row); }); flushSheets_();
++    }
++    const finalState = publicationStateForId_(sheets, recordId);
++    if (!inspectPublication_(recordId, expected, finalState).complete || (options.cleanupPending !== false && finalState.pending.length)) throw apiError_('PUBLICATION_INCOMPLETE', 'A conclusão da publicação ainda precisa ser confirmada. Tente novamente.', { recordId: recordId });
++    return { values: finalState.official[0].values, initialState: initial.state, wasAlreadyComplete: initial.complete, transformerIntegration: transformerIntegration,
++      integrity: { ok: true, success: true, recordId: recordId, state: 'INTEGRITY_OK', officialRows: 1, services: finalState.services.length, materials: finalState.materials.length, finalHistoryEvents: 1, pendingCopies: finalState.pending.length, repairs: repairs } };
++  } catch (error) {
++    if (error.code) throw error;
++    throw apiError_('PUBLICATION_INTERRUPTED', 'Não foi possível confirmar a aprovação agora. Os dados foram preservados; tente aprovar novamente.', { recordId: recordId, cause: String(error.message || error) });
++  } finally {
++    if (acquired) { try { flushSheets_(); } finally { lock.releaseLock(); } }
++  }
++}
