@@ -62,7 +62,7 @@ test('contador tem destaque e proteção mobile', () => {
 
 test('requests continuam protegidos por AbortController e timeout', () => {
   assert.match(apiSource, /new AbortController\(\)/);
-  assert.match(apiSource, /setTimeout\(\(\) => controller\.abort\(\), timeoutMs\)/);
+  assert.match(apiSource, /setTimeout\(\(\) => \{[\s\S]*?controller\.abort\(\);\s*\}, timeoutMs\)/);
   assert.match(apiSource, /options\.timeoutMs \|\| 35000/);
 });
 

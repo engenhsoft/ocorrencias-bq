@@ -41,6 +41,7 @@ function appHarness(role = 'supervisor', source = appSource) {
     mineRefreshPromise: null, mineRefreshRevision: -1, mineFilter: 'all', mineAutoFilterPending: false,
     supervisorRefreshPromise: null, supervisorRefreshRevision: -1, supervisorLoading: false, supervisorLoadError: null,
     supervisorDataLoaded: false, supervisorRecords: [], supervisorPendingRecords: [], supervisorMetricRecords: [],
+    supervisorLoadState: 'idle', supervisorLastLoadedAt: '',
     supervisorPhotoFailures: new Map(), selectedSupervisorIds: new Set(), supervisorTab: 'occurrences', supervisorPendingFilter: 'photos',
     supervisorMutationRunning: false, supervisorRefreshTimer: null, LAST_USER_KEY: 'fixture-last-user',
     SYNCABLE_STATUSES: new Set([core.RECORD_STATUS.PENDING, core.RECORD_STATUS.ERROR]),
@@ -67,7 +68,7 @@ function appHarness(role = 'supervisor', source = appSource) {
     logout: () => { c.session = null; c.sessionRevision++; events.push('logout'); },
     bindEvents() {}, renderPhotoGrid() {}, renderMaterials() {}, renderServices() {}, updateNetworkUi() {}, setupServiceWorker() {}
   };
-  const names = ['emptyState', 'ensureLocalStorage', 'showLogin', 'initialize', 'handleLogin', 'enterApplication', 'navigate', 'assertServerRecordList', 'refreshMine', 'renderMineList', 'refreshSupervisor', 'renderSupervisorList'];
+  const names = ['emptyState', 'ensureLocalStorage', 'showLogin', 'initialize', 'handleLogin', 'enterApplication', 'navigate', 'assertServerRecordList', 'refreshMine', 'renderMineList', 'normalizeSupervisorRecordList', 'refreshSupervisor', 'renderSupervisorCards', 'renderSupervisorList'];
   vm.createContext(c); vm.runInContext(names.filter(name => source.includes('function ' + name + '(')).map(name => extract(source, name)).join('\n'), c);
   return { c, elements, events, intervals };
 }

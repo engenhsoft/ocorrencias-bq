@@ -33,7 +33,7 @@ test('tipos ausentes não lançam exceção', () => assert.equal(core.requiredPh
 test('tipos objeto não lançam exceção', () => assert.deepEqual(core.photoIssueIndexes({ ...realPost, occurrenceTypes: {} }), []));
 test('tipos históricos separados por pipe são preservados', () => assert.deepEqual(core.normalizeOccurrenceTypes('SUBSTITUIÇÃO DE POSTE | PODA'), ['SUBSTITUIÇÃO DE POSTE', 'PODA']));
 test('photos string não é contado como cinco evidências', () => {
-  const record = core.normalizeOccurrenceRecord({ ...realPost, photos: 'https://foto' }); assert.deepEqual(record.photos, []); assert.ok(core.photoIssueIndexes(record).length);
+  const record = core.normalizeOccurrenceRecord({ ...realPost, photos: 'https://foto' }); assert.equal(record.photos.filter(Boolean).length, 0); assert.ok(core.photoIssueIndexes(record).length);
 });
 test('OUTRO exige tipo avulso', () => assert.ok(core.validateOccurrence({ ...realPost, occurrenceTypes: ['OUTRO'], otherOccurrenceType: '' }).includes('Informe o tipo da ocorrência.')));
 test('OUTRO preenchido é aceito', () => assert.equal(core.validateOccurrence({ ...realPost, occurrenceTypes: ['OUTRO'], otherOccurrenceType: 'AVULSO' }).includes('Informe o tipo da ocorrência.'), false));
@@ -41,7 +41,7 @@ test('CONDUTOR exige PG inicial', () => assert.ok(core.validateOccurrence({ ...r
 test('CONDUTOR exige PG final', () => assert.ok(core.validateOccurrence({ ...realPost, occurrenceTypes: ['SUBSTITUIÇÃO DE CONDUTOR'], pgConductorStart: 'I', pgConductorEnd: '' }).some((item) => item.includes('PG final'))));
 test('TRAFO exige evidências específicas', () => assert.ok(core.validateOccurrence({ ...realPost, occurrenceTypes: ['SUBSTITUIÇÃO DE TRAFO'], transformer: { removedCode: '999999', removedCia: '1', removedBto: '1', newCode: '2', newCia: '2', newBto: '2' } }).some((item) => item.includes('evidência'))));
 test('999999 continua aceito somente no trafo retirado', () => assert.equal(core.validateOccurrence({ ...realPost, occurrenceTypes: ['SUBSTITUIÇÃO DE TRAFO'], transformer: { removedCode: '999999', removedCia: '1', removedBto: '1', newCode: '2', newCia: '2', newBto: '2' }, transformerPhotos: { removed: 'r', installed: 'i' } }).some((item) => item.includes('código do trafo retirado')), false));
-test('999999 continua inválido no trafo novo', () => assert.ok(core.validateOccurrence({ ...realPost, occurrenceTypes: ['SUBSTITUIÇÃO DE TRAFO'], transformer: { removedCode: '1', removedCia: '1', removedBto: '1', newCode: '999999', newCia: '2', newBto: '2' }, transformerPhotos: { removed: 'r', installed: 'i' } }).some((item) => item.includes('trafo novo'))));
+test('999999 continua inválido no trafo novo', () => assert.ok(core.validateOccurrence({ ...realPost, occurrenceTypes: ['SUBSTITUIÇÃO DE TRAFO'], transformer: { removedCode: '1', removedCia: '1', removedBto: '1', newCode: '999999', newCia: '2', newBto: '2' }, transformerPhotos: { removed: 'r', installed: 'i' } }).some((item) => item.includes('série válida para o transformador instalado'))));
 
 for (const [value, expected] of [
   [undefined, []], [null, []], ['', []], [[], []], [[1, 2], [1, 2]], ['1,2', [1, 2]], ['[1,2]', [1, 2]], [2, [2]], [{}, []]
@@ -82,7 +82,7 @@ test('fila não conta foto já confirmada sem substituição', () => {
 });
 
 let apiSource = await read('api.js');
-apiSource = apiSource.replace("from './config.js'", `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'test',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
+apiSource = apiSource.replace(/from '\.\/config\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'test',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
 Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, configurable: true });
 const apiModule = await import(dataUrl(apiSource));
 const response = (text, { ok = true, status = 200 } = {}) => ({ ok, status, text: async () => text });
@@ -158,7 +158,7 @@ const fakeIndexedDb = createFakeIndexedDb();
 globalThis.indexedDB = fakeIndexedDb;
 globalThis.IDBKeyRange = { only: (value) => value };
 let dbSource = await read('db.js');
-dbSource = dbSource.replace("from './core.js'", `from '${coreUrl}'`);
+dbSource = dbSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`);
 const db = await import(dataUrl(dbSource));
 const storedRecord = { ...realPost, status: core.RECORD_STATUS.PENDING, user: 'Alice', otherOccurrenceType: '', pgConductorStart: '', pgConductorEnd: '', transformer: {}, photoStates: [{ photoIndex: 1, localReady: true, uploadKey: 'up-1' }] };
 test('IndexedDB abre o banco oficial', async () => assert.equal((await db.openDatabase()).objectStoreNames.contains('records'), true));
@@ -207,6 +207,7 @@ function fakeElement() {
   const element = {
     hidden: false, disabled: false, checked: false, indeterminate: false, value: '', returnValue: '', textContent: '', innerHTML: '', dataset: {}, style: {}, open: false, className: '',
     classList: { add() {}, remove() {}, toggle() {} }, append() {}, remove() {}, focus() {}, scrollIntoView() {}, querySelector() { return null; }, querySelectorAll() { return this.queryResults || []; },
+    attributes: {}, setAttribute(key, value) { this.attributes[key] = String(value); }, getAttribute(key) { return this.attributes[key] ?? null; },
     addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); },
     removeEventListener(type, handler) { listeners.get(type)?.delete(handler); },
     dispatchEvent(event) { for (const handler of [...(listeners.get(event.type) || [])]) handler.call(this, event); },
@@ -224,16 +225,17 @@ async function loadAppHarness() {
     export const getQueueSummary=async()=>({pendingRecords:[],pendingPhotos:0,syncingPhotos:0,errors:0});
     export const getRecord=async()=>globalThis.__dbRecord||null; export const openDatabase=async()=>{};
     export const putPhotoAndRecord=async record=>({record,photo:{}}); export const putRecord=async record=>globalThis.__putRecord?globalThis.__putRecord(record):record;
-    export const searchCachedCatalog=async()=>[]; export const setMeta=async()=>{};
+    export const clearMetaIfValue=async()=>true; export const searchCachedCatalog=async()=>[]; export const setMeta=async()=>{};
   `);
   const apiStub = dataUrl(`
+    export { loadOccurrenceDataset } from '${dataUrl(apiSource)}';
     export class ApiError extends Error { constructor(message,code='API_ERROR'){super(message);this.code=code;} }
     const call=(name,...args)=>globalThis.__apiHandlers?.[name]?.(...args);
     export const api=new Proxy({}, {get:(_,name)=>(...args)=>call(name,...args)});
     export const blobToDataUrl=async()=> 'data:image/jpeg;base64,AA=='; export const endpointConfigured=()=>true; export const healthCheck=async()=>({version:'test',timestamp:new Date().toISOString()}); export const loadMaterialCatalog=async()=>[];
   `);
   let source = await read('app.js');
-  source = source.replace("from './core.js'", `from '${coreUrl}'`).replace("from './db.js'", `from '${dbStub}'`).replace("from './api.js'", `from '${apiStub}'`);
+  source = source.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`).replace(/from '\.\/db\.js(?:\?v=[^']+)?'/g, `from '${dbStub}'`).replace(/from '\.\/api\.js(?:\?v=[^']+)?'/g, `from '${apiStub}'`);
   source = source.replace(/\ninitialize\(\)\.catch\([\s\S]*?\);\s*$/, '\n');
   source += `
     export function __set(v={}){if('session'in v)session=v.session;if('activeRecord'in v)activeRecord=v.activeRecord;if('mineRecords'in v)mineRecords=v.mineRecords;if('supervisorRecords'in v)supervisorRecords=v.supervisorRecords;if('selectedIds'in v)selectedSupervisorIds=new Set(v.selectedIds);if('activeSupervisorRecord'in v)activeSupervisorRecord=v.activeSupervisorRecord;if('supervisorEditRecord'in v)supervisorEditRecord=v.supervisorEditRecord;supervisorPhotoFailures.clear()}
@@ -311,9 +313,11 @@ test('fechar decisão por Escape não reutiliza confirmação anterior', async (
   const pending = app.collectDecision('reject'); document.querySelector('#decisionReason').value = 'Motivo digitado'; dialog.close();
   assert.equal(await pending, null);
 });
-test('Supervisor deriva contagem de fotos em registro histórico', () => {
+test('Supervisor deriva contagem de fotos em registro histórico', async () => {
   const record = { recordId: 'S-history', occurrenceNumber: 'HISTORY', status: core.RECORD_STATUS.WAITING_SUPERVISOR, occurrenceTypes: ['PODA'], photos: ['a', 'b', 'c'] };
-  app.__set({ supervisorRecords: [record], selectedIds: [] }); app.renderSupervisorList();
+  app.persistSession({ token: 'fixture', user: 'Sup', role: 'supervisor' });
+  globalThis.__apiHandlers = { listPending: async () => ({ records: [record], pendingRecords: [], metricRecords: [{ recordId: record.recordId, status: record.status }] }) };
+  await app.refreshSupervisor();
   assert.match(document.querySelector('#supervisorList').innerHTML, />3\/5 fotos gerais</); assert.doesNotMatch(document.querySelector('#supervisorList').innerHTML, /undefined\/5/);
 });
 test('detalhe histórico ignora entradas nulas de auditoria', () => {

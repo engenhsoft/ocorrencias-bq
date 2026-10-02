@@ -59,7 +59,7 @@ test('abas e filtros de pendência são exatamente os solicitados', () => {
 });
 
 test('painel deriva tudo de uma única chamada listPending', () => {
-  assert.equal((appSource.match(/await api\.listPending\(/g) || []).length, 1);
+  assert.equal((appSource.match(/api\.listPending\(/g) || []).length, 1);
   assert.match(appSource, /result\.pendingRecords/);
   assert.match(appSource, /result\.metricRecords/);
 });

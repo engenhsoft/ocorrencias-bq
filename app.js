@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.01.2';
+} from './core.js?v=2026.10.01.4';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.01.2';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.01.2';
+} from './db.js?v=2026.10.01.4';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.01.4';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -144,6 +144,8 @@ let supervisorPendingFilter = 'photos';
 let selectedSupervisorIds = new Set();
 let supervisorLoadError = null;
 let supervisorLoading = false;
+let supervisorLoadState = 'idle';
+let supervisorLastLoadedAt = '';
 let activeSupervisorRecord = null;
 let reviewOrder = [];
 let reviewTab = 'occurrences';
@@ -240,6 +242,8 @@ function clearSessionUiState() {
   restoreSupervisorFilters();
   supervisorPendingFilter = 'photos';
   supervisorLoading = false;
+  supervisorLoadState = 'idle';
+  supervisorLastLoadedAt = '';
   supervisorLoadError = null;
   selectedSupervisorIds.clear();
   activeSupervisorRecord = null;
@@ -1777,37 +1781,55 @@ function resetForm({ preserveTeam = false } = {}) {
   renderServices(); renderMaterials(); renderPhotoGrid(); validateStepOne(false); goToStep(1); if (team) loadDailyProduction(team, false);
 }
 
-async function refreshSupervisor(notify = false) {
+function normalizeSupervisorRecordList(records, label, summary = false) {
+  const valid = [];
+  for (const [index, source] of records.entries()) {
+    try {
+      assertServerRecordList([source], label);
+      const record = summary ? { ...source } : normalizeOccurrenceRecord(source, `${label}[${index}]`);
+      record.recordId = source.recordId.trim();
+      for (const field of ['base', 'team', 'crewLeader', 'occurrenceNumber', 'user', 'contract']) {
+        const value = record[field];
+        record[field] = value == null ? '' : String(value);
+      }
+      valid.push(record);
+    } catch (error) {
+      console.warn('[Supervisor] Registro inválido; os demais continuam disponíveis.', { label, index, recordId: source?.recordId, code: error.code || error.name });
+    }
+  }
+  if (records.length && !valid.length) {
+    throw new ApiError('O servidor retornou uma lista de ocorrências inválida. Tente novamente.', 'INVALID_OCCURRENCE_PAYLOAD', { label });
+  }
+  return uniqueRecordsById(valid);
+}
+
+function refreshSupervisor(notify = false) {
   const requestSession = session; const revision = sessionRevision;
   if (!requestSession || requestSession.role !== 'supervisor') return null;
   if (supervisorRefreshPromise && supervisorRefreshRevision === revision) return supervisorRefreshPromise;
-  if (!navigator.onLine) {
-    const error = new ApiError('O painel do supervisor precisa de conexão.', 'OFFLINE');
-    supervisorLoading = false;
-    supervisorLoadError = error;
-    renderSupervisorList(error); if (notify) toast(error.message, 'error'); return null;
-  }
-  supervisorLoading = true;
-  supervisorLoadError = null;
-  setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
-  renderSupervisorList();
-  const task = (async () => {
+  const isCurrent = () => revision === sessionRevision && session?.role === 'supervisor';
+  // Registrar a Promise antes de renderizar evita cargas concorrentes na ativação.
+  const task = Promise.resolve().then(async () => {
+    if (!isCurrent()) return null;
     try {
+      supervisorLoading = true;
+      supervisorLoadState = 'loading';
+      supervisorLoadError = null;
+      setBusy(elements.refreshSupervisorButton, true, 'Atualizando…');
+      if (!navigator.onLine) throw new ApiError('O painel do supervisor precisa de conexão.', 'OFFLINE');
+      try { renderSupervisorList(); }
+      catch (renderError) { console.error('[Supervisor] Falha ao exibir carregamento; a consulta continua.', renderError); }
       const result = await loadOccurrenceDataset(() => api.listPending(requestSession.token), (result) => {
-        if (!Array.isArray(result.records) || !Array.isArray(result.pendingRecords) || !Array.isArray(result.metricRecords)) {
+        if (!Array.isArray(result?.records) || !Array.isArray(result?.pendingRecords) || !Array.isArray(result?.metricRecords)) {
           throw new ApiError('O servidor retornou um painel incompleto. Tente novamente.', 'INVALID_SUPERVISOR_PAYLOAD');
         }
-        assertServerRecordList(result.records, 'listPending.records');
-        assertServerRecordList(result.pendingRecords, 'listPending.pendingRecords');
-        assertServerRecordList(result.metricRecords, 'listPending.metricRecords');
         return {
-          records: uniqueRecordsById(normalizeOccurrenceRecords(result.records, 'listPending.records')),
-          pendingRecords: uniqueRecordsById(normalizeOccurrenceRecords(result.pendingRecords, 'listPending.pendingRecords')),
-          metricRecords: result.metricRecords
+          records: normalizeSupervisorRecordList(result.records, 'listPending.records'),
+          pendingRecords: normalizeSupervisorRecordList(result.pendingRecords, 'listPending.pendingRecords'),
+          metricRecords: normalizeSupervisorRecordList(result.metricRecords, 'listPending.metricRecords', true)
         };
-      }, { initial: !supervisorDataLoaded, isCurrent: () => revision === sessionRevision && session?.role === 'supervisor' });
-      if (revision !== sessionRevision || session?.role !== 'supervisor') return null;
-      if (!result) return null;
+      }, { initial: !supervisorDataLoaded, isCurrent });
+      if (!isCurrent() || !result) return null;
       const records = result.records;
       const pendingRecords = result.pendingRecords;
       const metricSource = result.metricRecords || [];
@@ -1818,25 +1840,39 @@ async function refreshSupervisor(notify = false) {
       supervisorMetricRecords = metricRecords;
       supervisorDataLoaded = true;
       supervisorLoading = false;
+      supervisorLoadState = records.length || pendingRecords.length || metricRecords.length ? 'success' : 'empty';
+      supervisorLastLoadedAt = new Date().toISOString();
       supervisorLoadError = null;
       populateSupervisorFilters();
-      renderSupervisorNavigation(); renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return [...supervisorRecords, ...supervisorPendingRecords];
+      renderSupervisorList(); if (notify) toast('Painel atualizado.', 'success'); return [...supervisorRecords, ...supervisorPendingRecords];
     } catch (error) {
       if (revision !== sessionRevision) return null;
       supervisorLoading = false;
+      supervisorLoadState = 'error';
       if (error instanceof ApiError && error.code === 'AUTH_REQUIRED') logout();
       else {
         console.error('[Supervisor] Falha ao atualizar ocorrências.', error);
         const message = friendlyError(error);
-        supervisorLoadError = error instanceof ApiError ? error : new ApiError('Não foi possível atualizar as ocorrências. Tente novamente.', 'SUPERVISOR_REFRESH_ERROR');
-        renderSupervisorList(supervisorLoadError);
+        supervisorLoadError = error instanceof ApiError ? error : new ApiError('Não foi possível carregar as ocorrências. Tente novamente.', 'SUPERVISOR_REFRESH_ERROR');
+        try { renderSupervisorList(supervisorLoadError); }
+        catch (renderError) {
+          console.error('[Supervisor] Falha ao renderizar estado de erro.', renderError);
+          elements.supervisorList.setAttribute('aria-busy', 'false');
+          elements.supervisorList.dataset.state = 'error';
+          if (!supervisorDataLoaded) [elements.supervisorKpiTotal, elements.supervisorKpiWaiting, elements.supervisorKpiCorrection, elements.supervisorKpiRejected, elements.supervisorKpiSync, elements.supervisorOccurrencesBadge, elements.supervisorPendingBadge, elements.supervisorPublishedBadge, elements.supervisorPhotosBadge, elements.supervisorCorrectionBadge].forEach((item) => { item.textContent = 'Erro'; });
+          setSupervisorSummary('Falha ao carregar', 'error');
+          elements.supervisorList.innerHTML = `${emptyState('Não foi possível carregar as ocorrências.', friendlyError(supervisorLoadError))}<button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button>`;
+        }
         if (notify) toast(message, 'error');
       }
       return null;
     }
-  })();
+  });
   const monitored = task.finally(() => {
-    if (supervisorRefreshPromise === monitored) { supervisorRefreshPromise = null; supervisorRefreshRevision = -1; setBusy(elements.refreshSupervisorButton, false); }
+    if (supervisorRefreshPromise === monitored) {
+      supervisorRefreshPromise = null; supervisorRefreshRevision = -1;
+      if (isCurrent()) { supervisorLoading = false; setBusy(elements.refreshSupervisorButton, false); }
+    }
   });
   supervisorRefreshPromise = monitored; supervisorRefreshRevision = revision;
   return monitored;
@@ -1915,6 +1951,7 @@ function filteredSupervisorRecords() {
 
 function renderSupervisorNavigation() {
   const metrics = supervisorKpis(supervisorMetricRecords);
+  const unavailable = supervisorLoadState === 'error' ? 'Erro' : '—';
   elements.supervisorKpis.setAttribute('aria-busy', String(supervisorLoading && !supervisorDataLoaded));
   if (supervisorDataLoaded) {
     elements.supervisorKpiTotal.textContent = metrics.published;
@@ -1922,12 +1959,14 @@ function renderSupervisorNavigation() {
     elements.supervisorKpiCorrection.textContent = metrics.waitingCorrection;
     elements.supervisorKpiRejected.textContent = metrics.rejected;
     elements.supervisorKpiSync.textContent = metrics.pendingSync;
+  } else {
+    [elements.supervisorKpiTotal, elements.supervisorKpiWaiting, elements.supervisorKpiCorrection, elements.supervisorKpiRejected, elements.supervisorKpiSync].forEach((item) => { item.textContent = unavailable; });
   }
-  elements.supervisorOccurrencesBadge.textContent = supervisorDataLoaded ? metrics.waitingConference : '—';
-  elements.supervisorPendingBadge.textContent = supervisorDataLoaded ? metrics.pending : '—';
-  elements.supervisorPublishedBadge.textContent = supervisorDataLoaded ? metrics.published : '—';
-  elements.supervisorPhotosBadge.textContent = supervisorDataLoaded ? metrics.pendingSync : '—';
-  elements.supervisorCorrectionBadge.textContent = supervisorDataLoaded ? metrics.waitingCorrection : '—';
+  elements.supervisorOccurrencesBadge.textContent = supervisorDataLoaded ? metrics.waitingConference : unavailable;
+  elements.supervisorPendingBadge.textContent = supervisorDataLoaded ? metrics.pending : unavailable;
+  elements.supervisorPublishedBadge.textContent = supervisorDataLoaded ? metrics.published : unavailable;
+  elements.supervisorPhotosBadge.textContent = supervisorDataLoaded ? metrics.pendingSync : unavailable;
+  elements.supervisorCorrectionBadge.textContent = supervisorDataLoaded ? metrics.waitingCorrection : unavailable;
   const attentionCount = metrics.waitingConference + metrics.pending;
   elements.supervisorNavCount.hidden = !supervisorDataLoaded || !attentionCount;
   elements.supervisorNavCount.textContent = attentionCount;
@@ -1983,29 +2022,44 @@ function publishedSupervisorCard(record) {
   return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--success">Publicada</span></header><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Publicada em</span><strong>${escapeHtml(formatDateTime(record.publishedAt || record.approvedAt || record.reviewedAt))}</strong></div></div><footer class="record-card__footer"><span>Somente visualização</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></footer></div></article>`;
 }
 
+function renderSupervisorCards(records, renderCard) {
+  return records.map((record) => {
+    try { return renderCard(record); }
+    catch (error) {
+      console.error('[Supervisor] Falha ao exibir uma ocorrência.', { recordId: record.recordId, error });
+      return `<article class="record-card">${emptyState('Não foi possível exibir esta ocorrência.', `UUID: ${record.recordId}. Os demais registros continuam disponíveis.`)}</article>`;
+    }
+  }).join('');
+}
+
 function renderSupervisorList(error = null) {
   const loadError = error || supervisorLoadError;
-  const visibleRecords = filteredSupervisorRecords();
-  const activeRecords = supervisorActiveRecords();
   const photoSyncArea = supervisorTab === 'pending' && supervisorPendingFilter === 'photos';
   elements.photoSyncBatchToolbar.hidden = !photoSyncArea;
-  elements.requestAllPhotoSyncButton.disabled = supervisorMutationRunning || supervisorLoading || Boolean(loadError) || !visibleRecords.length;
+  elements.requestAllPhotoSyncButton.disabled = true;
   renderSupervisorNavigation();
-  elements.approveAllFooter.hidden = supervisorTab !== 'occurrences' || !visibleRecords.length;
   elements.supervisorList.setAttribute('aria-busy', String(supervisorLoading));
+  elements.supervisorList.dataset.state = supervisorLoadState;
+  elements.supervisorFilterSummary.dataset.updatedAt = supervisorLastLoadedAt;
+  elements.supervisorFilterSummary.title = supervisorLastLoadedAt ? `Última carga válida: ${formatDateTime(supervisorLastLoadedAt)}` : '';
   if (loadError) {
     elements.approveAllFooter.hidden = true;
     setSupervisorSummary(supervisorDataLoaded ? 'Falha ao atualizar · números da última carga' : 'Falha ao carregar', 'error');
     selectedSupervisorIds.clear();
-    elements.supervisorList.innerHTML = `${emptyState('Não foi possível carregar', friendlyError(loadError))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`;
-    updateSupervisorSelectionUi(); return;
+    elements.supervisorList.innerHTML = `${emptyState('Não foi possível carregar as ocorrências.', friendlyError(loadError))}<div class="empty-state-action"><button class="button button--primary" type="button" data-supervisor-retry>Tentar novamente</button></div>`;
+    elements.approveSelectedButton.disabled = true; elements.approveAllButton.disabled = true; return;
   }
   if (supervisorLoading && !supervisorDataLoaded) {
     elements.approveAllFooter.hidden = true;
     setSupervisorSummary('Carregando ocorrências…', 'loading');
     elements.supervisorList.innerHTML = emptyState('Carregando ocorrências…', 'Aguarde enquanto buscamos ocorrências e pendências em uma única carga.');
-    updateSupervisorSelectionUi(); return;
+    elements.approveSelectedButton.disabled = true; elements.approveAllButton.disabled = true; return;
   }
+  const visibleRecords = filteredSupervisorRecords();
+  const activeRecords = supervisorActiveRecords();
+  elements.requestAllPhotoSyncButton.disabled = supervisorMutationRunning || supervisorLoading || !visibleRecords.length;
+  elements.approveAllFooter.hidden = supervisorTab !== 'occurrences' || !visibleRecords.length;
+  elements.approveAllButton.disabled = !visibleRecords.length;
   const { from, to } = supervisorFilterRange();
   if (!validDateRange(from, to)) {
     elements.approveAllFooter.hidden = true;
@@ -2029,23 +2083,23 @@ function renderSupervisorList(error = null) {
   }
   if (supervisorTab === 'pending') {
     selectedSupervisorIds.clear();
-    elements.supervisorList.innerHTML = visibleRecords.map(pendingSupervisorCard).join('');
+    elements.supervisorList.innerHTML = renderSupervisorCards(visibleRecords, pendingSupervisorCard);
     updateSupervisorSelectionUi(); return;
   }
   if (supervisorTab === 'published') {
     selectedSupervisorIds.clear();
-    elements.supervisorList.innerHTML = visibleRecords.slice(0, publishedVisibleLimit).map(publishedSupervisorCard).join('')
+    elements.supervisorList.innerHTML = renderSupervisorCards(visibleRecords.slice(0, publishedVisibleLimit), publishedSupervisorCard)
       + (visibleRecords.length > publishedVisibleLimit ? `<div class="empty-state-action"><button class="button button--ghost" type="button" data-published-more>Carregar mais publicadas (${visibleRecords.length - publishedVisibleLimit} restantes)</button></div>` : '');
     updateSupervisorSelectionUi(); return;
   }
-  elements.supervisorList.innerHTML = visibleRecords.map((record) => {
+  elements.supervisorList.innerHTML = renderSupervisorCards(visibleRecords, (record) => {
     const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const pricingIssues = supervisorPricingIssues(record); const eligible = !issues.length && !pricingIssues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
     const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
     return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><div class="supervisor-title-line"><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3>${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}</div><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></footer></div></article>`;
-  }).join(''); updateSupervisorSelectionUi();
+  }); updateSupervisorSelectionUi();
 }
 
 function handleSupervisorListClick(event) {

@@ -99,8 +99,8 @@ test('Supervisor coalesce refresh e termina em erro recuperável', () => {
   assert.match(appSource, /supervisorLoading = false;[\s\S]*?renderSupervisorList\(supervisorLoadError\)/);
   assert.match(appSource, /data-supervisor-retry/);
   assert.match(appSource, /números da última carga/);
-  assert.match(appSource, /!Array\.isArray\(result\.records\) \|\| !Array\.isArray\(result\.pendingRecords\)/);
-  assert.match(appSource, /supervisorDataLoaded \? metrics\.pending : '—'/);
+  assert.match(appSource, /!Array\.isArray\(result\?\.records\) \|\| !Array\.isArray\(result\?\.pendingRecords\)/);
+  assert.match(appSource, /supervisorDataLoaded \? metrics\.pending : unavailable/);
 });
 
 test('login e troca de perfil rejeitam submissões concorrentes', () => {

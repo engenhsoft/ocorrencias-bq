@@ -64,7 +64,7 @@ test('registro histórico MATERIAL + QUANTIDADE continua compatível', () => {
 });
 
 let apiSource = await read('api.js');
-apiSource = apiSource.replace("from './config.js'", `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'sheet-id',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
+apiSource = apiSource.replace(/from '\.\/config\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'sheet-id',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
 const apiModule = await import(dataUrl(apiSource));
 test('carregamento JSONP usa a aba oficial e preserva código formatado', async () => {
   let requestedUrl = '';
@@ -99,7 +99,7 @@ function createFakeIndexedDb() {
 globalThis.indexedDB = createFakeIndexedDb();
 globalThis.IDBKeyRange = { only: (value) => value };
 let dbSource = await read('db.js');
-dbSource = dbSource.replace("from './core.js'", `from '${coreUrl}'`);
+dbSource = dbSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`);
 const db = await import(dataUrl(dbSource));
 test('catálogo deduplicado persiste no IndexedDB', async () => {
   await db.cacheMaterialCatalog(catalog); const cached = await db.getCachedMaterialCatalog(); assert.equal(cached.length, 4); assert.equal(cached.every((item) => item.origin === 'Caderno de Obras'), true);

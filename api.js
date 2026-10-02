@@ -1,4 +1,4 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.01.2';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.01.4';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -49,10 +49,18 @@ export async function loadOccurrenceDataset(request, validate, { initial = false
   return isCurrent() ? validate(result) : null;
 }
 
-async function withTimeout(promiseFactory, timeoutMs) {
+async function withTimeout(promiseFactory, timeoutMs, enforceDeadline = false) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await promiseFactory(controller.signal); }
+  let rejectDeadline;
+  const deadline = enforceDeadline ? new Promise((_, reject) => { rejectDeadline = reject; }) : null;
+  const timer = setTimeout(() => {
+    rejectDeadline?.(new ApiError('Não foi possível carregar as ocorrências no tempo esperado. Tente novamente.', 'TIMEOUT'));
+    controller.abort();
+  }, timeoutMs);
+  try {
+    const request = promiseFactory(controller.signal);
+    return await (deadline ? Promise.race([request, deadline]) : request);
+  }
   catch (error) {
     if (error?.name === 'AbortError') throw new ApiError('Tempo de conexão esgotado. O item foi mantido para nova tentativa.', 'TIMEOUT');
     if (error instanceof ApiError) throw error;
@@ -89,7 +97,7 @@ export async function apiRequest(action, payload = {}, options = {}) {
       signal
     });
     return parseResponse(response);
-  }, options.timeoutMs || 35000);
+  }, options.timeoutMs || 35000, options.enforceDeadline === true);
 }
 
 export function loadMaterialCatalog(options = {}) {
@@ -158,7 +166,7 @@ export const api = Object.freeze({
   getRecordState: (token, recordId) => apiRequest('getRecordState', { token, recordId }),
   getDailyTeamProduction: (token, team, date, recordId = '') => apiRequest('getDailyTeamProduction', { token, team, date, recordId }),
   listMine: (token) => apiRequest('listMine', { token }, { timeoutMs: 60000 }),
-  listPending: (token) => apiRequest('listPending', { token }, { timeoutMs: 60000 }),
+  listPending: (token) => apiRequest('listPending', { token }, { timeoutMs: 60000, enforceDeadline: true }),
   listPublishedRecords: (token, recordIds) => apiRequest('listPublishedRecords', { token, recordIds }),
   supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
   supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 }),
