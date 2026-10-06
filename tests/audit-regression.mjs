@@ -83,6 +83,7 @@ test('fila não conta foto já confirmada sem substituição', () => {
 });
 
 let apiSource = await read('api.js');
+apiSource = apiSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`);
 apiSource = apiSource.replace(/from '\.\/config\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'test',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
 Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, configurable: true });
 const apiModule = await import(dataUrl(apiSource));
@@ -289,7 +290,7 @@ test('erro técnico vindo da API não é exibido cru', () => {
 test('tratamento de foto não envia error.message diretamente ao usuário', async () => {
   const source = await read('app.js');
   assert.doesNotMatch(source, /catch \(error\) \{ toast\(error\.message \|\| 'Não foi possível preparar a foto\.'/);
-  assert.match(source, /catch \(error\) \{ toast\(friendlyError\(error\), 'error'\); \}/);
+  assert.match(source, /catch \(error\) \{ if \(isCurrent\(\)\) toast\(friendlyError\(error\), 'error'\); \}/);
 });
 test('duas confirmações simultâneas não reabrem o mesmo dialog', async () => {
   const dialog = document.querySelector('#confirmDialog');

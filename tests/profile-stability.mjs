@@ -86,6 +86,19 @@ for (const [phase, root, backendPath] of [['before', beforeRoot, beforeBackend],
     assert.equal(h.saved.get('a').status, core.RECORD_STATUS.WAITING_SUPERVISOR);
     return { syncMs: performance.now() - start, requests, submits };
   });
+  await measure('Pesquisa obsoleta: fallback local de 20 ms simulado', async () => {
+    let rejectRequest, cacheReads = 0;
+    const c = { ...core, session: { token: 'ficticio' }, sessionRevision: 1, catalogSearchRequestId: 1,
+      navigator: { onLine: true }, catalogResults: [], console: context.console,
+      elements: { serviceSearch: { value: 'antigo' }, operationBase: { value: 'CAICÓ' }, searchSpinner: {}, serviceSearchHint: {}, serviceResults: {} },
+      api: { searchCatalog: () => new Promise((_resolve, reject) => { rejectRequest = reject; }) },
+      searchCachedCatalog: async () => { cacheReads++; await pause(20); return []; }, cacheCatalogResults: async () => {}, renderCatalogResults() {} };
+    vm.createContext(c); vm.runInContext(extract(appSource, 'searchCatalog'), c);
+    const start = performance.now(); const task = c.searchCatalog('antigo', 1);
+    c.catalogSearchRequestId = 2; c.elements.serviceSearch.value = 'novo'; rejectRequest(Error('Falha simulada')); await task;
+    assert.equal(cacheReads, phase === 'before' ? 1 : 0);
+    return { obsoleteCompletionMs: performance.now() - start, cacheReads };
+  });
 }
 const report = { environment: 'Node VM; DOM, rede, IndexedDB e serviços Google simulados. CPU do código real e latências controladas; não é medição no iPhone nem no Apps Script real.', realApplicationLogin: false, productionWrites: 0, results };
 await writeFile(output, JSON.stringify(report, null, 2)); console.log(JSON.stringify(results.map(({ phase, name, n, median }) => ({ phase, name, n, median })), null, 2));

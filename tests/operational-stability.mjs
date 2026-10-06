@@ -80,7 +80,7 @@ test('troca de Sub-base invalida resultados de busca anterior', () => {
   assert.ok(source);
   assert.match(source, /catalogSearchRequestId \+= 1;/);
   assert.match(source, /catalogResults = \[\];/);
-  assert.match(source, /void handleCatalogInput\(\)/);
+  assert.match(source, /void runLocalAction\(handleCatalogInput\)/);
   assert.equal(core.contractForBase('ASSÚ'), '4600080939');
   assert.equal(core.contractForBase('MOSSORÓ'), '4600080939');
   assert.equal(core.contractForBase('CAICÓ'), '4600080938');

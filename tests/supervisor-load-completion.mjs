@@ -8,7 +8,7 @@ const [appSource, apiSource, coreSource, previousHarness] = await Promise.all([
 ]);
 const dataUrl = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
 const core = await import(dataUrl(coreSource));
-const { ApiError } = await import(dataUrl(apiSource.replace(/^import .*?;\n/, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
+const { ApiError } = await import(dataUrl(apiSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${dataUrl(coreSource)}'`).replace(/^import .*?from '\.\/config\.js[^']*';\n/m, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
 const extract = (source, name) => {
   const result = source.match(new RegExp('(?:async )?function ' + name + '\\([^]*?\\n\\}'));
   assert.ok(result, name); return result[0];
@@ -60,7 +60,8 @@ function transport(source = apiSource, handler = () => new Promise(() => {})) {
     fetch: (url, options) => { signals.push(options.signal); return handler(url, options); }
   };
   vm.createContext(c);
-  vm.runInContext(source.replace(/^import .*?;\n/, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n").replace(/^export /gm, '') + '\nthis.client=api; this.WireApiError=ApiError;', c);
+  c.correctionConfirmationMatches = core.correctionConfirmationMatches;
+  vm.runInContext("const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n" + source.replace(/^import .*?;\n/gm, '').replace(/^export /gm, '') + '\nthis.client=api; this.WireApiError=ApiError;', c);
   const advance = async ms => { now += ms; for (const timer of timers) if (!timer.cleared && !timer.fired && timer.due <= now) { timer.fired = true; timer.fn(); } await tick(); };
   return { c, timers, signals, advance };
 }

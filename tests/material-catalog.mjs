@@ -64,6 +64,7 @@ test('registro histórico MATERIAL + QUANTIDADE continua compatível', () => {
 });
 
 let apiSource = await read('api.js');
+apiSource = apiSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`);
 apiSource = apiSource.replace(/from '\.\/config\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const API_ENDPOINT='https://script.google.com/macros/s/test/exec'; export const MATERIAL_CATALOG_SOURCE={spreadsheetId:'sheet-id',sheetName:'Caderno de Obras',range:'A:C'};")}'`);
 const apiModule = await import(dataUrl(apiSource));
 test('carregamento JSONP usa a aba oficial e preserva código formatado', async () => {

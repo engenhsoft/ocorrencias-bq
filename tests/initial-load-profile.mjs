@@ -7,6 +7,9 @@ const [fixed, baseline, existing] = await Promise.all([
   readFile(process.argv[2], 'utf8'), readFile(process.argv[3], 'utf8'),
   readFile(new URL('./login-initial-load.mjs', import.meta.url), 'utf8')
 ]);
+// The performance baseline predates later, approved correctness fixes.
+// A third source pins the functions protected by this audit to its actual starting version.
+const invariantBaseline = process.argv[4] ? await readFile(process.argv[4], 'utf8') : baseline;
 const extract = (source, name) => {
   const match = source.match(new RegExp('function ' + name + '\\([^]*?\\n\\}'));
   assert.ok(match, name); return match[0];
@@ -131,7 +134,7 @@ test('Campo mantém payload e remove a inspeção dos cinco cabeçalhos', () => 
 });
 test('login, sessão, edição, fotos e leituras alheias à publicação não foram alteradas', () => {
   for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listPublishedRecords_']) {
-    assert.equal(extract(fixed, name), extract(baseline, name), name);
+    assert.equal(extract(fixed, name), extract(invariantBaseline, name), name);
   }
 });
 test('cópia de publicação ainda pendente permanece acionável com dois ranges e sem histórico', () => {

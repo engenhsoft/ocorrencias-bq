@@ -9,7 +9,7 @@ const [appSource, apiSource, coreSource, backend, baseline] = await Promise.all(
 ]);
 const dataUrl = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
 const core = await import(dataUrl(coreSource));
-const apiModule = await import(dataUrl(apiSource.replace(/^import .*?;\n/, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
+const apiModule = await import(dataUrl(apiSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${dataUrl(coreSource)}'`).replace(/^import .*?from '\.\/config\.js[^']*';\n/m, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
 const { ApiError } = apiModule;
 const baselineApp = process.argv[4] ? await readFile(process.argv[4], 'utf8') : null;
 const tests = [];
@@ -249,7 +249,8 @@ test('lista usa timeout finito de 60s, aborta transporte e mantém login em 35s'
     setTimeout: (fn, ms) => { const timer = { fn, ms, cleared: false }; timers.push(timer); return timer; }, clearTimeout: timer => { timer.cleared = true; },
     fetch: (_, options) => new Promise((resolve, reject) => options.signal.addEventListener('abort', () => { const error = Error('abort'); error.name = 'AbortError'; reject(error); }))
   };
-  vm.createContext(context); vm.runInContext(apiSource.replace(/^import .*?;\n/, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n").replace(/^export /gm, '') + '\nthis.client=api;', context);
+  context.correctionConfirmationMatches = core.correctionConfirmationMatches;
+  vm.createContext(context); vm.runInContext("const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n" + apiSource.replace(/^import .*?;\n/gm, '').replace(/^export /gm, '') + '\nthis.client=api;', context);
   const list = context.client.listPending('fixture'); assert.equal(timers.at(-1).ms, 60000); timers.at(-1).fn();
   await assert.rejects(list, e => e.code === 'TIMEOUT'); assert.equal(timers.at(-1).cleared, true);
   const login = context.client.login('fixture', 'fixture-only', 'field'); assert.equal(timers.at(-1).ms, 35000); timers.at(-1).fn();

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.06.3';
-export const APP_BUILD = '2026-10-06-correction-persistence';
+export const APP_VERSION = '2026.10.06.4';
+export const APP_BUILD = '2026-10-06-stability-sweep';
 
 export const TEAM_GOAL = 6000;
 
@@ -284,7 +284,7 @@ export function normalizeServices(value, label = 'services') {
 export function parseServiceQuantity(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
   const text = String(value ?? '').trim();
-  if (!/^\d+(?:[.,]\d+)?$/.test(text)) return NaN;
+  if (!/^\d+(?:[.,]\d*)?$/.test(text)) return NaN;
   return Number(text.replace(',', '.'));
 }
 

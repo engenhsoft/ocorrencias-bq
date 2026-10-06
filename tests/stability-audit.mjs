@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 const root = process.argv[3] || new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 const read = name => readFile(root + '/' + name, 'utf8');
@@ -22,7 +23,8 @@ function clock() {
 }
 function apiHarness(fetch = () => new Promise(() => {}), reader = class {}) {
   const timers = clock(); const c = vm.createContext({ ...timers, fetch, AbortController, URL, navigator: { onLine: true }, FileReader: reader, console });
-  vm.runInContext(apiSource.replace(/^import .*?;\n/, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n").replace(/^export /gm, '') + '\nthis.client={api,apiRequest,healthCheck,blobToDataUrl,parseResponse,ApiError};', c);
+  c.correctionConfirmationMatches = core.correctionConfirmationMatches;
+  vm.runInContext("const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n" + apiSource.replace(/^import .*?;\n/gm, '').replace(/^export /gm, '') + '\nthis.client={api,apiRequest,healthCheck,blobToDataUrl,parseResponse,ApiError};', c);
   return { c, timers, ...c.client };
 }
 for (const action of ['login', 'listMine', 'submitRecord', 'uploadPhoto', 'supervisorAction', 'getRecordState']) test('deadline encerra ' + action + ' mesmo se fetch ignora abort', async () => {
@@ -298,6 +300,8 @@ if (process.argv[2]) {
     const row = h.sheet(APP.pendingSheet).rows[1]; row[COL.PHOTO_1 + 1] = ''; row[COL.UPLOAD_KEY_1 + 1] = ''; row[COL.STATUS - 1] = h.meta.STATUS.SYNCING_PHOTOS;
     const files = []; h.c.requireSession_ = () => ({ role: 'field', user: 'Campo FICTÍCIO' }); h.c.recordFromValuesAt_ = values => h.c.recordFromRow_(values, {}, {}, {});
     h.c.Utilities.base64Decode = () => [1]; h.c.Utilities.newBlob = (_bytes, _mime, name) => ({ name });
+    h.c.Utilities.DigestAlgorithm = { SHA_256: 'sha256' }; h.c.Utilities.Charset = { UTF_8: 'utf8' };
+    h.c.Utilities.computeDigest = (_algorithm, value) => Array.from(createHash('sha256').update(String(value)).digest());
     h.c.makePhotoPublic_ = () => {}; h.c.photoFolder_ = () => ({ createFile(blob) { const file = { name: blob.name, id: 'fixture_drive_file_' + files.length + '_abcdefghijklmnop', setDescription() {}, getId() { return this.id; } }; files.push(file); h.fileFault?.(); return file; }, getFilesByName(name) { const found = files.filter(f => f.name === name); let index = 0; return { hasNext: () => index < found.length, next: () => found[index++] }; } });
     return Object.assign(h, { files, payload: { token: 'ficticio', recordId: id, photoIndex: 3, uploadKey: '00000002-1111-4111-8111-111111111111', dataUrl: 'data:image/jpeg;base64,AA==' } });
   }

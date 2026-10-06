@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.06.3';
+} from './core.js?v=2026.10.06.4';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.06.3';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.3';
+} from './db.js?v=2026.10.06.4';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.4';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -159,6 +159,7 @@ let mineServerDataLoaded = false;
 let mineLoading = false;
 let mineLoadError = null;
 const recordSyncPromises = new Map();
+const photoSelectionRequests = new Map();
 let deferredInstallPrompt = null;
 let supervisorRefreshTimer = 0;
 let dailyProduction = { team: '', date: operationalDate(), goal: TEAM_GOAL, totalSent: 0, totalExcludingRecord: 0, recordContribution: 0 };
@@ -452,13 +453,13 @@ function bindEvents() {
   });
   [elements.retryTeamDirectory, elements.editRetryTeamDirectory].forEach((button) => button.addEventListener('click', () => void loadTeamDirectory()));
   elements.occurrenceTypes.addEventListener('change', (event) => void runLocalAction(handleFormInput, event));
-  elements.serviceSearch.addEventListener('input', handleCatalogInput);
+  elements.serviceSearch.addEventListener('input', (event) => void runLocalAction(handleCatalogInput, event));
   elements.serviceSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.serviceResults.hidden = true; });
   elements.serviceResults.addEventListener('click', (event) => {
     const button = event.target.closest('[data-catalog-index]');
     if (button) void runLocalAction(selectCatalogItem, catalogResults[Number(button.dataset.catalogIndex)]);
   });
-  elements.materialSearch.addEventListener('input', handleMaterialCatalogInput);
+  elements.materialSearch.addEventListener('input', (event) => void runLocalAction(handleMaterialCatalogInput, event));
   elements.materialSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.materialResults.hidden = true; });
   elements.materialResults.addEventListener('click', (event) => {
     const button = event.target.closest('[data-material-index]');
@@ -761,8 +762,12 @@ function blankRecord() {
 
 async function ensureActiveRecord() {
   if (activeRecord) return activeRecord;
-  activeRecord = blankRecord(); await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, activeRecord.recordId); showDraftId();
-  return activeRecord;
+  const record = blankRecord(); const revision = sessionRevision; activeRecord = record;
+  await putRecord(record);
+  if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return record;
+  await setMeta(ACTIVE_DRAFT_META, record.recordId);
+  if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
+  return record;
 }
 
 function selectedTypes() { return $$('input[type="checkbox"]:checked', elements.occurrenceTypes).map((input) => input.value); }
@@ -815,7 +820,8 @@ function servicePriceText(service) {
 }
 
 async function handleFormInput(event) {
-  await ensureActiveRecord();
+  const revision = sessionRevision; const record = await ensureActiveRecord();
+  if (revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
   const previousBase = activeRecord.base;
   syncFormToRecord();
   if (event?.target === elements.operationBase && activeRecord.base !== previousBase) {
@@ -827,7 +833,7 @@ async function handleFormInput(event) {
     const result = applyContractToRecord(activeRecord);
     renderServices();
     if (result.missingCodes.length && activeRecord.services.length && result.contract) toast(`Serviço sem valor cadastrado para o contrato ${result.contract}.`, 'error');
-    if (elements.serviceSearch.value.trim().length >= 2) void handleCatalogInput();
+    if (elements.serviceSearch.value.trim().length >= 2) void runLocalAction(handleCatalogInput);
   }
   updateContractOutput(elements.operationContract, activeRecord.base);
   elements.transformerSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_TRAFO));
@@ -868,8 +874,12 @@ async function loadDailyProduction(teamValue, notify = false) {
 
 async function saveActiveDraft() {
   if (!activeRecord) return;
-  activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); activeRecord.user = session?.user || activeRecord.user;
-  await putRecord(activeRecord); await setMeta(ACTIVE_DRAFT_META, activeRecord.recordId); showDraftId();
+  const record = activeRecord; const revision = sessionRevision;
+  record.step = currentStep; record.updatedAt = new Date().toISOString(); record.user = session?.user || record.user;
+  await putRecord(record);
+  if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return;
+  await setMeta(ACTIVE_DRAFT_META, record.recordId);
+  if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
 }
 
 function showDraftId() {
@@ -911,9 +921,10 @@ function goToStep(step) {
 }
 
 async function handleCatalogInput() {
-  const query = elements.serviceSearch.value.trim();
-  if (query) await ensureActiveRecord();
+  const query = elements.serviceSearch.value.trim(); const revision = sessionRevision;
   clearTimeout(catalogSearchTimer); const requestId = ++catalogSearchRequestId;
+  if (query) await ensureActiveRecord();
+  if (revision !== sessionRevision || requestId !== catalogSearchRequestId || elements.serviceSearch.value.trim() !== query) return;
   if (query.length < 2) {
     elements.searchSpinner.hidden = true; elements.serviceResults.hidden = true;
     elements.serviceSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; return;
@@ -927,16 +938,25 @@ async function handleCatalogInput() {
 
 async function searchCatalog(query, requestId) {
   const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => requestId === catalogSearchRequestId && revision === sessionRevision && elements.serviceSearch.value.trim() === query;
   elements.searchSpinner.hidden = false;
   elements.serviceSearchHint.textContent = navigator.onLine ? 'Pesquisando na aba Emergência…' : 'Sem internet: pesquisando itens salvos neste aparelho.';
   try {
     const results = navigator.onLine ? (await api.searchCatalog(requestSession.token, query, 40, contractForBase(elements.operationBase.value))).results : await searchCachedCatalog(query, 40);
-    if (requestId !== catalogSearchRequestId || revision !== sessionRevision || elements.serviceSearch.value.trim() !== query) return;
-    catalogResults = normalizeArray(results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item)); if (navigator.onLine) await cacheCatalogResults(catalogResults); renderCatalogResults();
+    if (!isCurrent()) return;
+    const currentResults = normalizeArray(results, 'searchCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+    if (navigator.onLine) await cacheCatalogResults(currentResults).catch(error => console.warn('[Serviços] Resultado disponível; cache local indisponível.', { code: error?.code || error?.name }));
+    if (!isCurrent()) return;
+    catalogResults = currentResults; renderCatalogResults();
   } catch (error) {
-    catalogResults = await searchCachedCatalog(query, 40);
-    if (requestId === catalogSearchRequestId) renderCatalogResults(error);
-  } finally { if (requestId === catalogSearchRequestId) elements.searchSpinner.hidden = true; }
+    if (!isCurrent()) return;
+    let cached = [];
+    try { cached = await searchCachedCatalog(query, 40); }
+    catch (cacheError) { console.error('[Serviços] Não foi possível ler o cache local.', { code: cacheError?.code || cacheError?.name }); }
+    if (!isCurrent()) return;
+    catalogResults = normalizeArray(cached, 'cachedCatalog.results').filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+    renderCatalogResults(error);
+  } finally { if (isCurrent()) elements.searchSpinner.hidden = true; }
 }
 
 function renderCatalogResults(error = null) {
@@ -963,7 +983,8 @@ function renderCatalogResults(error = null) {
 }
 
 async function selectCatalogItem(item) {
-  if (!item) return; await ensureActiveRecord();
+  if (!item) return; const revision = sessionRevision; const record = await ensureActiveRecord();
+  if (revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
   const contract = contractForBase(elements.operationBase.value);
   if (!contract) { toast('Selecione a Sub-base para definir o contrato e os valores dos serviços.', 'error'); return; }
   const priced = priceServiceForContract(item, contract);
@@ -1041,9 +1062,10 @@ async function ensureMaterialCatalog(refreshOnline = false) {
 }
 
 async function handleMaterialCatalogInput() {
-  const query = elements.materialSearch.value.trim();
-  if (query) await ensureActiveRecord();
+  const query = elements.materialSearch.value.trim(); const revision = sessionRevision;
   clearTimeout(materialSearchTimer); const requestId = ++materialSearchRequestId;
+  if (query) await ensureActiveRecord();
+  if (revision !== sessionRevision || requestId !== materialSearchRequestId || elements.materialSearch.value.trim() !== query) return;
   if (query.length < 2) {
     elements.materialSearchSpinner.hidden = true; elements.materialResults.hidden = true;
     elements.materialSearchHint.textContent = 'Digite pelo menos 2 caracteres.'; return;
@@ -1082,7 +1104,8 @@ function renderMaterialResults(error = null) {
 }
 
 async function selectMaterialCatalogItem(item) {
-  if (!item) return; await ensureActiveRecord();
+  if (!item) return; const revision = sessionRevision; const record = await ensureActiveRecord();
+  if (revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
   const key = materialKey(item);
   if (normalizeMaterials(activeRecord.materials).some((material) => materialKey(material) === key)) {
     toast('Este material já foi adicionado.', 'error'); return;
@@ -1154,23 +1177,33 @@ async function handlePhotoGridClick(event) {
 }
 
 function choosePhoto(photoIndex, capture, replace = false) {
+  const revision = sessionRevision; const recordId = activeRecord?.recordId || '';
   const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
   if (capture) input.setAttribute('capture', 'environment'); input.hidden = true;
-  input.addEventListener('change', async () => { const file = input.files?.[0]; input.remove(); if (file) await storeSelectedPhoto(photoIndex, file, replace); }, { once: true });
+  input.addEventListener('change', async () => { const file = input.files?.[0]; input.remove(); if (file && revision === sessionRevision && (activeRecord?.recordId || '') === recordId) await storeSelectedPhoto(photoIndex, file, replace); }, { once: true });
   document.body.append(input); input.click();
 }
 
 async function storeSelectedPhoto(photoIndex, file, replace) {
+  const revision = sessionRevision; const initialRecordId = activeRecord?.recordId || ''; let request = null;
+  const isCurrent = () => revision === sessionRevision && (!initialRecordId || activeRecord?.recordId === initialRecordId) && (!request || (activeRecord?.recordId === request.recordId && photoSelectionRequests.get(photoIndex) === request));
   try {
-    await ensureActiveRecord(); const blob = await optimizePhoto(file);
+    await ensureActiveRecord();
+    if (!isCurrent() || !activeRecord) return;
+    request = { recordId: activeRecord.recordId }; photoSelectionRequests.set(photoIndex, request);
+    const blob = await optimizePhoto(file);
+    if (!isCurrent()) return;
     if (blob.size > 9 * 1024 * 1024) throw new ApiError('A foto ficou acima de 9 MB mesmo após a otimização.', 'PHOTO_TOO_LARGE');
     const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
-    activeRecord.photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.replacePending || state.confirmed || state.serverUrl), error: '' };
-    const stored = await putPhotoAndRecord(activeRecord, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
-    activeRecord = stored.record;
+    const previousPhotoStates = activeRecord.photoStates.slice(); const photoStates = previousPhotoStates.slice();
+    photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.replacePending || state.confirmed || state.serverUrl), error: '' };
+    const stored = await putPhotoAndRecord({ ...activeRecord, photoStates }, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
+    if (!isCurrent()) return;
+    activeRecord = { ...activeRecord, updatedAt: stored.record.updatedAt, photoStates: stored.record.photoStates.map((savedState, index) => index !== photoIndex - 1 && activeRecord.photoStates[index] !== previousPhotoStates[index] ? activeRecord.photoStates[index] : savedState) };
     activePhotos.set(photoIndex, { blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
-    await saveActiveDraft(); updatePhotoGrid(); validateStepOne(false);
-  } catch (error) { toast(friendlyError(error), 'error'); }
+    await saveActiveDraft(); if (isCurrent()) { updatePhotoGrid(); validateStepOne(false); }
+  } catch (error) { if (isCurrent()) toast(friendlyError(error), 'error'); }
+  finally { if (photoSelectionRequests.get(photoIndex) === request) photoSelectionRequests.delete(photoIndex); }
 }
 
 async function optimizePhoto(file) {
@@ -1189,14 +1222,24 @@ async function optimizePhoto(file) {
 async function removePhoto(photoIndex) {
   const state = activeRecord?.photoStates?.[photoIndex - 1]; if (!state) return;
   if (state.confirmed && !state.replacePending) { toast('Uma foto confirmada pode ser substituída, mas não removida isoladamente.', 'error'); return; }
-  await deletePhoto(activeRecord.recordId, photoIndex); activePhotos.delete(photoIndex); revokePreviewUrl(photoIndex);
-  activeRecord.photoStates[photoIndex - 1] = { photoIndex, confirmed: Boolean(state.serverUrl), localReady: false, serverUrl: state.serverUrl || '', uploadKey: '', replacePending: false };
-  await saveActiveDraft(); updatePhotoGrid(); validateStepOne(false);
+  const revision = sessionRevision; const recordId = activeRecord.recordId; const request = { recordId };
+  photoSelectionRequests.set(photoIndex, request);
+  const isCurrent = () => revision === sessionRevision && activeRecord?.recordId === recordId && photoSelectionRequests.get(photoIndex) === request && activeRecord.photoStates[photoIndex - 1]?.uploadKey === state.uploadKey;
+  try {
+    const deleted = await deletePhoto(recordId, photoIndex, state.uploadKey || '');
+    if (!isCurrent()) return;
+    if (!deleted && await getPhoto(recordId, photoIndex)) return;
+    if (!isCurrent()) return;
+    activePhotos.delete(photoIndex); revokePreviewUrl(photoIndex);
+    activeRecord.photoStates[photoIndex - 1] = { photoIndex, confirmed: Boolean(state.serverUrl), localReady: false, serverUrl: state.serverUrl || '', uploadKey: '', replacePending: false };
+    await saveActiveDraft();
+    if (revision === sessionRevision && activeRecord?.recordId === recordId && photoSelectionRequests.get(photoIndex) === request) { updatePhotoGrid(); validateStepOne(false); }
+  } finally { if (photoSelectionRequests.get(photoIndex) === request) photoSelectionRequests.delete(photoIndex); }
 }
 
 function setPreviewUrl(index, url) { revokePreviewUrl(index); previewUrls.set(index, url); }
 function revokePreviewUrl(index) { const current = previewUrls.get(index); if (current?.startsWith('blob:')) URL.revokeObjectURL(current); previewUrls.delete(index); }
-function clearPreviewUrls() { for (const index of [...previewUrls.keys()]) revokePreviewUrl(index); activePhotos.clear(); }
+function clearPreviewUrls() { for (const index of [...previewUrls.keys()]) revokePreviewUrl(index); activePhotos.clear(); photoSelectionRequests.clear(); }
 
 function updatePhotoGrid() {
   let ready = 0;
@@ -1397,7 +1440,12 @@ async function performSyncSingleRecord(recordId, notify = true) {
     console.warn('[Fila] Registro pertence a outro usuário; sincronização ignorada.', { recordId });
     return null;
   }
-  if (!navigator.onLine) { record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet'; await putRecord(record); await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record; }
+  if (!navigator.onLine) {
+    record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet';
+    try { await putRecord(record, { expectedUpdatedAt: String(storedRecord.updatedAt || '') }); }
+    catch (error) { if (error?.code === 'LOCAL_RECORD_CHANGED') return getRecord(recordId); throw error; }
+    await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record;
+  }
   const dailyTotalExcludingRecord = Number(dailyProduction.totalExcludingRecord) || 0;
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
   let localVersion = String(storedRecord.updatedAt || '');
