@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 if (!process.argv[2]) throw Error('Informe o fonte oficial do backend como argumento.');
 const backend = await readFile(process.argv[2], 'utf8');
@@ -66,6 +67,8 @@ function harness(catalog = [catalogRow()], source = backend) {
     SpreadsheetApp: { openById: () => spreadsheet, flush() {} },
     LockService: { getScriptLock: () => ({ waitLock() { lockDepth++; }, releaseLock() { lockDepth--; } }) },
     Utilities: {
+      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      computeDigest: (_, value) => Array.from(createHash('sha256').update(String(value)).digest()),
       formatDate: (date, zone, pattern) => { const local = new Date(new Date(date).getTime() - 3 * 3600000).toISOString(); return pattern === 'yyyy-MM-dd' ? local.slice(0, 10) : local.slice(0, 19) + '-03:00'; }
     }
   });
@@ -105,6 +108,9 @@ function fieldHarness(catalog = [catalogRow('D')]) {
   h.c.assertTeamDirectorySelection_ = () => {}; // A relação equipe/base tem sua própria suíte.
   h.submit = record => {
     h.c.requireSession_ = () => ({ role: 'field', user: record.user });
+    const saved = h.c.findRowById_(h.sheet(h.c.meta.APP.pendingSheet), record.recordId);
+    const requestedAt = saved && h.c.correctionRequestedAt_(JSON.parse(saved.values[h.c.meta.COL.AUDIT - 1]));
+    if (requestedAt) record = { ...record, correctionRequestId: SECOND_UUID, correctionRequestedAt: requestedAt };
     return h.c.submitRecord_({ token: 'fixture-only', record, clientVersion: core.APP_VERSION });
   };
   h.seedCorrection = (record, options = {}) => h.seed(record, { ...options, status: h.c.meta.STATUS.CORRECTION_REQUESTED });

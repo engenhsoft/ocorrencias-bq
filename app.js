@@ -1,19 +1,19 @@
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
-  correctedAfterResend, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
+  correctedAfterResend, correctionFields, correctionDataSnapshot, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.06.2';
+} from './core.js?v=2026.10.06.3';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.06.2';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.2';
+} from './db.js?v=2026.10.06.3';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -776,11 +776,11 @@ function syncFormToRecord() {
   activeRecord.occurrenceNumber = elements.occurrenceNumber.value.trim();
   activeRecord.occurrenceTypes = selectedTypes();
   activeRecord.otherOccurrenceType = activeRecord.occurrenceTypes.includes(TYPE_OTHER) ? elements.otherOccurrenceType.value.trim() : '';
-  activeRecord.pgPostRemoved = activeRecord.occurrenceTypes.includes(TYPE_POST) ? elements.pgPostRemoved.value.trim() : '';
-  activeRecord.pgPostInstalled = activeRecord.occurrenceTypes.includes(TYPE_POST) ? elements.pgPostInstalled.value.trim() : '';
-  activeRecord.pgConductorStart = activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR) ? elements.pgConductorStart.value.trim() : '';
-  activeRecord.pgConductorEnd = activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR) ? elements.pgConductorEnd.value.trim() : '';
-  activeRecord.transformer = activeRecord.occurrenceTypes.includes(TYPE_TRAFO) ? {
+  activeRecord.pgPostRemoved = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST)) ? elements.pgPostRemoved.value.trim() : '';
+  activeRecord.pgPostInstalled = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST)) ? elements.pgPostInstalled.value.trim() : '';
+  activeRecord.pgConductorStart = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR)) ? elements.pgConductorStart.value.trim() : '';
+  activeRecord.pgConductorEnd = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR)) ? elements.pgConductorEnd.value.trim() : '';
+  activeRecord.transformer = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_TRAFO)) ? {
     removedCode: elements.removedTransformerCode.value.trim(), removedCia: elements.removedTransformerCia.value.trim(),
     removedBto: elements.removedTransformerBto.value.trim(), newCode: elements.newTransformerCode.value.trim(),
     newCia: elements.newTransformerCia.value.trim(), newBto: elements.newTransformerBto.value.trim()
@@ -830,9 +830,9 @@ async function handleFormInput(event) {
     if (elements.serviceSearch.value.trim().length >= 2) void handleCatalogInput();
   }
   updateContractOutput(elements.operationContract, activeRecord.base);
-  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
-  elements.pgPostSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_POST);
-  elements.pgConductorSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR);
+  elements.transformerSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_TRAFO));
+  elements.pgPostSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST));
+  elements.pgConductorSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR));
   elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER);
   elements.observationCount.textContent = elements.observation.value.length;
   if (event?.target === elements.team) {
@@ -1204,6 +1204,7 @@ function updatePhotoGrid() {
     const state = activeRecord?.photoStates?.[index - 1] || {}; const local = Boolean(state.localReady) || activePhotos.has(index);
     const url = normalizePhotoUrl(previewUrls.get(index) || state.serverUrl || ''); const present = local || Boolean(url) || state.confirmed; if (present && index <= 5) ready += 1;
     const card = $(`[data-photo-card="${index}"]`); const preview = $(`[data-photo-preview="${index}"]`); const status = $(`[data-photo-status="${index}"]`); const secondary = $(`[data-photo-secondary="${index}"]`);
+    if (card && index > 5) card.hidden = !normalizeOccurrenceTypes(activeRecord?.occurrenceTypes).includes(TYPE_TRAFO);
     card?.classList.toggle('has-photo', present);
     const label = index === 6 ? 'Evidência do transformador retirado' : index === 7 ? 'Evidência do transformador instalado' : `Foto ${index}`;
     if (preview) preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" />` : '<div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Nenhuma evidência</span></div>';
@@ -1244,6 +1245,7 @@ function transformerPhotoMarkup(record, kind) {
   const index = kind === 'removed' ? 6 : 7;
   const label = kind === 'removed' ? 'Evidência do transformador retirado' : 'Evidência do transformador instalado';
   const url = normalizePhotoUrl(record.transformerPhotos?.[kind] || record.photoStates?.[index - 1]?.serverUrl || record.photoStates?.[index - 1]?.url || previewUrls.get(index) || '');
+  if (!url && !normalizeOccurrenceTypes(record.occurrenceTypes).includes(TYPE_TRAFO)) return '';
   return url
     ? `<figure class="review-photo transformer-review-photo" data-photo-index="${index}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="${escapeHtml(label)}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>${escapeHtml(label)}</span></figure>`
     : `<figure class="review-photo review-photo--empty transformer-review-photo"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Indisponível</span></div><span>${escapeHtml(label)}</span></figure>`;
@@ -1320,9 +1322,9 @@ function occurrenceTypesText(record = {}) {
 function occurrenceDetails(record, includePhotos = true) {
   const total = occurrenceTotal(record.services || []);
   const occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
-  const transformer = occurrenceTypes.includes(TYPE_TRAFO) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Série: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Série: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
-  const pgPost = occurrenceTypes.includes(TYPE_POST) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
-  const pgConductor = occurrenceTypes.includes(TYPE_CONDUCTOR) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
+  const transformer = (occurrenceTypes.includes(TYPE_TRAFO) || Object.values(record.transformer || {}).some(value => String(value ?? '').trim())) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Série: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Série: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
+  const pgPost = (occurrenceTypes.includes(TYPE_POST) || record.pgPostRemoved || record.pgPostInstalled) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
+  const pgConductor = (occurrenceTypes.includes(TYPE_CONDUCTOR) || record.pgConductorStart || record.pgConductorEnd) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
@@ -1406,7 +1408,16 @@ async function performSyncSingleRecord(recordId, notify = true) {
   };
   const cacheSummary = summary => { void cacheDailySummary(summary, () => revision === sessionRevision && session?.token === requestSession.token).catch(error => console.warn('[Produção] Confirmação mantida; cache secundário indisponível.', { code: error?.code || error?.name })); };
   const markSynced = () => { void setMeta(LAST_SYNC_META, next.syncedAt).catch(error => console.warn('[Fila] Confirmação mantida; data do último sincronismo não pôde ser armazenada.', { code: error?.code || error?.name })); };
+  let correctionPayload = null;
   try {
+    if (next.correctionMode) {
+      const signature = JSON.stringify(correctionDataSnapshot(next));
+      if (!next.correctionRequestId || next.correctionPayloadSignature !== signature) next.correctionRequestId = generateUuid();
+      next.correctionPayloadSignature = signature;
+      if (!Object.hasOwn(next, 'correctionRequestedAt')) next.correctionRequestedAt = correctionRequest(next).lastRequestedAt || correctionRequest(next).requestedAt || '';
+      await save();
+      correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt };
+    }
     if (next.serverConfirmed || next.attempts > 1) {
       try { next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await save(); }
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
@@ -1422,15 +1433,16 @@ async function performSyncSingleRecord(recordId, notify = true) {
     }
     next.status = RECORD_STATUS.SYNCING_DATA; await save();
     const submitResult = await api.submitRecord(requestSession.token, {
-      recordId: next.recordId, base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
+      recordId: next.recordId, ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
       expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
       occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
       pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
       pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
       transformer: next.transformer, services: serializeServicesForBackend(next.services), materials: serializeMaterialsForBackend(next.materials),
-      totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, occurrenceTotal(next.services)).percentage,
+      totalServices: correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services)).percentage,
       observation: next.observation
     }, APP_VERSION);
+    if (correctionPayload && !correctionConfirmationMatches(correctionPayload, submitResult)) throw new ApiError('O servidor ainda não confirmou os campos corrigidos. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
     next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
     next.status = RECORD_STATUS.SYNCING_PHOTOS; await save();
     next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await save();
@@ -1448,7 +1460,9 @@ async function performSyncSingleRecord(recordId, notify = true) {
       next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
       await save(); if (next.photoStates[index - 1]?.confirmed) await deletePhoto(next.recordId, index, localPhoto.uploadKey); await updateQueueUi();
     }
-    const finalState = await api.getRecordState(requestSession.token, next.recordId); next = reconcilePhotoStates(next, finalState);
+    const finalState = await api.getRecordState(requestSession.token, next.recordId);
+    if (correctionPayload && !correctionConfirmationMatches(correctionPayload, finalState, true)) throw new ApiError('A releitura ainda não confirmou a correção completa. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
+    next = reconcilePhotoStates(next, finalState);
     if (requiredPhotoDeficit(next) > 0 || next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
       if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await deletePhoto(next.recordId, index, next.photoStates[index - 1].uploadKey || '').catch(() => {});
@@ -1743,7 +1757,7 @@ async function handleMineAction(event) {
   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
   const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId);
   if (!local && !server) return;
-  const record = normalizeOccurrenceRecord({ ...(local || {}), ...(server || {}), photos: server?.photos || local?.photos || [], photoStates: local?.photoStates || server?.photoStates || [], transformerPhotos: server?.transformerPhotos || local?.transformerPhotos || {}, audit: server?.audit || local?.audit || {} }, 'selectedRecord');
+  const record = normalizeOccurrenceRecord({ ...(local || {}), ...(server || {}), photos: server?.photos || local?.photos || [], photoStates: local?.photoStates || server?.photoStates || [], transformerPhotos: server?.transformerPhotos || local?.transformerPhotos || {}, ...(local?.correctionMode ? correctionFields(local) : {}), audit: server?.audit || local?.audit || {} }, 'selectedRecord');
   if (button.dataset.mineAction === 'view') {
     const detailRecord = { ...record, ...(server || {}), photos: server?.photos || record.photos, dailyProduction: server?.dailyProduction || record.dailyProduction };
     elements.mineDetailTitle.textContent = `Ocorrência ${detailRecord.occurrenceNumber || 'sem número'}`;
@@ -1752,7 +1766,8 @@ async function handleMineAction(event) {
   if (button.dataset.mineAction === 'correct') {
     const requested = new Set(correctionPhotoIndexes(record));
     const states = normalizePhotoStates(record.photoStates).map((state) => requested.has(state.photoIndex) ? { ...state, confirmed: false, localReady: false, replacePending: true } : { ...state, replacePending: false });
-    const correction = { ...record, status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, requestedPhotoIndexes: [...requested], photoStates: states };
+    const requestAt = correctionRequest(record).lastRequestedAt || correctionRequest(record).requestedAt || '';
+    const correction = { ...record, correctionRequestedAt: requestAt, ...(local?.correctionRequestedAt !== requestAt ? { correctionRequestId: '', correctionPayloadSignature: '' } : {}), status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, requestedPhotoIndexes: [...requested], photoStates: states };
     await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId);
     toast(requested.size ? `Refaça: ${[...requested].map(photoIndexLabel).join(', ')}.` : 'Correção carregada. Confira a observação do Supervisor.');
     return loadRecordIntoForm(correction);
@@ -1792,7 +1807,7 @@ async function loadRecordIntoForm(record) {
   elements.removedTransformerCode.value = activeRecord.transformer.removedCode || ''; elements.removedTransformerCia.value = activeRecord.transformer.removedCia || '';
   elements.removedTransformerBto.value = activeRecord.transformer.removedBto || ''; elements.newTransformerCode.value = activeRecord.transformer.newCode || '';
   elements.newTransformerCia.value = activeRecord.transformer.newCia || ''; elements.newTransformerBto.value = activeRecord.transformer.newBto || '';
-  elements.transformerSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_TRAFO); elements.pgPostSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_POST); elements.pgConductorSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR); elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
+  elements.transformerSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_TRAFO)); elements.pgPostSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST)); elements.pgConductorSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR)); elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER); elements.observation.value = activeRecord.observation || ''; elements.observationCount.textContent = elements.observation.value.length;
   renderServices(); renderMaterials(); showDraftId(); validateStepOne(false); updatePhotoGrid(); goToStep(Math.min(3, Math.max(1, Number(activeRecord.step) || 1))); elements.resumeBanner.hidden = true; navigate('new');
   if (activeRecord.team) { localStorage.setItem(LAST_TEAM_KEY, activeRecord.team); void loadDailyProduction(activeRecord.team, false).catch((error) => console.error('[Produção] Falha ao atualizar meta diária.', error)); }
   try {
@@ -2294,9 +2309,9 @@ function handleSupervisorBaseChange() {
 function syncSupervisorEditorFromForm() {
   if (!supervisorEditRecord) return null;
   const occurrenceTypes = $$('input[type="checkbox"]', elements.editOccurrenceTypes).filter((input) => input.checked).map((input) => input.value);
-  const hasTransformer = occurrenceTypes.includes(TYPE_TRAFO); elements.editTransformerSection.hidden = !hasTransformer;
-  const hasPost = occurrenceTypes.includes(TYPE_POST); elements.editPgPostSection.hidden = !hasPost;
-  const hasConductor = occurrenceTypes.includes(TYPE_CONDUCTOR); elements.editPgConductorSection.hidden = !hasConductor;
+  const hasTransformer = occurrenceTypes.includes(TYPE_TRAFO) || Object.values(supervisorEditRecord.transformer || {}).some(value => String(value ?? '').trim()); elements.editTransformerSection.hidden = !hasTransformer;
+  const hasPost = occurrenceTypes.includes(TYPE_POST) || Boolean(supervisorEditRecord.pgPostRemoved || supervisorEditRecord.pgPostInstalled); elements.editPgPostSection.hidden = !hasPost;
+  const hasConductor = occurrenceTypes.includes(TYPE_CONDUCTOR) || Boolean(supervisorEditRecord.pgConductorStart || supervisorEditRecord.pgConductorEnd); elements.editPgConductorSection.hidden = !hasConductor;
   const hasOther = occurrenceTypes.includes(TYPE_OTHER); elements.editOtherTypeSection.hidden = !hasOther;
   supervisorEditRecord = {
     ...supervisorEditRecord, base: elements.editOperationBase.value, contract: elements.editOperationBase.value === activeSupervisorRecord?.base ? (activeSupervisorRecord.contract || contractForBase(elements.editOperationBase.value)) : contractForBase(elements.editOperationBase.value), team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,

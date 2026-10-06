@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.06.2';
-export const APP_BUILD = '2026-10-06-historical-correction';
+export const APP_VERSION = '2026.10.06.3';
+export const APP_BUILD = '2026-10-06-correction-persistence';
 
 export const TEAM_GOAL = 6000;
 
@@ -121,13 +121,41 @@ export function statusTone(status) {
 
 export function correctedAfterResend(record) {
   if (!record?.recordId || record.status !== RECORD_STATUS.WAITING_SUPERVISOR) return false;
+  const receipt = record.audit?.lastCorrectionSubmission;
+  if (receipt && receipt.phase !== 'COMPLETE') return false;
   const timeline = Array.isArray(record.audit?.timeline) ? record.audit.timeline : [];
-  let correctionRequested = false;
+  let correctionRequested = false; let resent = false;
   for (const event of timeline) {
-    if (['CORRECAO_SOLICITADA', 'CORRECAO_FOTOS_SOLICITADA'].includes(event?.action)) correctionRequested = true;
-    if (event?.action === 'CORRECAO_REENVIADA' && correctionRequested) return true;
+    if (['CORRECAO_SOLICITADA', 'CORRECAO_FOTOS_SOLICITADA'].includes(event?.action)) { correctionRequested = true; resent = false; }
+    if (event?.action === 'CORRECAO_REENVIADA' && correctionRequested) resent = true;
   }
-  return false;
+  return resent;
+}
+
+const EDITABLE_CORRECTION_FIELDS = ['base', 'contract', 'team', 'crewLeader', 'occurrenceNumber', 'occurrenceTypes', 'otherOccurrenceType', 'pgPostRemoved', 'pgPostInstalled', 'pgConductorStart', 'pgConductorEnd', 'transformer', 'services', 'materials', 'totalServices', 'observation'];
+export function correctionFields(record) {
+  return Object.fromEntries(EDITABLE_CORRECTION_FIELDS.filter(key => Object.hasOwn(record || {}, key)).map(key => [key, record[key]]));
+}
+
+// Compare operational values, ignoring UI-only IDs and catalog search metadata.
+export function correctionDataSnapshot(record = {}) {
+  const text = value => String(value ?? '').trim();
+  const result = {};
+  for (const key of EDITABLE_CORRECTION_FIELDS.filter(key => !['occurrenceTypes', 'transformer', 'services', 'materials', 'totalServices'].includes(key))) result[key] = text(record[key]);
+  result.occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
+  result.transformer = Object.fromEntries(['removedCode', 'removedCia', 'removedBto', 'newCode', 'newCia', 'newBto'].map(key => [key, text(record.transformer?.[key])]));
+  result.services = normalizeServices(record.services).map(service => ({ ...Object.fromEntries(['catalogKey', 'code', 'catalogText', 'unit', 'group', 'contract', 'origin'].map(key => [key, text(service[key])])), quantity: Number(service.quantity), referenceValue: Number(service.referenceValue), totalValue: Number(service.totalValue) }));
+  result.materials = normalizeMaterials(record.materials).map(material => ({ code: text(material.code), description: text(material.description), unit: text(material.unit), quantity: Number(material.quantity) }));
+  result.totalServices = Math.round(Number(record.totalServices ?? occurrenceTotal(record.services)) * 100) / 100;
+  return result;
+}
+
+export function correctionConfirmationMatches(submitted, state, complete = false) {
+  const receipt = state?.record?.audit?.lastCorrectionSubmission;
+  return state?.recordId === submitted?.recordId && receipt?.requestId === submitted?.correctionRequestId
+    && receipt?.requestedAt === submitted?.correctionRequestedAt && Boolean(receipt?.dataVerifiedAt)
+    && (complete ? receipt.phase === 'COMPLETE' : ['DATA_VERIFIED', 'COMPLETE'].includes(receipt.phase))
+    && JSON.stringify(correctionDataSnapshot(submitted)) === JSON.stringify(correctionDataSnapshot(state.record));
 }
 
 export function openPhotoSyncRequest(record, recipient = '') {
@@ -616,6 +644,7 @@ export function validateOccurrence(record = {}, { historicalServices = false, or
     if (!transformerPhotoReady(record, 'removed')) errors.push('Adicione a evidência do transformador retirado.');
     if (!transformerPhotoReady(record, 'installed')) errors.push('Adicione a evidência do transformador instalado.');
   }
+  if (record.correctionMode && !types.includes('SUBSTITUIÇÃO DE TRAFO') && String(record.transformer?.newCode ?? '').trim() === '999999') errors.push('Informe uma série válida para o transformador instalado.');
   if (!services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
   if (historicalServices) errors.push(...serviceSnapshotErrors(record.services));
   else services.forEach((service, index) => {
@@ -803,6 +832,7 @@ export function reconcilePhotoStates(localRecord, serverState) {
   return normalizeOccurrenceRecord({
     ...localRecord,
     ...serverRecord,
+    ...(localRecord?.correctionMode ? correctionFields(localRecord) : {}),
     serverConfirmed: true,
     serverStatus: serverState?.status || localRecord?.serverStatus || '',
     status: serverState?.status || localRecord?.status,
@@ -842,7 +872,8 @@ export function mergeRecordCollections(localRecords, serverRecords) {
       photoStates: existingLocal ? reconcilePhotoStates(local, { photoStates: server.photoStates }).photoStates : server.photoStates,
       photos: server.photos.length ? server.photos : local.photos,
       transformer: Object.keys(server.transformer).length ? server.transformer : local.transformer,
-      transformerPhotos: Object.keys(server.transformerPhotos).length ? server.transformerPhotos : local.transformerPhotos
+      transformerPhotos: Object.keys(server.transformerPhotos).length ? server.transformerPhotos : local.transformerPhotos,
+      ...(local.correctionMode ? correctionFields(local) : {})
     });
   }
   return [...merged.values()].sort((a, b) => String(b.updatedAt || b.registeredAt || '').localeCompare(String(a.updatedAt || a.registeredAt || '')));

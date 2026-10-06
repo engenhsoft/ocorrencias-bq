@@ -1,4 +1,5 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.06.2';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.06.3';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.06.3';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -109,6 +110,9 @@ export async function apiRequest(action, payload = {}, options = {}) {
         || !Array.isArray(states) || states.length !== 7 || indexes.size !== 7
         || states.some(state => !Number.isInteger(state?.photoIndex) || state.photoIndex < 1 || state.photoIndex > 7 || typeof state.confirmed !== 'boolean' || (state.confirmed && !String(state.url || state.serverUrl || '').trim()))) {
         throw new ApiError('O servidor não confirmou completamente esta ocorrência. Os dados locais foram preservados; tente novamente.', 'INVALID_RECORD_STATE');
+      }
+      if (action === 'submitRecord' && payload.record?.correctionRequestId && !correctionConfirmationMatches(payload.record, data)) {
+        throw new ApiError('O servidor não confirmou os dados corrigidos. A edição permanece neste aparelho.', 'CORRECTION_DATA_UNCONFIRMED');
       }
       if (action === 'uploadPhoto' && !states.some(state => state.photoIndex === payload.photoIndex && state.confirmed && state.uploadKey === payload.uploadKey)) {
         throw new ApiError('O servidor ainda não confirmou esta foto. Ela continua guardada neste aparelho.', 'PHOTO_CONFIRMATION_PENDING');
