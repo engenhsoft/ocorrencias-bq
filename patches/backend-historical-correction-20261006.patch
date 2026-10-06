@@ -1,0 +1,98 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.06.1',
++  version: '2026.10.06.2',
+   contract: 'OCORRENCIAS-BQ-SERVICE-SNAPSHOT-v11',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -194,22 +194,29 @@
+ function submitRecord_(payload) {
+   const auth = requireSession_(payload.token, ['field']);
+   const submitted = payload.record || {};
+-  const model = validateAndNormalizeRecord_(submitted);
++  const recordId = requireUuid_(submitted.recordId);
+   const lock = LockService.getScriptLock();
+   lock.waitLock(30000);
+   try {
+     ensureOperationalSheets_();
+     const pending = sheet_(APP.pendingSheet);
+     const official = sheet_(APP.officialSheet);
+-    const officialFound = findRowById_(official, model.recordId);
++    const officialFound = findRowById_(official, recordId);
+     if (officialFound) {
+       const officialRecord = recordFromRow_(officialFound.values, loadServicesMap_(), loadMaterialsMap_());
+       assertOwner_(auth, officialRecord.user);
+       return stateResponse_(officialRecord, false, true);
+     }
+-    const found = findRowById_(pending, model.recordId);
++    const found = findRowById_(pending, recordId);
+     if (found) assertOwner_(auth, found.values[COL.USER - 1]);
+     const existing = found ? found.values : emptyRow_();
++    const original = found ? {
++      base: String(existing[COL.BASE - 1] || ''),
++      contract: String(existing[COL.CONTRACT - 1] || contractForBase_(existing[COL.BASE - 1])),
++      totalServices: snapshotNumber_(existing[COL.TOTAL - 1]),
++      services: pendingServicesFromRow_(existing, safeJson_(existing[COL.AUDIT - 1], {}), String(existing[COL.CONTRACT - 1] || contractForBase_(existing[COL.BASE - 1])))
++    } : null;
++    const model = validateAndNormalizeRecord_(submitted, original ? { serviceMode: 'fieldEdit', original: original } : {});
+     assertTeamDirectorySelection_(model, found ? existing : null);
+     const previousStatus = String(existing[COL.STATUS - 1] || '');
+     const registeredAt = existing[COL.REGISTERED_AT - 1] || nowIso_();
+@@ -696,6 +703,7 @@
+   if (bases.indexOf(model.base) < 0) throw apiError_('BASE_REQUIRED', 'Selecione a base.');
+   model.contract = contractForBase_(model.base);
+   if (options.original && model.base === options.original.base && String(options.original.contract || '').trim()) model.contract = String(options.original.contract);
++  if (options.serviceMode === 'fieldEdit' && ['4600080938', '4600080939'].indexOf(model.contract) < 0) throw apiError_('INVALID_CONTRACT', 'O contrato histórico da ocorrência está inválido.');
+   if (!model.team) throw apiError_('TEAM_REQUIRED', 'Informe a equipe.');
+   if (!model.crewLeader) throw apiError_('CREW_LEADER_REQUIRED', 'Informe o chefe de turma.');
+   if (!model.occurrenceNumber) throw apiError_('OCCURRENCE_NUMBER_REQUIRED', 'Informe o Nº da ocorrência.');
+@@ -724,6 +732,7 @@
+   if (!Array.isArray(record.services) || !record.services.length) throw apiError_('SERVICE_REQUIRED', 'Adicione pelo menos um serviço da aba Emergência.');
+   if (options.serviceMode === 'snapshot') model.services = record.services.map(validateServiceSnapshot_);
+   else if (options.serviceMode === 'edit') model.services = servicesForSupervisorEdit_(record.services, options.original.services, contractForBase_(model.base));
++  else if (options.serviceMode === 'fieldEdit') model.services = servicesForSupervisorEdit_(record.services, options.original.services, contractForBase_(model.base), model.recordId);
+   else model.services = record.services.map(function (service, index) { return validateCatalogService_(service, index, model.contract); });
+   if (!Array.isArray(record.materials) || (!record.materials.length && options.serviceMode !== 'snapshot')) throw apiError_('MATERIAL_REQUIRED', 'Informe o material aplicado.');
+   model.materials = record.materials.map(function (material, index) {
+@@ -766,22 +775,25 @@
+ }
+ 
+ function sameSnapshotService_(left, right) {
++  const leftValue = snapshotNumber_(left.referenceValue); const rightValue = snapshotNumber_(right.referenceValue);
+   return ['catalogKey', 'code', 'catalogText', 'unit', 'group', 'origin', 'contract'].every(function (field) { return String(left[field] == null ? '' : left[field]) === String(right[field] == null ? '' : right[field]); })
+-    && snapshotNumber_(left.referenceValue) === snapshotNumber_(right.referenceValue);
+-}
+-
+-function servicesForSupervisorEdit_(submitted, original, contract) {
++    && (leftValue === rightValue || (Number.isNaN(leftValue) && Number.isNaN(rightValue)));
++}
++
++function servicesForSupervisorEdit_(submitted, original, contract, fieldRecordId) {
+   const used = {};
+   return submitted.map(function (service, index) {
+     const previousIndex = (original || []).findIndex(function (previous, position) {
+       if (used[position] || !previous || !service) return false;
+       if (previous.lineId) return Boolean(service.lineId) && previous.lineId === service.lineId;
++      if (fieldRecordId && service.lineId && service.lineId !== 'historical:' + fieldRecordId + ':' + position) return false;
+       return String(previous.catalogKey || '') === String(service.catalogKey || '') && String(previous.code || '') === String(service.code || '');
+     });
+     const previous = previousIndex >= 0 ? original[previousIndex] : null;
+     if (previousIndex >= 0) used[previousIndex] = true;
+     if (!previous || !sameSnapshotService_(previous, service)) return validateCatalogService_(service, index, contract);
+     const snapshot = validateServiceSnapshot_(previous, index);
++    if (fieldRecordId && (!cleanText_(snapshot.unit, 80) || ['4600080938', '4600080939'].indexOf(String(snapshot.contract || '')) < 0)) throw apiError_('INVALID_SERVICE_SNAPSHOT', 'O snapshot histórico do serviço ' + (index + 1) + ' não possui unidade ou contrato válido.');
+     const quantity = snapshotQuantity_(service.quantity);
+     if (!Number.isFinite(quantity) || quantity <= 0) throw apiError_('INVALID_QUANTITY', 'Informe uma QTD positiva no serviço ' + (index + 1) + '.');
+     if (quantity === snapshotQuantity_(snapshot.quantity)) {
+@@ -803,6 +815,7 @@
+   const authoritative = { code: cleanText_(row[0], 120), catalogText: cleanText_(row[1], 1000), unit: cleanText_(row[2], 80), group: cleanText_(row[3], 180), referenceValue: parseOptionalNumber_(row[valueColumn]) };
+   if (!authoritative.code || normalize_(authoritative.code) !== normalize_(service.code)) throw apiError_('CATALOG_MISMATCH', 'O serviço ' + (index + 1) + ' diverge da aba Emergência. Pesquise novamente.');
+   if (authoritative.referenceValue == null) throw apiError_('SERVICE_PRICE_NOT_FOUND', 'O serviço ' + authoritative.code + ' não possui valor para o contrato ' + contract + '.');
++  if (!authoritative.catalogText || !authoritative.unit || !Number.isFinite(authoritative.referenceValue) || authoritative.referenceValue < 0) throw apiError_('INVALID_SERVICE', 'O serviço ' + (index + 1) + ' possui dados inválidos no catálogo atual.');
+   const quantityText = String(service.quantity == null ? '' : service.quantity).trim().replace(',', '.'); const quantity = /^\d+(?:\.\d+)?$/.test(quantityText) ? Number(quantityText) : NaN; if (!Number.isFinite(quantity) || quantity <= 0) throw apiError_('INVALID_QUANTITY', 'Informe uma QTD positiva no serviço ' + (index + 1) + '.');
+   return { lineId: cleanText_(service.lineId, 80), catalogKey: catalogKey, code: authoritative.code, catalogText: authoritative.catalogText, unit: authoritative.unit, group: authoritative.group, contract: contract, referenceValue: authoritative.referenceValue, quantity: quantity, totalValue: roundMoney_(authoritative.referenceValue * quantity), origin: APP.catalogSheet };
+ }

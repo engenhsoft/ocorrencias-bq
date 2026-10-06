@@ -1,4 +1,4 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.06.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.06.2';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {

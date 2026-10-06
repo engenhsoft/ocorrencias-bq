@@ -1,5 +1,5 @@
 import {
-  APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors,
+  APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.06.1';
+} from './core.js?v=2026.10.06.2';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.06.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.1';
+} from './db.js?v=2026.10.06.2';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.2';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -188,6 +188,7 @@ let teamDirectoryPromise = null;
 let teamDirectoryLoading = false;
 let teamDirectoryMessage = '';
 let fieldAssignmentSnapshot = null;
+let fieldServiceSnapshot = [];
 let supervisorAssignmentSnapshot = null;
 
 function readSession() {
@@ -218,6 +219,7 @@ function clearSessionUiState() {
   dailyRequestId += 1;
   mineGoalRequestId += 1;
   activeRecord = null;
+  fieldServiceSnapshot = [];
   clearPreviewUrls();
   mineRecords = [];
   mineServerDataLoaded = false;
@@ -788,7 +790,7 @@ function syncFormToRecord() {
     removed: activeRecord.photoStates?.[5]?.serverUrl || activeRecord.transformerPhotos?.removed || '',
     installed: activeRecord.photoStates?.[6]?.serverUrl || activeRecord.transformerPhotos?.installed || ''
   };
-  activeRecord.totalServices = occurrenceTotal(activeRecord.services);
+  activeRecord.totalServices = occurrenceSnapshotTotal(activeRecord.services, fieldServiceSnapshot, activeRecord.recordId);
   activeRecord.goalPercentage = dailyGoalProjection(dailyProduction.totalExcludingRecord, activeRecord.totalServices).percentage;
 }
 
@@ -799,8 +801,10 @@ function updateContractOutput(output, base) {
 function applyContractToRecord(record) {
   const result = repriceServicesForBase(record?.services, record?.base);
   record.contract = result.contract;
-  record.services = result.services;
-  record.totalServices = occurrenceTotal(record.services);
+  record.services = result.services.map((service, index) => historicalServiceIndex(record.services[index], fieldServiceSnapshot, record.recordId) >= 0 ? record.services[index] : service);
+  result.services = record.services;
+  result.missingCodes = record.services.filter((service) => service.referenceValue == null).map((service) => service.code || service.catalogKey || 'sem código');
+  record.totalServices = occurrenceSnapshotTotal(record.services, fieldServiceSnapshot, record.recordId);
   return result;
 }
 
@@ -967,7 +971,7 @@ async function selectCatalogItem(item) {
   const catalogKey = item.catalogKey || item.catalogKeys?.[0] || '';
   if (activeRecord.services.some((service) => service.catalogKey === catalogKey)) { toast('Este serviço já foi adicionado.', 'error'); return; }
   activeRecord.contract = contract;
-  activeRecord.services.push({ ...priced, lineId: generateUuid(), catalogKey, code: item.code, catalogText: item.catalogText || '', unit: item.unit || '', group: item.group || '', quantity: 1, origin: 'Emergência' });
+  activeRecord.services.push({ ...priced, lineId: generateUuid(), catalogKey, code: item.code, catalogText: item.catalogText || '', unit: item.unit || '', group: item.group || '', quantity: 1, totalValue: priced.referenceValue, origin: 'Emergência' });
   elements.serviceSearch.value = ''; elements.serviceResults.hidden = true; catalogResults = [];
   renderServices(); validateStepOne(false); await saveActiveDraft();
 }
@@ -994,6 +998,7 @@ async function handleServiceChange(event) {
   if (quantity) {
     const service = activeRecord.services.find((item) => item.lineId === quantity.dataset.serviceQuantity);
     if (service) {
+      if (parseServiceQuantity(service.quantity) !== parseServiceQuantity(quantity.value)) service.totalValue = occurrenceSnapshotTotal([{ ...service, quantity: quantity.value }], fieldServiceSnapshot, activeRecord.recordId);
       service.quantity = quantity.value;
       const total = $(`[data-service-total="${CSS.escape(service.lineId)}"]`, elements.servicesList);
       if (total) total.textContent = formatCurrency(serviceTotal(service));
@@ -1003,7 +1008,7 @@ async function handleServiceChange(event) {
 }
 
 function updateGoal() {
-  const current = occurrenceTotal(activeRecord?.services || []);
+  const current = occurrenceSnapshotTotal(activeRecord?.services || [], fieldServiceSnapshot, activeRecord?.recordId);
   const base = normalizeTeamKey(dailyProduction.team) === normalizeTeamKey(elements.team.value) && dailyProduction.date === operationalDate() ? Number(dailyProduction.totalExcludingRecord) || 0 : 0;
   const progress = dailyGoalProjection(base, current, TEAM_GOAL);
   elements.goalValue.textContent = formatCurrency(TEAM_GOAL); elements.dailySentValue.textContent = formatCurrency(base); elements.currentValue.textContent = formatCurrency(current); elements.projectedValue.textContent = formatCurrency(progress.projectedTotal);
@@ -1118,7 +1123,7 @@ async function handleMaterialChange(event) {
 
 function validateStepOne(showErrors = false) {
   if (activeRecord) syncFormToRecord();
-  const errors = activeRecord ? validateOccurrence(activeRecord) : ['Preencha os dados da ocorrência.'];
+  const errors = activeRecord ? validateOccurrence(activeRecord, { originalServices: fieldServiceSnapshot }) : ['Preencha os dados da ocorrência.'];
   const relationError = activeRecord && assignmentError(activeRecord, fieldAssignmentSnapshot);
   if (relationError) errors.push(relationError);
   elements.continueToPhotosButton.disabled = errors.length > 0;
@@ -1767,11 +1772,14 @@ function renderFieldCorrectionBanner(record) {
 }
 
 async function loadRecordIntoForm(record) {
-  record = normalizeOccurrenceRecord(record); const services = record.services; const materials = record.materials.map((material) => ({ ...material, lineId: material.lineId || generateUuid() })); const photoStates = record.photoStates;
+  record = normalizeOccurrenceRecord(record);
+  fieldServiceSnapshot = record.registeredAt || record.serverConfirmed || record.correctionMode ? normalizeServices(record.audit?.pendingServices || record.services).map((service) => ({ ...service })) : [];
+  const services = record.services.map((service, index) => ({ ...service, lineId: service.lineId || (fieldServiceSnapshot.length ? `historical:${record.recordId}:${index}` : generateUuid()) }));
+  const materials = record.materials.map((material) => ({ ...material, lineId: material.lineId || generateUuid() })); const photoStates = record.photoStates;
   clearPreviewUrls(); activeRecord = { ...blankRecord(), ...record, status: RECORD_STATUS.DRAFT, occurrenceTypes: normalizeOccurrenceTypes(record.occurrenceTypes), transformer: { ...blankRecord().transformer, ...(record.transformer || {}) }, transformerPhotos: { ...blankRecord().transformerPhotos, ...(record.transformerPhotos || {}) }, services, materials, photoStates: Array.from({ length: 7 }, (_, index) => photoStates[index] || { photoIndex: index + 1, confirmed: index < 5 ? Boolean(record.photos?.[index]) : Boolean(index === 5 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed), localReady: false, serverUrl: index < 5 ? record.photos?.[index] || '' : index === 5 ? record.transformerPhotos?.removed || '' : record.transformerPhotos?.installed || '', uploadKey: '', replacePending: false }) };
+  if (fieldServiceSnapshot.length && !Array.isArray(activeRecord.audit?.pendingServices)) activeRecord.audit = { ...activeRecord.audit, pendingServices: fieldServiceSnapshot.map((service) => ({ ...service })) };
   renderFieldCorrectionBanner(activeRecord);
   if (!activeRecord.contract) activeRecord.contract = contractForBase(activeRecord.base);
-  if (activeRecord.services.length && activeRecord.services.every((service) => service.contractValues && typeof service.contractValues === 'object')) applyContractToRecord(activeRecord);
   const loadingRecord = activeRecord;
   fieldAssignmentSnapshot = { base: activeRecord.base, team: activeRecord.team, crewLeader: activeRecord.crewLeader };
   elements.operationBase.value = loadingRecord.base || '';
@@ -1810,6 +1818,7 @@ function resetForm({ preserveTeam = false } = {}) {
   catalogSearchRequestId += 1; materialSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearTimeout(materialSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
   [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.materialSearch, elements.observation].forEach((input) => { input.value = ''; });
   fieldAssignmentSnapshot = null;
+  fieldServiceSnapshot = [];
   renderAssignmentControls();
   renderFieldCorrectionBanner(null);
   updateContractOutput(elements.operationContract, '');

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.06.1';
-export const APP_BUILD = '2026-10-06-stability-audit';
+export const APP_VERSION = '2026.10.06.2';
+export const APP_BUILD = '2026-10-06-historical-correction';
 
 export const TEAM_GOAL = 6000;
 
@@ -265,6 +265,27 @@ export function serializeServicesForBackend(value) {
     const quantity = parseServiceQuantity(service.quantity);
     return { ...service, quantity: Number.isFinite(quantity) ? quantity : service.quantity };
   });
+}
+
+export function historicalServiceIndex(service, originalServices = [], recordId = '') {
+  return normalizeServices(originalServices).findIndex((previous, index) => {
+    const sameLine = previous.lineId
+      ? Boolean(service?.lineId) && previous.lineId === service.lineId
+      : (!service?.lineId || service.lineId === `historical:${recordId}:${index}`);
+    return sameLine && ['catalogKey', 'code', 'catalogText', 'unit', 'group', 'origin', 'contract'].every((field) => String(previous[field] ?? '') === String(service?.[field] ?? ''))
+      && Number(previous.referenceValue) === Number(service?.referenceValue);
+  });
+}
+
+export function occurrenceSnapshotTotal(services, originalServices = [], recordId = '') {
+  const total = normalizeServices(services).reduce((sum, service) => {
+    const index = historicalServiceIndex(service, originalServices, recordId);
+    const previous = index >= 0 ? originalServices[index] : null;
+    const unchangedQuantity = previous && parseServiceQuantity(previous.quantity) === parseServiceQuantity(service.quantity);
+    const lineTotal = unchangedQuantity ? Number(previous.totalValue) : Math.round(serviceTotal(service) * 100) / 100;
+    return sum + (Number.isFinite(lineTotal) ? lineTotal : 0);
+  }, 0);
+  return Math.round(total * 100) / 100;
 }
 
 export function serviceSnapshotErrors(value) {
@@ -564,7 +585,7 @@ export function goalProgress(total, goal = TEAM_GOAL) {
   };
 }
 
-export function validateOccurrence(record = {}, { historicalServices = false } = {}) {
+export function validateOccurrence(record = {}, { historicalServices = false, originalServices = [] } = {}) {
   const errors = [];
   const types = normalizeOccurrenceTypes(record.occurrenceTypes);
   const services = normalizeServices(record.services);
@@ -598,6 +619,11 @@ export function validateOccurrence(record = {}, { historicalServices = false } =
   if (!services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
   if (historicalServices) errors.push(...serviceSnapshotErrors(record.services));
   else services.forEach((service, index) => {
+    if (historicalServiceIndex(service, originalServices, record.recordId) >= 0) {
+      errors.push(...serviceSnapshotErrors([service]));
+      if (!String(service.unit || '').trim() || !Object.values(SERVICE_CONTRACTS).includes(String(service.contract || ''))) errors.push(`Snapshot histórico inválido no serviço ${index + 1}.`);
+      return;
+    }
     if (!service?.catalogKey || !service?.code) errors.push(`Serviço ${index + 1} inválido.`);
     if (!(parseServiceQuantity(service?.quantity) > 0)) errors.push(`Informe uma QTD válida no serviço ${index + 1}.`);
     if (service?.referenceValue == null || !Number.isFinite(Number(service.referenceValue)) || String(service.contract || '') !== expectedContract) {
