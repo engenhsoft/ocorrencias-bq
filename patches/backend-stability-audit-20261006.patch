@@ -1,0 +1,153 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.02.1',
++  version: '2026.10.06.1',
+   contract: 'OCORRENCIAS-BQ-SERVICE-SNAPSHOT-v11',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -250,6 +250,7 @@
+   if (!Number.isInteger(photoIndex) || photoIndex < 1 || photoIndex > 7) throw apiError_('INVALID_PHOTO_INDEX', 'Índice da foto inválido.');
+   const uploadKey = requireUuid_(payload.uploadKey);
+   const lock = LockService.getScriptLock(); lock.waitLock(30000);
++  let responseValues;
+   try {
+     const sheet = sheet_(APP.pendingSheet); const found = findRowById_(sheet, recordId);
+     if (!found) throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada.');
+@@ -257,34 +258,64 @@
+     const previousStatus = String(found.values[COL.STATUS - 1] || '');
+     const urlColumn = photoUrlColumn_(photoIndex); const keyColumn = photoUploadKeyColumn_(photoIndex);
+     const oldUrl = String(found.values[urlColumn - 1] || ''); const oldKey = String(found.values[keyColumn - 1] || '');
+-    if (oldKey === uploadKey && oldUrl) return stateResponse_(recordFromValuesAt_(found.values), false);
+-    if (oldUrl && !payload.replace) throw apiError_('PHOTO_ALREADY_EXISTS', 'Esta posição já possui uma foto confirmada.');
+-    const dataUrl = String(payload.dataUrl || ''); const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i);
+-    if (!match) throw apiError_('INVALID_PHOTO', 'Formato de foto inválido.');
+-    const bytes = Utilities.base64Decode(match[2]);
+-    if (!bytes.length || bytes.length > APP.maxPhotoBytes) throw apiError_('PHOTO_TOO_LARGE', 'A foto excede o tamanho permitido.');
+-    const extension = match[1].toLowerCase().indexOf('png') >= 0 ? 'png' : match[1].toLowerCase().indexOf('webp') >= 0 ? 'webp' : 'jpg';
+-    const photoLabel = photoIndex === 6 ? 'TRAFO_RETIRADO' : photoIndex === 7 ? 'TRAFO_INSTALADO' : 'FOTO_' + photoIndex;
+-    const blob = Utilities.newBlob(bytes, match[1], recordId + '_' + photoLabel + '.' + extension);
+-    const file = photoFolder_().createFile(blob); file.setDescription(APP.name + ' | ' + recordId + ' | ' + photoLabel + ' | ' + uploadKey);
+-    makePhotoPublic_(file);
+-    const photoUrl = publicPhotoUrl_(file.getId());
+-    sheet.getRange(found.row, urlColumn).setValue(photoUrl); sheet.getRange(found.row, keyColumn).setValue(uploadKey);
+-    const nextValues = sheet.getRange(found.row, 1, 1, COL.WIDTH).getValues()[0];
+-    const audit = mergeAudit_(nextValues[COL.AUDIT - 1], { lastPhotoConfirmation: nowIso_(), lastPhotoIndex: photoIndex, lastPhotoUploadKey: uploadKey });
+-    const requested = normalizePhotoIndexes_(audit.requestedPhotoIndexes).filter(function (index) { return !(Boolean(payload.replace) && index === photoIndex); });
+-    audit.requestedPhotoIndexes = requested;
+-    const nextStatus = requested.length ? STATUS.CORRECTION_REQUESTED : (recordReadyForSupervisorValues_(nextValues) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS);
+-    sheet.getRange(found.row, COL.STATUS).setValue(nextStatus); sheet.getRange(found.row, COL.UPDATED_AT).setValue(nowIso_());
+-    resolvePhotoSyncRequest_(audit, nextStatus, auth.user);
+-    if (nextStatus === STATUS.WAITING_SUPERVISOR && previousStatus !== STATUS.WAITING_SUPERVISOR) appendAuditTimeline_(audit, previousStatus === STATUS.CORRECTION_REQUESTED ? 'CORRECAO_REENVIADA' : 'AGUARDANDO_SUPERVISOR', auth.user, nowIso_(), 'Evidências confirmadas');
+-    sheet.getRange(found.row, COL.AUDIT).setValue(JSON.stringify(audit));
+-    if (oldUrl && oldUrl !== photoUrl) trashDriveFileFromUrl_(oldUrl);
+-    const updated = sheet.getRange(found.row, 1, 1, COL.WIDTH).getValues()[0];
+-    const updatedRecord = recordFromValuesAt_(updated);
+-    if (nextStatus === STATUS.WAITING_SUPERVISOR && previousStatus === STATUS.CORRECTION_REQUESTED) appendHistory_(updatedRecord, auth.user, 'CORRECAO_REENVIADA', previousStatus, nextStatus, '', 'Correção de evidências reenviada');
+-    return stateResponse_(updatedRecord, false);
++    if (oldKey === uploadKey && oldUrl) {
++      ensurePhotoResendHistory_(found.values, auth.user, uploadKey);
++      responseValues = found.values;
++    } else {
++      const dataUrl = String(payload.dataUrl || ''); const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i);
++      if (!match) throw apiError_('INVALID_PHOTO', 'Formato de foto inválido.');
++      const bytes = Utilities.base64Decode(match[2]);
++      if (!bytes.length || bytes.length > APP.maxPhotoBytes) throw apiError_('PHOTO_TOO_LARGE', 'A foto excede o tamanho permitido.');
++      const extension = match[1].toLowerCase().indexOf('png') >= 0 ? 'png' : match[1].toLowerCase().indexOf('webp') >= 0 ? 'webp' : 'jpg';
++      const photoLabel = photoIndex === 6 ? 'TRAFO_RETIRADO' : photoIndex === 7 ? 'TRAFO_INSTALADO' : 'FOTO_' + photoIndex;
++      const legacyName = recordId + '_' + photoLabel + '.' + extension;
++      const fileName = recordId + '_' + photoLabel + '_' + uploadKey + '.' + extension;
++      const description = APP.name + ' | ' + recordId + ' | ' + photoLabel + ' | ' + uploadKey;
++      const folder = photoFolder_();
++      let file = uploadedPhotoFile_(folder, fileName, legacyName, description);
++      if (oldUrl && !payload.replace && (!file || extractDriveFileId_(oldUrl) !== file.getId())) throw apiError_('PHOTO_ALREADY_EXISTS', 'Esta posição já possui uma foto confirmada.');
++      if (!file) file = folder.createFile(Utilities.newBlob(bytes, match[1], fileName));
++      file.setDescription(description);
++      makePhotoPublic_(file);
++      const photoUrl = publicPhotoUrl_(file.getId());
++      const nextValues = found.values.slice();
++      nextValues[urlColumn - 1] = photoUrl; nextValues[keyColumn - 1] = uploadKey;
++      const confirmedAt = nowIso_();
++      const audit = mergeAudit_(nextValues[COL.AUDIT - 1], { lastPhotoConfirmation: confirmedAt, lastPhotoIndex: photoIndex, lastPhotoUploadKey: uploadKey });
++      const requested = normalizePhotoIndexes_(audit.requestedPhotoIndexes).filter(function (index) { return !(Boolean(payload.replace) && index === photoIndex); });
++      audit.requestedPhotoIndexes = requested;
++      const nextStatus = requested.length ? STATUS.CORRECTION_REQUESTED : (recordReadyForSupervisorValues_(nextValues) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS);
++      nextValues[COL.STATUS - 1] = nextStatus; nextValues[COL.UPDATED_AT - 1] = confirmedAt;
++      resolvePhotoSyncRequest_(audit, nextStatus, auth.user);
++      if (nextStatus === STATUS.WAITING_SUPERVISOR && previousStatus !== STATUS.WAITING_SUPERVISOR) appendAuditTimeline_(audit, previousStatus === STATUS.CORRECTION_REQUESTED ? 'CORRECAO_REENVIADA' : 'AGUARDANDO_SUPERVISOR', auth.user, confirmedAt, 'Evidências confirmadas');
++      nextValues[COL.AUDIT - 1] = JSON.stringify(audit);
++      sheet.getRange(found.row, 1, 1, COL.WIDTH).setValues([nextValues]);
++      flushSheets_();
++      ensurePhotoResendHistory_(nextValues, auth.user, uploadKey);
++      if (oldUrl && oldUrl !== photoUrl) trashDriveFileFromUrl_(oldUrl);
++      responseValues = nextValues;
++    }
+   } finally { lock.releaseLock(); }
++  return stateResponse_(recordFromValuesAt_(responseValues), false);
++}
++
++function uploadedPhotoFile_(folder, fileName, legacyName, description) {
++  const current = folder.getFilesByName(fileName);
++  if (current.hasNext()) return current.next();
++  const legacy = folder.getFilesByName(legacyName);
++  while (legacy.hasNext()) { const file = legacy.next(); if (file.getDescription() === description) return file; }
++  return null;
++}
++
++function ensurePhotoResendHistory_(values, actor, uploadKey) {
++  const audit = safeJson_(values[COL.AUDIT - 1], {});
++  if (audit.lastPhotoUploadKey !== uploadKey) return;
++  const at = audit.lastPhotoConfirmation;
++  if (!(Array.isArray(audit.timeline) && audit.timeline.some(function (event) { return event.action === 'CORRECAO_REENVIADA' && event.at === at; }))) return;
++  const history = sheet_(APP.historySheet); const id = String(values[COL.ID - 1]);
++  if (publicationRowsForId_(history, id, HISTORY_HEADERS.length).some(function (item) { return String(item.values[3]) === 'CORRECAO_REENVIADA' && isoValue_(item.values[1]) === at; })) return;
++  const record = recordFromRow_(values, {}, {}, {});
++  appendHistoryAt_(record, actor, 'CORRECAO_REENVIADA', STATUS.CORRECTION_REQUESTED, STATUS.WAITING_SUPERVISOR, '', 'Correção de evidências reenviada', at);
+ }
+ 
+ function getRecordState_(payload) {
+@@ -309,13 +340,14 @@
+ function listMine_(payload) {
+   const auth = requireSession_(payload.token, ['field']);
+   const spreadsheet = spreadsheet_();
+-  ensureOperationalSheets_(spreadsheet);
+   const services = loadServicesMap_(spreadsheet); const materials = loadMaterialsMap_(spreadsheet); const byId = {};
+   const pendingRows = dataRows_(sheet_(APP.pendingSheet, spreadsheet), COL.WIDTH);
+   const officialRows = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH);
++  const ownedRows = officialRows.concat(pendingRows).filter(function (values) { return sameUser_(values[COL.USER - 1], auth.user); });
++  const publicPhotoCache = cachedPublicPhotosForRows_(ownedRows);
+   [officialRows, pendingRows].forEach(function (rows) {
+     rows.forEach(function (values) {
+-      if (sameUser_(values[COL.USER - 1], auth.user)) byId[String(values[COL.ID - 1])] = recordFromRow_(values, services, materials);
++      if (sameUser_(values[COL.USER - 1], auth.user) && String(values[COL.ID - 1] || '')) byId[String(values[COL.ID - 1])] = recordFromRow_(values, services, materials, publicPhotoCache);
+     });
+   });
+   const dailyTotals = buildDailyTotals_([pendingRows, officialRows]);
+@@ -940,7 +972,10 @@
+ function singletonServicesMap_(id, services) { const map = {}; map[id] = services; return map; }
+ function singletonMaterialsMap_(id, materials) { const map = {}; map[id] = materials; return map; }
+ 
+-function recordFromValuesAt_(values) { return recordFromRow_(values, loadServicesMap_(), loadMaterialsMap_()); }
++function recordFromValuesAt_(values) {
++  const published = String(values[COL.STATUS - 1] || '') === STATUS.PUBLISHED;
++  return recordFromRow_(values, published ? loadServicesMap_() : {}, published ? loadMaterialsMap_() : {}, cachedPublicPhotosForRows_([values]));
++}
+ 
+ function recordFromRow_(values, servicesMap, materialsMap, publicPhotoCache) {
+   const id = String(values[COL.ID - 1] || ''); const photos = values.slice(COL.PHOTO_1 - 1, COL.PHOTO_5).map(function (value) { return photoUrlForClient_(value, publicPhotoCache); }); const uploadKeys = values.slice(COL.UPLOAD_KEY_1 - 1, COL.UPLOAD_KEY_5).map(String);
+@@ -1098,9 +1133,9 @@
+ function dataRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getValues(); }
+ function displayRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues(); }
+ function dataRowsWithNumbers_(sheet, width) { return dataRows_(sheet, width).map(function (values, index) { return { row: index + 2, values: values }; }); }
+-function findRowById_(sheet, id) { const rows = dataRows_(sheet, Math.max(COL.WIDTH, sheet.getLastColumn())); for (let index = 0; index < rows.length; index += 1) if (String(rows[index][COL.ID - 1] || '') === id) return { row: index + 2, values: padArray_(rows[index], COL.WIDTH) }; return null; }
+-function findRowsById_(sheet, id) { return dataRowsWithNumbers_(sheet, Math.max(COL.WIDTH, sheet.getLastColumn())).filter(function (item) { return String(item.values[COL.ID - 1] || '') === id; }).map(function (item) { return { row: item.row, values: padArray_(item.values, COL.WIDTH) }; }); }
+-function findAcrossMainSheets_(id) { return findRowById_(sheet_(APP.pendingSheet), id) || findRowById_(sheet_(APP.officialSheet), id); }
++function findRowById_(sheet, id) { return publicationRowsForId_(sheet, id, COL.WIDTH)[0] || null; }
++function findRowsById_(sheet, id) { return publicationRowsForId_(sheet, id, COL.WIDTH); }
++function findAcrossMainSheets_(id) { const spreadsheet = spreadsheet_(); return findRowById_(sheet_(APP.pendingSheet, spreadsheet), id) || findRowById_(sheet_(APP.officialSheet, spreadsheet), id); }
+ function emptyRow_() { return Array(COL.WIDTH).fill(''); }
+ function padArray_(values, length) { const result = (values || []).slice(0, length); while (result.length < length) result.push(''); return result; }
+ 

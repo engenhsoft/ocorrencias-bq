@@ -297,7 +297,7 @@ for (const action of ['listPending_', 'listMine_']) {
     assert.deepEqual(old.counts(), { opens: 7, dataReads: 6, headerReads: 5, writes: 0 });
     assert.deepEqual(fixed.counts(), action === 'listPending_'
       ? { opens: 1, dataReads: 2, headerReads: 0, writes: 0 }
-      : { opens: 1, dataReads: 4, headerReads: 5, writes: 0 });
+      : { opens: 1, dataReads: 4, headerReads: 0, writes: 0 });
     beforeAfter[action] = { before: old.counts(), after: fixed.counts() };
   });
 }

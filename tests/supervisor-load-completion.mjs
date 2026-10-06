@@ -27,7 +27,7 @@ const record = (index = 1, status = core.RECORD_STATUS.WAITING_SUPERVISOR) => ({
   recordId: `uuid-${index}`, occurrenceNumber: '00001', status, base: 'CAICÓ', team: 'LM TESTE', crewLeader: 'Chefe TESTE',
   user: 'Campo TESTE', registeredAt: new Date().toISOString(), occurrenceTypes: ['PODA'], services: [], materials: [], photos: []
 });
-const payload = records => ({ records, pendingRecords: [], metricRecords: records.map(({ recordId, status }) => ({ recordId, status })) });
+const payload = records => ({ ok: true, success: true, records, pendingRecords: [], metricRecords: records.map(({ recordId, status }) => ({ recordId, status })) });
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const numericUi = ['supervisorKpiTotal', 'supervisorKpiWaiting', 'supervisorKpiCorrection', 'supervisorKpiRejected', 'supervisorKpiSync',

@@ -123,13 +123,14 @@ test('lista vazia preserva métricas publicadas e não consulta cache de fotos',
   assert.deepEqual(plain(after.c.listPending_({ token: 'fixture-only' })), plain(before.c.listPending_({ token: 'fixture-only' })));
   assert.equal(after.calls.bulkCache, 0);
 });
-test('Campo mantém fontes, detalhes e quantidade de leituras anteriores', () => {
+test('Campo mantém payload e remove a inspeção dos cinco cabeçalhos', () => {
   const before = harness(baseline), after = harness(fixed);
   assert.deepEqual(plain(after.c.listMine_({ token: 'fixture-only' })), plain(before.c.listMine_({ token: 'fixture-only' })));
-  assert.deepEqual(after.counts(), before.counts()); assert.equal(after.calls.bulkCache, 0);
+  assert.deepEqual(plain(after.counts()), { opens: 1, dataReads: 4, headerReads: 0, writes: 0 });
+  assert.equal(before.counts().headerReads, 5); assert.equal(after.calls.bulkCache, 1);
 });
 test('login, sessão, edição, fotos e leituras alheias à publicação não foram alteradas', () => {
-  for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listMine_', 'listPublishedRecords_']) {
+  for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listPublishedRecords_']) {
     assert.equal(extract(fixed, name), extract(baseline, name), name);
   }
 });

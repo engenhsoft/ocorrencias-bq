@@ -58,7 +58,8 @@ test('reconciliação parcial preserva foto confirmada', () => {
 });
 test('merge usa photoStates do servidor quando o local está vazio', () => {
   const [record] = core.mergeRecordCollections([{ recordId: '1', photoStates: [] }], [{ recordId: '1', photoStates: [{ confirmed: true }] }]);
-  assert.equal(record.photoStates.length, 1);
+  assert.equal(record.photoStates.length, 7);
+  assert.equal(record.photoStates[0].confirmed, true);
 });
 test('merge preserva coleções locais quando resposta histórica as omite', () => {
   const [record] = core.mergeRecordCollections([{ ...realPost, recordId: '1' }], [{ recordId: '1', status: 'PUBLICADA' }]); assert.equal(record.services.length, 1); assert.equal(record.materials.length, 1); assert.equal(record.photos.length, 5);
@@ -219,7 +220,7 @@ function fakeElement() {
 
 async function loadAppHarness() {
   const dbStub = dataUrl(`
-    export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index)=>{globalThis.__deletedPhotos?.push([recordId,index])}; export const deleteRecord=async()=>{};
+    export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index,key)=>{const photo=globalThis.__photos?.get(index);if(photo&&(key===undefined||key===photo.uploadKey)){globalThis.__deletedPhotos?.push([recordId,index]);globalThis.__photos.delete(index);return true;}return false;}; export const deleteRecord=async()=>{};
     export const getAllRecords=async()=>globalThis.__dbRecords||[]; export const getCachedMaterialCatalog=async()=>[]; export const getMeta=async()=>null;
     export const getPhoto=async(recordId,index)=>globalThis.__photos?.get(index)||null; export const getPhotosForRecord=async()=>[];
     export const getQueueSummary=async()=>({pendingRecords:[],pendingPhotos:0,syncingPhotos:0,errors:0});
@@ -388,8 +389,8 @@ test('retry conserva UUID e uploadKey das fotos', async () => {
   const submitted = []; const uploaded = []; const confirmed = [];
   globalThis.__apiHandlers = {
     submitRecord: async (_token, record) => { submitted.push(record.recordId); return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [] }; },
-    getRecordState: async () => ({ status: confirmed.length >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}` })) }),
-    uploadPhoto: async (_token, photo) => { uploaded.push(photo.uploadKey); confirmed.push(photo.photoIndex); return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}` })) }; }
+    getRecordState: async () => ({ status: confirmed.length >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}`, uploadKey: uploadKeys[photoIndex - 1] })) }),
+    uploadPhoto: async (_token, photo) => { uploaded.push(photo.uploadKey); confirmed.push(photo.photoIndex); return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}`, uploadKey: uploadKeys[photoIndex - 1] })) }; }
   };
   app.persistSession({ token: 'alice', user: 'Alice', role: 'field' }); const result = await app.performSyncSingleRecord('retry-id', false); assert.deepEqual(submitted, ['retry-id']); assert.deepEqual(uploaded, uploadKeys); assert.equal(result.status, core.RECORD_STATUS.WAITING_SUPERVISOR); assert.deepEqual(globalThis.__deletedPhotos, [['retry-id', 1], ['retry-id', 2], ['retry-id', 3]]);
 });

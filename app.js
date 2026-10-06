@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.01.4';
+} from './core.js?v=2026.10.06.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.01.4';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.01.4';
+} from './db.js?v=2026.10.06.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -417,6 +417,15 @@ function assignmentError(record, snapshot) {
   return '';
 }
 
+async function runLocalAction(action, ...args) {
+  try { return await action(...args); }
+  catch (error) {
+    console.error('[Armazenamento] A ação local não foi confirmada.', { code: error?.code || error?.name });
+    toast(friendlyError(error), 'error');
+    return null;
+  }
+}
+
 function bindEvents() {
   elements.loginForm.addEventListener('submit', handleLogin);
   elements.logoutButton.addEventListener('click', logout);
@@ -429,39 +438,39 @@ function bindEvents() {
     elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd,
     elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
     elements.removedTransformerBto, elements.newTransformerCia, elements.newTransformerBto,
-    elements.observation].forEach((input) => input.addEventListener('input', handleFormInput));
+    elements.observation].forEach((input) => input.addEventListener('input', (event) => void runLocalAction(handleFormInput, event)));
   elements.operationBase.addEventListener('change', (event) => {
     fieldAssignmentSnapshot = null; elements.team.value = ''; elements.crewLeader.value = '';
-    renderAssignmentControls(); void handleFormInput(event);
+    renderAssignmentControls(); void runLocalAction(handleFormInput, event);
   });
   elements.team.addEventListener('change', (event) => {
     fieldAssignmentSnapshot = null;
     elements.crewLeader.value = teamDirectoryEntry(teamDirectory, elements.operationBase.value, elements.team.value)?.crewLeader || '';
-    void handleFormInput(event);
+    void runLocalAction(handleFormInput, event);
   });
   [elements.retryTeamDirectory, elements.editRetryTeamDirectory].forEach((button) => button.addEventListener('click', () => void loadTeamDirectory()));
-  elements.occurrenceTypes.addEventListener('change', handleFormInput);
+  elements.occurrenceTypes.addEventListener('change', (event) => void runLocalAction(handleFormInput, event));
   elements.serviceSearch.addEventListener('input', handleCatalogInput);
   elements.serviceSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.serviceResults.hidden = true; });
   elements.serviceResults.addEventListener('click', (event) => {
     const button = event.target.closest('[data-catalog-index]');
-    if (button) selectCatalogItem(catalogResults[Number(button.dataset.catalogIndex)]);
+    if (button) void runLocalAction(selectCatalogItem, catalogResults[Number(button.dataset.catalogIndex)]);
   });
   elements.materialSearch.addEventListener('input', handleMaterialCatalogInput);
   elements.materialSearch.addEventListener('keydown', (event) => { if (event.key === 'Escape') elements.materialResults.hidden = true; });
   elements.materialResults.addEventListener('click', (event) => {
     const button = event.target.closest('[data-material-index]');
-    if (button) selectMaterialCatalogItem(materialResults[Number(button.dataset.materialIndex)]);
+    if (button) void runLocalAction(selectMaterialCatalogItem, materialResults[Number(button.dataset.materialIndex)]);
   });
   document.addEventListener('click', (event) => {
     if (event.target.closest('.catalog-search')) return;
     elements.serviceResults.hidden = true; elements.materialResults.hidden = true;
     elements.editServiceResults.hidden = true; elements.editMaterialResults.hidden = true;
   });
-  elements.servicesList.addEventListener('input', handleServiceChange);
-  elements.servicesList.addEventListener('click', handleServiceChange);
-  elements.materialsList.addEventListener('input', handleMaterialChange);
-  elements.materialsList.addEventListener('click', handleMaterialChange);
+  elements.servicesList.addEventListener('input', (event) => void runLocalAction(handleServiceChange, event));
+  elements.servicesList.addEventListener('click', (event) => void runLocalAction(handleServiceChange, event));
+  elements.materialsList.addEventListener('input', (event) => void runLocalAction(handleMaterialChange, event));
+  elements.materialsList.addEventListener('click', (event) => void runLocalAction(handleMaterialChange, event));
   elements.continueToPhotosButton.addEventListener('click', () => {
     if (validateStepOne(true)) goToStep(2);
   });
@@ -469,10 +478,10 @@ function bindEvents() {
   $$('[data-back-step]').forEach((button) => button.addEventListener('click', () => goToStep(Number(button.dataset.backStep))));
   elements.submitOccurrenceButton.addEventListener('click', submitOccurrence);
   elements.refreshDailyGoalButton.addEventListener('click', () => loadDailyProduction(elements.team.value, true));
-  elements.photoGrid.addEventListener('click', handlePhotoGridClick);
-  elements.transformerSection.addEventListener('click', handlePhotoGridClick);
-  elements.resumeDraftButton.addEventListener('click', resumeDraft);
-  elements.discardDraftButton.addEventListener('click', discardDraft);
+  elements.photoGrid.addEventListener('click', (event) => void runLocalAction(handlePhotoGridClick, event));
+  elements.transformerSection.addEventListener('click', (event) => void runLocalAction(handlePhotoGridClick, event));
+  elements.resumeDraftButton.addEventListener('click', () => void runLocalAction(resumeDraft));
+  elements.discardDraftButton.addEventListener('click', () => void runLocalAction(discardDraft));
   elements.refreshMineButton.addEventListener('click', () => refreshMine(true));
   elements.mineFilters.addEventListener('click', (event) => {
     const button = event.target.closest('[data-filter]');
@@ -563,7 +572,12 @@ function bindEvents() {
   elements.photoPreviousButton.addEventListener('click', () => movePhotoGallery(-1));
   elements.photoNextButton.addEventListener('click', () => movePhotoGallery(1));
   document.addEventListener('error', handlePhotoLoadError, true);
-  window.addEventListener('online', async () => { updateNetworkUi(); if (session) void loadTeamDirectory(); await testConnection(false); if (session?.role === 'field') syncAll(false); });
+  window.addEventListener('online', () => {
+    updateNetworkUi();
+    if (session) void loadTeamDirectory();
+    if (session?.role === 'field') void syncAll(false);
+    void testConnection(false);
+  });
   window.addEventListener('offline', updateNetworkUi);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') { syncAll(false); loadDailyProduction(elements.team.value, false); }
@@ -1352,7 +1366,8 @@ async function submitOccurrence() {
 async function cacheDailySummary(summary, updateCurrentUi = true) {
   if (!summary?.team || !summary?.date) return;
   await setMeta(dailyCacheKey(summary.team, summary.date), { team: summary.team, date: summary.date, goal: summary.goal, totalSent: summary.totalSent, percentage: summary.percentage, status: summary.status });
-  if (updateCurrentUi && normalizeTeamKey(elements.team.value) === normalizeTeamKey(summary.team)) { dailyProduction = { ...emptyDailyProduction(summary.team), ...summary }; updateGoal(); }
+  const current = typeof updateCurrentUi === 'function' ? updateCurrentUi() : updateCurrentUi;
+  if (current && normalizeTeamKey(elements.team.value) === normalizeTeamKey(summary.team)) { dailyProduction = { ...emptyDailyProduction(summary.team), ...summary }; updateGoal(); }
 }
 
 async function syncSingleRecord(recordId, notify = true) {
@@ -1378,12 +1393,29 @@ async function performSyncSingleRecord(recordId, notify = true) {
   if (!navigator.onLine) { record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet'; await putRecord(record); await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record; }
   const dailyTotalExcludingRecord = Number(dailyProduction.totalExcludingRecord) || 0;
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
+  let localVersion = String(storedRecord.updatedAt || '');
+  const save = async () => {
+    const stored = await putRecord(next, { expectedUpdatedAt: localVersion });
+    localVersion = String(stored?.updatedAt || next.updatedAt || localVersion);
+    if (stored) next = stored;
+  };
+  const cacheSummary = summary => { void cacheDailySummary(summary, () => revision === sessionRevision && session?.token === requestSession.token).catch(error => console.warn('[Produção] Confirmação mantida; cache secundário indisponível.', { code: error?.code || error?.name })); };
+  const markSynced = () => { void setMeta(LAST_SYNC_META, next.syncedAt).catch(error => console.warn('[Fila] Confirmação mantida; data do último sincronismo não pôde ser armazenada.', { code: error?.code || error?.name })); };
   try {
     if (next.serverConfirmed || next.attempts > 1) {
-      try { next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await putRecord(next); }
+      try { next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await save(); }
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
     }
-    next.status = RECORD_STATUS.SYNCING_DATA; await putRecord(next);
+    if (next.serverConfirmed && !next.correctionMode && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(next.serverStatus)) {
+      if (next.serverStatus === RECORD_STATUS.WAITING_SUPERVISOR && next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Há uma foto local diferente da confirmação do servidor. Ela foi preservada; confira a ocorrência antes de tentar novamente.', 'PHOTO_CONFIRMATION_PENDING');
+      next.status = next.serverStatus; next.lastError = ''; next.syncedAt = new Date().toISOString();
+      await save(); markSynced(); cacheSummary(next.dailyProduction);
+      if ([RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED].includes(next.status)) {
+        for (const photo of next.photoStates) if (photo.confirmed && !photo.replacePending) await deletePhoto(recordId, photo.photoIndex, photo.uploadKey || '').catch(() => {});
+      }
+      return next;
+    }
+    next.status = RECORD_STATUS.SYNCING_DATA; await save();
     const submitResult = await api.submitRecord(requestSession.token, {
       recordId: next.recordId, base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
       expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
@@ -1394,13 +1426,13 @@ async function performSyncSingleRecord(recordId, notify = true) {
       totalServices: occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, occurrenceTotal(next.services)).percentage,
       observation: next.observation
     }, APP_VERSION);
-    next = reconcilePhotoStates(next, submitResult); await cacheDailySummary(submitResult.dailyProduction || next.dailyProduction, revision === sessionRevision && session?.token === requestSession.token);
-    next.status = RECORD_STATUS.SYNCING_PHOTOS; await putRecord(next);
-    next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await putRecord(next);
+    next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
+    next.status = RECORD_STATUS.SYNCING_PHOTOS; await save();
+    next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await save();
     const lastPhotoIndex = normalizeOccurrenceTypes(next.occurrenceTypes).includes(TYPE_TRAFO) ? 7 : 5;
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
       const state = next.photoStates[index - 1] || {};
-      if (state.confirmed && !state.replacePending) { await deletePhoto(next.recordId, index).catch(() => {}); continue; }
+      if (state.confirmed && !state.replacePending) { await deletePhoto(next.recordId, index, state.uploadKey || '').catch(() => {}); continue; }
       const localPhoto = await getPhoto(next.recordId, index);
       if (!localPhoto?.blob && index <= 5) {
         if (state.localReady) throw new ApiError(`A Foto ${index} não está mais disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
@@ -1409,12 +1441,12 @@ async function performSyncSingleRecord(recordId, notify = true) {
       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
       const photoResult = await api.uploadPhoto(requestSession.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending) });
       next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
-      await putRecord(next); if (next.photoStates[index - 1]?.confirmed) await deletePhoto(next.recordId, index); await updateQueueUi();
+      await save(); if (next.photoStates[index - 1]?.confirmed) await deletePhoto(next.recordId, index, localPhoto.uploadKey); await updateQueueUi();
     }
     const finalState = await api.getRecordState(requestSession.token, next.recordId); next = reconcilePhotoStates(next, finalState);
-    if (requiredPhotoDeficit(next) > 0) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
+    if (requiredPhotoDeficit(next) > 0 || next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
-      if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await deletePhoto(next.recordId, index).catch(() => {});
+      if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await deletePhoto(next.recordId, index, next.photoStates[index - 1].uploadKey || '').catch(() => {});
     }
     const confirmedStatus = String(finalState.status || '');
     const acceptedStatuses = next.correctionMode ? [RECORD_STATUS.WAITING_SUPERVISOR] : [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED];
@@ -1422,12 +1454,13 @@ async function performSyncSingleRecord(recordId, notify = true) {
       throw new ApiError('O servidor ainda não confirmou o estado final. A fila foi preservada para nova tentativa.', 'SERVER_CONFIRMATION_PENDING');
     }
     next.status = confirmedStatus; next.lastError = ''; next.syncedAt = new Date().toISOString(); next.correctionMode = false; next.requestedPhotoIndexes = [];
-    await putRecord(next); await setMeta(LAST_SYNC_META, next.syncedAt); await cacheDailySummary(finalState.dailyProduction || next.dailyProduction, revision === sessionRevision && session?.token === requestSession.token); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
+    await save(); markSynced(); cacheSummary(finalState.dailyProduction || next.dailyProduction); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
-    next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await putRecord(next);
+    if (error?.code === 'LOCAL_RECORD_CHANGED') { if (notify) toast(friendlyError(error), 'error'); return getRecord(recordId); }
+    next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await save();
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
   } finally {
-    await updateQueueUi();
+    await updateQueueUi().catch(error => console.error('[Fila] Falha ao atualizar o resumo após sincronização.', { code: error?.code || error?.name }));
     if (session?.role === 'field' && (currentView === 'mine' || mineRecords.some((item) => item.recordId === recordId && openPhotoSyncRequest(item, session.user)))) { if (!photoSyncAllRunning) refreshMine(false); }
   }
 }
@@ -1437,7 +1470,11 @@ async function syncAll(notify = false) {
   if (syncRunning || !requestSession || requestSession.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
   try {
     const queue = (await getAllRecords()).filter((record) => (!record.user || sameUser(record.user, requestSession.user)) && SYNCABLE_STATUSES.has(record.status));
-    for (const record of queue) await syncSingleRecord(record.recordId, false);
+    for (const record of queue) {
+      if (session?.token !== requestSession.token) break;
+      try { await syncSingleRecord(record.recordId, false); }
+      catch (error) { console.error('[Fila] Falha local em uma ocorrência; os próximos itens continuam.', { recordId: record.recordId, code: error?.code || error?.name }); }
+    }
     if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success');
   } catch (error) {
     console.error('[Fila] Falha ao verificar a fila.', error);
@@ -2192,7 +2229,7 @@ function loadPublishedDetailBatch(recordId) {
       if (requested.has(record.recordId) && record.status === RECORD_STATUS.PUBLISHED) publishedDetailCache.set(record.recordId, record);
     }
     if (!publishedDetailCache.has(recordId)) throw new ApiError('Esta publicação não está mais disponível. Atualize o painel.', 'PUBLISHED_NOT_FOUND');
-  }).finally(() => { publishedDetailRequests.delete(key); });
+  }).finally(() => { if (publishedDetailRequests.get(key) === task) publishedDetailRequests.delete(key); });
   publishedDetailRequests.set(key, task);
   return task;
 }
@@ -2343,6 +2380,8 @@ function handleSupervisorMaterialEdit(event) {
 }
 
 async function saveSupervisorCorrection(event) {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   event.preventDefault(); if (!supervisorEditRecord || !activeSupervisorRecord || supervisorMutationRunning) return;
   const reviewedId = activeSupervisorRecord.recordId;
   const beforeIds = [...reviewOrder];
@@ -2354,19 +2393,25 @@ async function saveSupervisorCorrection(event) {
   supervisorMutationRunning = true;
   setBusy(elements.saveSupervisorEditButton, true, 'Salvando…'); elements.supervisorEditErrors.textContent = '';
   try {
-    const result = await api.supervisorCorrectRecord(session.token, { ...draft, services: serializeServicesForBackend(draft.services), materials: serializeMaterialsForBackend(draft.materials) }); const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
+    const result = await api.supervisorCorrectRecord(requestSession.token, { ...draft, services: serializeServicesForBackend(draft.services), materials: serializeMaterialsForBackend(draft.materials) });
+    if (!isCurrent()) return;
+    const corrected = normalizeOccurrenceRecord(result.record, 'supervisorCorrectRecord.record'); activeSupervisorRecord = corrected;
     const index = supervisorRecords.findIndex((record) => record.recordId === corrected.recordId); if (index >= 0) supervisorRecords[index] = corrected;
     elements.supervisorEditDialog.close(); renderSupervisorList();
     if (supervisorRefreshPromise) await supervisorRefreshPromise;
+    if (!isCurrent()) return;
     const refreshed = await refreshSupervisor(false);
+    if (!isCurrent()) return;
     if (refreshed) advanceSupervisorAfterAction(beforeIds, reviewedId);
     else { openSupervisorReview(reviewedId); toast('Correção salva. Atualize o painel antes de seguir para a próxima ocorrência.', 'error'); }
-    toast(`Corrigido pelo supervisor — ${session.user}`, 'success');
-  } catch (error) { elements.supervisorEditErrors.textContent = friendlyError(error); }
-  finally { setBusy(elements.saveSupervisorEditButton, false); supervisorMutationRunning = false; updateSupervisorReviewActions(); }
+    toast(`Corrigido pelo supervisor — ${requestSession.user}`, 'success');
+  } catch (error) { if (!isCurrent()) return; elements.supervisorEditErrors.textContent = friendlyError(error); }
+  finally { if (isCurrent()) { setBusy(elements.saveSupervisorEditButton, false); supervisorMutationRunning = false; updateSupervisorReviewActions(); } }
 }
 
 async function decideSupervisor(decision) {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   if (!activeSupervisorRecord || reviewTab === 'published' || supervisorMutationRunning) return;
   supervisorMutationRunning = true;
   updateSupervisorReviewActions();
@@ -2374,38 +2419,51 @@ async function decideSupervisor(decision) {
   try {
     if (decision === 'approve') { if (!await confirmAction('Aprovar e publicar?', `A ocorrência ${activeSupervisorRecord.occurrenceNumber} será publicada na aba oficial.`, 'Aprovar e publicar', 'success')) return; }
     else { const values = await collectDecision(decision); if (!values) return; ({ reason, note } = values); selectedPhotoIndexes = values.photoIndexes || []; const label = decision === 'reject' ? 'reprovar' : 'solicitar correção'; if (!await confirmAction('Confirmar decisão?', `Deseja ${label} na ocorrência ${activeSupervisorRecord.occurrenceNumber}?`, 'Confirmar', decision === 'reject' ? 'danger' : 'warning')) return; }
+    if (!isCurrent()) return;
     const button = decision === 'approve' ? elements.approveButton : decision === 'reject' ? elements.rejectButton : elements.requestCorrectionButton; setBusy(button, true, 'Salvando…');
     const reviewedId = activeSupervisorRecord.recordId;
     const beforeIds = [...reviewOrder];
-    await api.supervisorAction(session.token, decision, reviewedId, reason, decision === 'request_correction' ? (note || reason) : note, decision === 'request_correction' ? selectedPhotoIndexes : []);
+    await api.supervisorAction(requestSession.token, decision, reviewedId, reason, decision === 'request_correction' ? (note || reason) : note, decision === 'request_correction' ? selectedPhotoIndexes : []);
+    if (!isCurrent()) return;
     toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : 'Correção solicitada à equipe.', 'success');
     if (supervisorRefreshPromise) await supervisorRefreshPromise;
+    if (!isCurrent()) return;
     const refreshed = await refreshSupervisor(false);
+    if (!isCurrent()) return;
     if (refreshed) advanceSupervisorAfterAction(beforeIds, reviewedId);
     else { elements.reviewDialog.close(); activeSupervisorRecord = null; toast('Decisão salva. Atualize o painel antes de seguir para a próxima ocorrência.', 'error'); }
-  } catch (error) { toast(friendlyError(error), 'error'); }
+  } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
   finally {
-    setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false);
-    supervisorMutationRunning = false; updateSupervisorReviewActions();
+    if (isCurrent()) {
+      setBusy(elements.approveButton, false); setBusy(elements.rejectButton, false); setBusy(elements.requestCorrectionButton, false);
+      supervisorMutationRunning = false; updateSupervisorReviewActions();
+    }
   }
 }
 
 async function requestPhotoSync(recordId) {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   const record = supervisorPendingRecords.find((item) => item.recordId === recordId);
   if (!record || record.status !== RECORD_STATUS.SYNCING_PHOTOS || supervisorMutationRunning) return;
   supervisorMutationRunning = true;
   try {
     if (!await confirmAction('Solicitar sincronismo?', `${record.user || 'O usuário responsável'} receberá um aviso para retomar o envio das fotos pendentes da ocorrência ${record.occurrenceNumber}.`, 'Solicitar', 'warning')) return;
+    if (!isCurrent()) return;
     setBusy(elements.requestPhotoSyncButton, true, 'Salvando…');
-    await api.supervisorAction(session.token, 'request_photo_sync', recordId);
+    await api.supervisorAction(requestSession.token, 'request_photo_sync', recordId);
+    if (!isCurrent()) return;
     if (elements.reviewDialog.open) elements.reviewDialog.close();
     await refreshSupervisor(false);
+    if (!isCurrent()) return;
     toast(openPhotoSyncRequest(record) ? 'Sincronismo solicitado novamente ao usuário responsável.' : 'Sincronismo solicitado ao usuário responsável.', 'success');
-  } catch (error) { toast(friendlyError(error), 'error'); }
-  finally { supervisorMutationRunning = false; setBusy(elements.requestPhotoSyncButton, false); updateSupervisorReviewActions(); }
+  } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
+  finally { if (isCurrent()) { supervisorMutationRunning = false; setBusy(elements.requestPhotoSyncButton, false); updateSupervisorReviewActions(); } }
 }
 
 async function requestAllPhotoSync() {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   if (supervisorMutationRunning || supervisorLoading || supervisorLoadError || supervisorTab !== 'pending' || supervisorPendingFilter !== 'photos') return;
   const ids = uniqueRecordsById(filteredSupervisorRecords()).filter((record) => record.status === RECORD_STATUS.SYNCING_PHOTOS).map((record) => record.recordId);
   if (!ids.length) return;
@@ -2413,17 +2471,20 @@ async function requestAllPhotoSync() {
   supervisorMutationRunning = true; renderSupervisorList();
   try {
     if (!await confirmAction('Solicitar sincronismo de todas?', `Será enviado ou renovado o aviso ao usuário responsável por cada uma das ${ids.length} ocorrências com fotos pendentes exibidas.`, 'Solicitar de todas', 'warning')) return;
+    if (!isCurrent()) return;
     setBusy(elements.requestAllPhotoSyncButton, true, 'Solicitando…');
-    const result = await api.requestPhotoSyncBatch(session.token, ids);
+    const result = await api.requestPhotoSyncBatch(requestSession.token, ids);
+    if (!isCurrent()) return;
     const results = normalizeArray(result.results, 'requestPhotoSyncBatch.results');
     const requested = results.filter((item) => item.ok).length;
     const failed = ids.length - requested;
     await refreshSupervisor(false);
+    if (!isCurrent()) return;
     elements.supervisorBatchResult.hidden = false;
     elements.supervisorBatchResult.textContent = `${requested} solicitações enviadas/renovadas; ${failed} não realizadas.${failed ? ' ' + results.filter((item) => !item.ok).map((item) => item.message).join(' · ') : ''}`;
     toast(elements.supervisorBatchResult.textContent, failed ? 'error' : 'success', 6000);
-  } catch (error) { toast(friendlyError(error), 'error'); }
-  finally { supervisorMutationRunning = false; setBusy(elements.requestAllPhotoSyncButton, false); renderSupervisorList(); }
+  } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
+  finally { if (isCurrent()) { supervisorMutationRunning = false; setBusy(elements.requestAllPhotoSyncButton, false); renderSupervisorList(); } }
 }
 
 function validateDecisionSubmission(event) {
@@ -2458,27 +2519,35 @@ function collectDecision(decision) {
 }
 
 async function approveSelected() {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   updateSupervisorSelectionUi(); const ids = [...selectedSupervisorIds]; if (!ids.length) return;
   if (supervisorMutationRunning) return; supervisorMutationRunning = true;
   try {
     if (!await confirmAction('Aprovar selecionadas?', `${ids.length} ocorrência(s) apta(s) serão publicadas.`, 'Aprovar selecionadas', 'success')) return;
+    if (!isCurrent()) return;
     await approveSupervisorRecords(ids, elements.approveSelectedButton);
-  } catch (error) { toast(friendlyError(error), 'error'); }
-  finally { setBusy(elements.approveSelectedButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
+  } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
+  finally { if (isCurrent()) { setBusy(elements.approveSelectedButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); } }
 }
 
 async function approveAll() {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   if (supervisorMutationRunning) return; supervisorMutationRunning = true;
   try {
     const ids = selectableSupervisorRecords().map((record) => record.recordId);
     if (!ids.length) return;
     if (!await confirmAction('Aprovar todas as exibidas?', `${ids.length} ocorrência(s) apta(s) e visível(is) serão publicadas.`, 'Sim, aprovar exibidas', 'success')) return;
+    if (!isCurrent()) return;
     await approveSupervisorRecords(ids, elements.approveAllButton);
-  } catch (error) { toast(friendlyError(error), 'error'); }
-  finally { setBusy(elements.approveAllButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); }
+  } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
+  finally { if (isCurrent()) { setBusy(elements.approveAllButton, false); supervisorMutationRunning = false; updateSupervisorSelectionUi(); } }
 }
 
 async function approveSupervisorRecords(ids, button) {
+  const requestSession = session; const revision = sessionRevision;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
   const uniqueIds = [...new Set(ids)].filter(Boolean);
   const labels = new Map(supervisorRecords.map((record) => [record.recordId, record.occurrenceNumber || record.recordId]));
   const successes = [];
@@ -2491,10 +2560,12 @@ async function approveSupervisorRecords(ids, button) {
     elements.supervisorBatchResult.className = 'batch-result batch-result--progress';
     elements.supervisorBatchResult.textContent = progress;
     try {
-      await api.supervisorAction(session.token, 'approve', recordId);
+      await api.supervisorAction(requestSession.token, 'approve', recordId);
+      if (!isCurrent()) return { successes, failures, interrupted: true };
       successes.push(recordId);
       selectedSupervisorIds.delete(recordId);
     } catch (error) {
+      if (!isCurrent()) return { successes, failures, interrupted: true };
       failures.push({ recordId, label: labels.get(recordId) || recordId, code: error?.code || 'SERVER_ERROR', message: friendlyError(error) });
     }
   }
@@ -2503,6 +2574,7 @@ async function approveSupervisorRecords(ids, button) {
   elements.supervisorBatchResult.innerHTML = `<strong>${escapeHtml(summary)}</strong>${failures.length ? `<ul>${failures.map((failure) => `<li><b>${escapeHtml(failure.label)}</b>: ${escapeHtml(failure.message)} <small>(${escapeHtml(failure.code)})</small></li>`).join('')}</ul>` : ''}`;
   toast(summary, failures.length ? 'error' : 'success', 5200);
   await refreshSupervisor(false);
+  if (!isCurrent()) return { successes, failures, interrupted: true };
   return { successes, failures };
 }
 

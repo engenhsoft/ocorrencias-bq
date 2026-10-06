@@ -1,4 +1,4 @@
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.01.4';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.06.1';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -28,6 +28,9 @@ export async function parseResponse(response) {
   if (!response.ok || data.ok === false || data.success === false) {
     throw new ApiError(data.message || `Falha no servidor (${response.status}).`, data.error || (response.status >= 500 ? 'HTTP_SERVER_ERROR' : 'SERVER_ERROR'), { ...data, status: response.status });
   }
+  if (data.ok !== true && data.success !== true) {
+    throw new ApiError('O servidor retornou uma resposta incompleta. Tente novamente.', 'INVALID_SERVER_RESPONSE', { status: response.status });
+  }
   return data;
 }
 
@@ -49,12 +52,12 @@ export async function loadOccurrenceDataset(request, validate, { initial = false
   return isCurrent() ? validate(result) : null;
 }
 
-async function withTimeout(promiseFactory, timeoutMs, enforceDeadline = false) {
+async function withTimeout(promiseFactory, timeoutMs, enforceDeadline = true) {
   const controller = new AbortController();
   let rejectDeadline;
   const deadline = enforceDeadline ? new Promise((_, reject) => { rejectDeadline = reject; }) : null;
   const timer = setTimeout(() => {
-    rejectDeadline?.(new ApiError('Não foi possível carregar as ocorrências no tempo esperado. Tente novamente.', 'TIMEOUT'));
+    rejectDeadline?.(new ApiError('Tempo de conexão esgotado. Tente novamente; os dados locais foram preservados.', 'TIMEOUT'));
     controller.abort();
   }, timeoutMs);
   try {
@@ -96,8 +99,26 @@ export async function apiRequest(action, payload = {}, options = {}) {
       body,
       signal
     });
-    return parseResponse(response);
-  }, options.timeoutMs || 35000, options.enforceDeadline === true);
+    const data = await parseResponse(response);
+    if (['submitRecord', 'uploadPhoto', 'getRecordState'].includes(action)) {
+      const recordId = payload.recordId || payload.record?.recordId;
+      const states = data.photoStates;
+      const indexes = new Set(Array.isArray(states) ? states.map(state => state?.photoIndex) : []);
+      if (!recordId || data.recordId !== recordId || data.record?.recordId !== recordId
+        || !['AGUARDANDO_SUPERVISOR', 'FOTOS_SENDO_SINCRONIZADAS', 'CORRECAO_SOLICITADA', 'REPROVADA', 'APROVADA', 'PUBLICADA'].includes(data.status)
+        || !Array.isArray(states) || states.length !== 7 || indexes.size !== 7
+        || states.some(state => !Number.isInteger(state?.photoIndex) || state.photoIndex < 1 || state.photoIndex > 7 || typeof state.confirmed !== 'boolean' || (state.confirmed && !String(state.url || state.serverUrl || '').trim()))) {
+        throw new ApiError('O servidor não confirmou completamente esta ocorrência. Os dados locais foram preservados; tente novamente.', 'INVALID_RECORD_STATE');
+      }
+      if (action === 'uploadPhoto' && !states.some(state => state.photoIndex === payload.photoIndex && state.confirmed && state.uploadKey === payload.uploadKey)) {
+        throw new ApiError('O servidor ainda não confirmou esta foto. Ela continua guardada neste aparelho.', 'PHOTO_CONFIRMATION_PENDING');
+      }
+    }
+    if (action === 'login' && (!String(data.token || '').trim() || typeof data.user !== 'string' || !data.user.trim() || data.role !== (payload.role === 'supervisor' ? 'supervisor' : 'field'))) {
+      throw new ApiError('O servidor retornou uma sessão incompleta. Tente novamente.', 'INVALID_SESSION_RESPONSE');
+    }
+    return data;
+  }, options.timeoutMs || 35000, options.enforceDeadline !== false);
 }
 
 export function loadMaterialCatalog(options = {}) {
@@ -177,8 +198,16 @@ export const api = Object.freeze({
 export function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error || new Error('Não foi possível ler a foto.'));
-    reader.readAsDataURL(blob);
+    let settled = false;
+    const finish = (handler) => { if (settled) return; settled = true; clearTimeout(timer); handler(); };
+    const timer = setTimeout(() => {
+      finish(() => reject(new ApiError('Não foi possível ler a foto no tempo esperado. Ela continua guardada neste aparelho.', 'LOCAL_PHOTO_READ_TIMEOUT')));
+      try { reader.abort(); } catch { /* A leitura já pode ter terminado. */ }
+    }, 12000);
+    reader.onload = () => finish(() => resolve(String(reader.result)));
+    reader.onerror = () => finish(() => reject(reader.error || new Error('Não foi possível ler a foto.')));
+    reader.onabort = () => finish(() => reject(new ApiError('Leitura da foto interrompida. Tente novamente.', 'LOCAL_PHOTO_READ_ABORTED')));
+    try { reader.readAsDataURL(blob); }
+    catch (error) { finish(() => reject(error)); }
   });
 }

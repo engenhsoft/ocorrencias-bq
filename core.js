@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.01.4';
-export const APP_BUILD = '2026-10-01-supervisor-load-completion';
+export const APP_VERSION = '2026.10.06.1';
+export const APP_BUILD = '2026-10-06-stability-audit';
 
 export const TEAM_GOAL = 6000;
 
@@ -759,8 +759,12 @@ export function reconcilePhotoStates(localRecord, serverState) {
   const localStates = Array.from({ length: 7 }, (_, index) => {
     const current = currentStates[index];
     const server = byIndex.get(index + 1);
-    if (current.replacePending) {
+    const matchingUpload = Boolean(current.uploadKey && server?.uploadKey === current.uploadKey && server.confirmed);
+    if (current.replacePending && !matchingUpload) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: server?.url || current.serverUrl || '' };
+    }
+    if (current.localReady && current.uploadKey && server && server.uploadKey !== current.uploadKey) {
+      return { ...current, photoIndex: index + 1, confirmed: false, localReady: true, serverUrl: server.url || server.serverUrl || current.serverUrl || '' };
     }
     if (!server) {
       return { ...current, photoIndex: index + 1, confirmed: Boolean(current.confirmed), localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
@@ -768,7 +772,7 @@ export function reconcilePhotoStates(localRecord, serverState) {
     if (!server.confirmed) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
     }
-    return { ...current, photoIndex: index + 1, confirmed: true, localReady: false, serverUrl: server.url || current.serverUrl || '', error: '' };
+    return { ...current, photoIndex: index + 1, confirmed: true, localReady: false, replacePending: false, uploadKey: current.uploadKey || server.uploadKey || '', serverUrl: server.url || server.serverUrl || current.serverUrl || '', error: '' };
   });
   return normalizeOccurrenceRecord({
     ...localRecord,
@@ -809,7 +813,7 @@ export function mergeRecordCollections(localRecords, serverRecords) {
       occurrenceTypes: server.occurrenceTypes.length ? server.occurrenceTypes : local.occurrenceTypes,
       services: server.services.length ? server.services : local.services,
       materials: server.materials.length ? server.materials : local.materials,
-      photoStates: existingLocal ? local.photoStates : server.photoStates,
+      photoStates: existingLocal ? reconcilePhotoStates(local, { photoStates: server.photoStates }).photoStates : server.photoStates,
       photos: server.photos.length ? server.photos : local.photos,
       transformer: Object.keys(server.transformer).length ? server.transformer : local.transformer,
       transformerPhotos: Object.keys(server.transformerPhotos).length ? server.transformerPhotos : local.transformerPhotos

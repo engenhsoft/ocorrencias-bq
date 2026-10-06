@@ -165,7 +165,7 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
     dailyProduction: { totalExcludingRecord: 0 }, dailyGoalProjection: () => ({ percentage: 0 }),
     serializeServicesForBackend: () => [], serializeMaterialsForBackend: () => [], occurrenceTotal: () => 0,
     APP_VERSION: 'teste', TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO', normalizeOccurrenceTypes: (types) => types,
-    reconcilePhotoStates: (record, response) => ({ ...record, ...response, photoStates: response.photoStates || record.photoStates, serverConfirmed: true }),
+    reconcilePhotoStates: (record, response) => ({ ...record, ...response, serverStatus: response.status, photoStates: response.photoStates || record.photoStates, serverConfirmed: true }),
     requiredPhotoDeficit: () => 0, getPhoto: async () => null, deletePhoto: async () => {},
     blobToDataUrl: async () => '', cacheDailySummary: async () => {}, setMeta: async () => {}, LAST_SYNC_META: 'lastSyncAt',
     updateQueueUi: async () => {}, currentView: 'sync', mineRecords: [], refreshMine: () => {},
@@ -185,8 +185,9 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
   assert.equal(stored.status, 'AGUARDANDO_SUPERVISOR');
   assert.equal(stored.recordId, recordId);
   assert.ok(statuses.includes('SINCRONIZANDO_DADOS'));
-  assert.ok(statuses.includes('FOTOS_SENDO_SINCRONIZADAS'));
-  assert.equal(submissions, 2);
+  assert.ok(statuses.includes('ERRO'));
+  assert.equal(statuses.at(-1), 'AGUARDANDO_SUPERVISOR');
+  assert.equal(submissions, 1, 'retry reconhece a confirmação remota sem reenviar os dados');
 });
 
 let passed = 0;

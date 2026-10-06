@@ -88,7 +88,7 @@ test('Botões não ficam bloqueados pelo pedido aberto', () => {
   assert.match(source, /Solicitar novamente/);
   assert.doesNotMatch(extract('requestPhotoSync'), /\|\| openPhotoSyncRequest\(record\)/);
   assert.match(html, /id="requestAllPhotoSyncButton"/);
-  assert.match(source, /api\.requestPhotoSyncBatch\(session\.token, ids\)/);
+  assert.match(source, /api\.requestPhotoSyncBatch\(requestSession\.token, ids\)/);
 });
 
 const events = []; const batchContext = {

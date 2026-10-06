@@ -73,7 +73,7 @@ const unconfirmed = await exercisePhotoSync({ resolved: false });
 assert.equal(unconfirmed.events.includes('refresh'), false);
 assert.match(unconfirmed.feedback.get('uuid-a'), /não foram confirmadas/);
 
-assert.match(appSource, /api\.supervisorAction\(session\.token, 'request_photo_sync', recordId\)/);
+assert.match(appSource, /api\.supervisorAction\(requestSession\.token, 'request_photo_sync', recordId\)/);
 assert.match(appSource, /supervisorMutationRunning = true/);
 assert.match(appSource, /photoSyncAttempts\.has\(recordId\)/);
 assert.match(htmlSource, /id="requestPhotoSyncButton"/);

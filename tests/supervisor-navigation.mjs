@@ -31,7 +31,7 @@ const runDecision = async (failure = false) => {
   const events = [];
   const context = {
     activeSupervisorRecord: { recordId: 'uuid-a', occurrenceNumber: '123' }, supervisorMutationRunning: false,
-    reviewTab: 'occurrences', reviewOrder: [...oldOrder], supervisorRefreshPromise: null, session: { token: 'test-token' }, elements: {
+    reviewTab: 'occurrences', reviewOrder: [...oldOrder], supervisorRefreshPromise: null, sessionRevision: 1, session: { token: 'test-token' }, elements: {
       approveButton: {}, rejectButton: {}, requestCorrectionButton: {}, reviewDialog: { close: () => events.push('close') }
     },
     confirmAction: async () => true, collectDecision: async () => ({ reason: 'teste', note: '' }),

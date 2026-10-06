@@ -46,7 +46,7 @@ for (const asset of shell.filter((item) => item !== './')) test(`shell existe: $
 test('service worker ativa nova versão imediatamente', () => assert.match(serviceWorker, /skipWaiting\(\)/));
 test('service worker assume clientes após ativação', () => assert.match(serviceWorker, /clients\.claim\(\)/));
 test('service worker limpa caches antigos do mesmo app', () => assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\).*key !== CACHE_NAME/s));
-test('navegação usa rede com fallback offline', () => { assert.match(serviceWorker, /request\.mode === 'navigate'/); assert.match(serviceWorker, /caches\.match\('\.\/index\.html'\)/); });
+test('navegação usa rede com fallback offline do cache da própria release', () => { assert.match(serviceWorker, /request\.mode === 'navigate'/); assert.match(serviceWorker, /cache\.match\('\.\/index\.html'\)/); assert.doesNotMatch(serviceWorker, /caches\.match\(/); });
 test('versões de app e service worker são coerentes', () => {
   const appVersion = core.match(/APP_VERSION = '([^']+)'/)?.[1]; const workerVersion = serviceWorker.match(/WORKER_VERSION = '([^']+)'/)?.[1]; assert.equal(appVersion, workerVersion); assert.ok(serviceWorker.includes(workerVersion));
   assert.ok(html.includes(`v=${appVersion}`));
