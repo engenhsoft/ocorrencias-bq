@@ -1,0 +1,91 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -7,3 +7,3 @@
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.06.3',
++  version: '2026.10.07.1',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+@@ -640,3 +640,3 @@
+   });
+-  const publicPhotoCache = cachedPublicPhotosForRows_(waitingRows.concat(photoPendingRows));
++  const publicPhotoCache = cachedPublicPhotosForRows_(waitingRows.concat(photoPendingRows), true);
+   const records = waitingRows
+@@ -1510,3 +1510,3 @@
+ }
+-function cachedPublicPhotosForRows_(rows) {
++function cachedPublicPhotosForRows_(rows, resolveMisses) {
+   const keys = {};
+@@ -1527,2 +1527,73 @@
+   } catch (error) { /* Falha no pré-carregamento mantém a conferência individual existente. */ }
++  if (resolveMisses) {
++    const missingIds = names.filter(function (key) { return !found[key]; }).map(function (key) { return key.slice('photo-public-'.length); });
++    const confirmed = readPublicPhotoReferencesBatch_(missingIds);
++    Object.assign(found, confirmed);
++    if (Object.keys(confirmed).length) {
++      try { CacheService.getScriptCache().putAll(confirmed, 21600); }
++      catch (error) { /* Referencias confirmadas valem nesta resposta mesmo se o cache falhar. */ }
++    }
++  }
++  return found;
++}
++
++// Consulta somente metadados. Resultado incerto permanece no fallback existente.
++function readPublicPhotoReferencesBatch_(fileIds) {
++  const ids = Object.keys((fileIds || []).reduce(function (result, id) {
++    if (/^[\w-]{25,}$/.test(String(id || ''))) result[String(id)] = true;
++    return result;
++  }, {}));
++  const found = {};
++  if (!ids.length) return found;
++  try {
++    const authorization = 'Bearer ' + ScriptApp.getOAuthToken();
++    // A API Drive aceita ate 100 subrequests por lote; limitar o paralelismo a quatro lotes.
++    for (let offset = 0; offset < ids.length; offset += 400) {
++      const groups = [];
++      for (let start = offset; start < Math.min(ids.length, offset + 400); start += 100) groups.push(ids.slice(start, start + 100));
++      const requests = groups.map(function (group) {
++        const boundary = 'bq_photo_refs_batch';
++        const body = group.map(function (id, index) {
++          return '--' + boundary + '\r\nContent-Type: application/http\r\nContent-ID: <bq-' + index + '>\r\n\r\n'
++            + 'GET /drive/v3/files/' + encodeURIComponent(id) + '?fields=id%2Cpermissions(type%2CallowFileDiscovery)&supportsAllDrives=true HTTP/1.1\r\nAccept: application/json\r\n\r\n';
++        }).join('') + '--' + boundary + '--\r\n';
++        return { url: 'https://www.googleapis.com/batch/drive/v3', method: 'post', contentType: 'multipart/mixed; boundary=' + boundary,
++          headers: { Authorization: authorization }, payload: body, muteHttpExceptions: true, followRedirects: false, timeoutSeconds: 10 };
++      });
++      const responses = UrlFetchApp.fetchAll(requests);
++      responses.forEach(function (response, index) {
++        Object.assign(found, publicPhotoReferencesFromBatch_(response, groups[index]));
++      });
++    }
++  } catch (error) { /* Falha do lote preserva o fallback de DriveApp por foto. */ }
++  return found;
++}
++
++function publicPhotoReferencesFromBatch_(response, fileIds) {
++  const found = {};
++  if (!response || response.getResponseCode() !== 200 || !Array.isArray(fileIds)) return found;
++  const headers = response.getHeaders();
++  const typeKey = Object.keys(headers).find(function (key) { return key.toLowerCase() === 'content-type'; });
++  const type = typeKey ? String(headers[typeKey]) : '';
++  const match = type.match(/boundary\s*=\s*(?:"([^"]+)"|([^;\s]+))/i);
++  if (!/^multipart\/mixed\b/i.test(type) || !match) return found;
++  const boundary = match[1] || match[2];
++  response.getContentText().split('--' + boundary).forEach(function (rawPart) {
++    try {
++      const part = rawPart.replace(/\r\n/g, '\n');
++      const identity = part.match(/(?:^|\n)Content-ID:\s*<?response-bq-(\d+)>?\s*(?:\n|$)/i);
++      const status = part.match(/(?:^|\n)HTTP\/[\d.]+\s+(\d{3})\b/);
++      if (!identity || !status || Number(status[1]) !== 200) return;
++      const index = Number(identity[1]);
++      if (!Number.isInteger(index) || index < 0 || index >= fileIds.length) return;
++      const bodyStart = part.indexOf('\n\n', part.indexOf(status[0]) + status[0].length);
++      if (bodyStart < 0) return;
++      const metadata = JSON.parse(part.slice(bodyStart + 2).trim());
++      if (!metadata || metadata.id !== fileIds[index] || !Array.isArray(metadata.permissions)) return;
++      const publicByLink = metadata.permissions.some(function (permission) {
++        return permission && permission.type === 'anyone' && permission.allowFileDiscovery === false;
++      });
++      if (publicByLink) found['photo-public-' + metadata.id] = '1';
++    } catch (error) { /* Resposta parcial, invalida ou privada exige a verificacao existente. */ }
++  });
+   return found;
