@@ -23,16 +23,17 @@ const extract = (source, name) => {
 const plain = value => JSON.parse(JSON.stringify(value));
 const factory = vm.runInNewContext(previousTests.match(/class MemorySheet \{[^]*?\n\}/)[0] + '\n' + extract(previousTests, 'harness') + '\nharness', { vm, backend, createHash, assert, core });
 const photoDrive = vm.runInNewContext(extract(previousTests, 'fakePhotoDrive') + '\nfakePhotoDrive', { Buffer });
-const CASE = '946fd69c-58c5-4ee8-b8e8-a26058c766a0';
 const sourceCase = process.argv[4] ? JSON.parse(await readFile(process.argv[4], 'utf8')).real.values[0] : null;
 const currentCase = process.argv[6] ? JSON.parse(await readFile(process.argv[6], 'utf8')).values[0] : null;
+const CASE = sourceCase?.[0] || currentCase?.[0] || '11111111-2222-4333-8444-555555555555';
+const fixtureUser = sourceCase?.[2] || currentCase?.[2] || 'Equipe FIXTURE';
 const tests = [], traces = [];
 const test = (name, run) => tests.push({ name, run });
 const noChanges = 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.';
 
 function harness(source = backend, real = false) {
   const h = factory([['NOVO', 'Serviço novo', 'UD', 'Grupo', '', '', '', '40,00', '60,00']], source);
-  h.c.requireSession_ = () => ({ role: 'field', user: 'bruno.reis' });
+  h.c.requireSession_ = () => ({ role: 'field', user: fixtureUser });
   h.c.assertTeamDirectorySelection_ = () => {};
   h.c.CacheService = { getScriptCache: () => ({ get: () => '1', put() {}, remove() {} }) };
   h.drive = photoDrive(h);
@@ -44,10 +45,10 @@ function harness(source = backend, real = false) {
     h.sheet(h.c.meta.APP.pendingSheet).rows.push(row);
   } else {
     h.seed({
-      recordId: CASE, registeredAt: '2026-09-24T17:11:31-03:00', user: 'bruno.reis',
-      base: 'CAICÓ', contract: '4600080938', team: 'LM 01 CCO', crewLeader: 'FRANCIMAR',
-      occurrenceNumber: '2026 9 11321', occurrenceTypes: ['SUBSTITUIÇÃO DE POSTE', 'LINHA VIVA'],
-      pgPostRemoved: 'R64583', pgPostInstalled: 'R64583', pgConductorStart: '', pgConductorEnd: '',
+      recordId: CASE, registeredAt: '2026-09-24T17:11:31-03:00', user: fixtureUser,
+      base: 'CAICÓ', contract: '4600080938', team: 'LM FIXTURE', crewLeader: 'Chefe FIXTURE',
+      occurrenceNumber: 'OCORRENCIA_FIXTURE', occurrenceTypes: ['SUBSTITUIÇÃO DE POSTE', 'LINHA VIVA'],
+      pgPostRemoved: 'PG_ORIGINAL_FIXTURE', pgPostInstalled: 'PG_ORIGINAL_FIXTURE', pgConductorStart: '', pgConductorEnd: '',
       transformer: {}, services: [{ lineId: 'hist-1', catalogKey: 'Emergência:1032', code: 'HIST',
         catalogText: 'Serviço histórico preservado', unit: 'UD', group: 'REDES EMERGÊNCIA',
         contract: '4600080938', referenceValue: 20, quantity: 10, totalValue: 200, origin: 'Emergência' }],
@@ -55,8 +56,8 @@ function harness(source = backend, real = false) {
       totalServices: 200, observation: ''
     }, { status: h.c.meta.STATUS.CORRECTION_REQUESTED });
     const row = h.sheet(h.c.meta.APP.pendingSheet).rows[1], audit = JSON.parse(row[h.c.meta.COL.AUDIT - 1]);
-    audit.lastCorrectionRequest = { requestedAt: '2026-10-06T10:25:02-03:00', photoIndexes: [], reason: 'Conforme alinhado, enviar com PG corretado para fechamento', supervisor: 'beatriz martins' };
-    audit.timeline.push({ action: 'CORRECAO_SOLICITADA', at: audit.lastCorrectionRequest.requestedAt, actor: 'beatriz martins' });
+    audit.lastCorrectionRequest = { requestedAt: '2026-10-06T10:25:02-03:00', photoIndexes: [], reason: 'Conforme alinhado, enviar com PG corretado para fechamento', supervisor: 'Supervisor FIXTURE' };
+    audit.timeline.push({ action: 'CORRECAO_SOLICITADA', at: audit.lastCorrectionRequest.requestedAt, actor: 'Supervisor FIXTURE' });
     row[h.c.meta.COL.AUDIT - 1] = JSON.stringify(audit);
   }
   h.row = () => h.sheet(h.c.meta.APP.pendingSheet).rows[1];
@@ -166,7 +167,7 @@ function client(h, old = false) {
     'toast=(message)=>{__messages.push(message)};confirmAction=async()=>true;renderServices=()=>{};renderMaterials=()=>{};renderAssignmentControls=(edit,record)=>{if(!edit&&record){elements.team.value=record.team;elements.crewLeader.value=record.crewLeader}};updatePhotoGrid=()=>{};updateGoal=()=>{};showDraftId=()=>{};goToStep=()=>{};navigate=()=>{};loadDailyProduction=async()=>{};updateQueueUi=async()=>{};cacheDailySummary=async()=>{};refreshMine=()=>{};assignmentError=()=>"";setBusy=()=>{};resetForm=()=>{};\n', c);
   // Expose only fixture state. The ordinary application handlers remain registered.
   c.messages = messages;
-  c.hooks.setSession({ role: 'field', user: 'bruno.reis', token: 'fixture' });
+  c.hooks.setSession({ role: 'field', user: fixtureUser, token: 'fixture' });
   c.hooks.bindEvents();
   const run = c.hooks.syncSingleRecord;
   c.hooks.syncSingleRecord = (...args) => { const task = run(...args); tasks.push(task); return task; };
@@ -212,7 +213,7 @@ test('baseline DOM: autosave antigo que termina depois do enqueue elimina o delt
   ui.afterQueue(async () => { release(); await oldSave; });
   await ui.click();
   assert.equal(ui.controls.get('pgPostInstalled').value, 'NOVO_PG');
-  assert.equal(ui.payloads[0].pgPostInstalled, 'R64583');
+  assert.equal(ui.payloads[0].pgPostInstalled, 'PG_ORIGINAL_FIXTURE');
   assert.equal(ui.payloads[0].observation, '');
   assert.deepEqual(h.state().record.audit.lastCorrectionSubmission.expectedPatch, {});
   assert.equal(h.state().record.audit.lastCorrectionSubmission.phase, 'COMPLETE');
@@ -235,7 +236,7 @@ for (const [id, field, value] of [['pgPostRemoved', 'pgPostRemoved', 'R99998'], 
     assert.deepEqual(plain(ui.c.hooks.active().correctionOriginal), original);
   });
 }
-test('fixture real 11321: DOM atual, PG + observação, payload não vazio, releitura e Supervisor', async () => {
+test('fixture de referência: DOM atual, PG + observação, payload não vazio, releitura e Supervisor', async () => {
   const h = harness(backend, true), ui = client(h); await ui.open();
   await ui.input('pgPostInstalled', 'NOVO_PG', false); await ui.input('observation', 'POSTE ALTERADO PARA FECHAMENTO', false);
   await ui.click();
@@ -245,7 +246,7 @@ test('fixture real 11321: DOM atual, PG + observação, payload não vazio, rele
   assert.deepEqual(Object.keys(ui.payloads[0].expectedPatch).sort(), ['observation', 'pgPostInstalled']);
   const state = h.state(); assert.equal(state.record.pgPostInstalled, 'NOVO_PG'); assert.equal(state.record.observation, 'POSTE ALTERADO PARA FECHAMENTO');
   assert.equal(state.record.recordId, CASE); assert.equal(h.resends(), 1);
-  h.c.requireSession_ = () => ({ role: 'supervisor', user: 'beatriz martins' });
+  h.c.requireSession_ = () => ({ role: 'supervisor', user: 'Supervisor FIXTURE' });
   const supervisor = h.c.getRecordState_({ token: 'fixture', recordId: CASE });
   assert.equal(supervisor.record.pgPostInstalled, 'NOVO_PG'); assert.equal(supervisor.record.observation, 'POSTE ALTERADO PARA FECHAMENTO');
   assert.equal(core.correctedAfterResend(supervisor.record), true);
@@ -375,21 +376,21 @@ test('backend: delta do cliente inconsistente não é aceito', () => {
 });
 test('backend: PG não persistido bloqueia COMPLETE e evento final', () => {
   const h = harness(), record = h.state().record, pending = h.sheet(h.c.meta.APP.pendingSheet), range = pending.getRange.bind(pending), column = h.c.meta.COL.PG_POST_INSTALLED;
-  pending.getRange = (...args) => { const r = range(...args), set = r.setValues; r.setValues = values => { const v = values.map(row => row.slice()); if (args[1] === 1 && args[3] === h.c.meta.COL.WIDTH) v[0][column - 1] = 'R64583'; return set(v); }; return r; };
+  pending.getRange = (...args) => { const r = range(...args), set = r.setValues; r.setValues = values => { const v = values.map(row => row.slice()); if (args[1] === 1 && args[3] === h.c.meta.COL.WIDTH) v[0][column - 1] = 'PG_ORIGINAL_FIXTURE'; return set(v); }; return r; };
   assert.throws(() => h.submit({ ...record, pgPostInstalled: 'PG_REAL', correctionRequestId: randomUUID(), correctionRequestedAt: record.audit.lastCorrectionRequest.requestedAt }), e => e.code === 'CORRECTION_PERSISTENCE_MISMATCH');
   assert.equal(h.state().status, 'CORRECAO_SOLICITADA'); assert.notEqual(h.state().record.audit.lastCorrectionSubmission.phase, 'COMPLETE'); assert.equal(h.resends(), 0);
 });
 test('snapshot original é independente e imutável; current não o modifica', async () => {
   const h = harness(), ui = client(h); await ui.open(); const before = ui.c.hooks.active().correctionOriginal;
   assert.equal(Object.isFrozen(before), true); assert.equal(Object.isFrozen(before.data.transformer), true);
-  await ui.input('pgPostInstalled', 'PG_NOVO'); assert.equal(before.data.pgPostInstalled, 'R64583');
+  await ui.input('pgPostInstalled', 'PG_NOVO'); assert.equal(before.data.pgPostInstalled, 'PG_ORIGINAL_FIXTURE');
   ui.c.hooks.active().services[0].quantity = 99; assert.equal(before.data.services[0].quantity, 10);
 });
 test('DOM: reload do rascunho conserva current editado e original separado', async () => {
   const h = harness(), ui = client(h); await ui.open(); await ui.input('pgPostInstalled', 'PG_DRAFT'); await ui.input('observation', 'DRAFT LOCAL');
   const saved = structuredClone(ui.saved.get(CASE)), reopened = client(h); await reopened.c.hooks.loadRecordIntoForm(saved);
   assert.equal(reopened.controls.get('pgPostInstalled').value, 'PG_DRAFT');
-  assert.equal(reopened.c.hooks.active().correctionOriginal.data.pgPostInstalled, 'R64583'); assert.equal(Object.isFrozen(reopened.c.hooks.active().correctionOriginal.data), true);
+  assert.equal(reopened.c.hooks.active().correctionOriginal.data.pgPostInstalled, 'PG_ORIGINAL_FIXTURE'); assert.equal(Object.isFrozen(reopened.c.hooks.active().correctionOriginal.data), true);
   reopened.saved.set(CASE, structuredClone(reopened.c.hooks.active())); await reopened.click();
   assert.equal(reopened.payloads[0].expectedPatch.pgPostInstalled, 'PG_DRAFT'); assert.equal(reopened.payloads[0].expectedPatch.observation, 'DRAFT LOCAL');
 });
@@ -403,7 +404,7 @@ test('backend: pedido de foto sem alteração de foto no payload atual continua 
   const h = harness(), record = h.state().record, audit = JSON.parse(h.row()[h.c.meta.COL.AUDIT - 1]); audit.requestedPhotoIndexes = [1]; h.row()[h.c.meta.COL.AUDIT - 1] = JSON.stringify(audit);
   assert.throws(() => h.submit({ ...record, correctionRequestId: randomUUID(), correctionRequestedAt: audit.lastCorrectionRequest.requestedAt, photoPatch: {}, evidencePatch: {} }), e => e.code === 'NO_CORRECTION_CHANGES'); assert.equal(h.resends(), 0);
 });
-test('recuperação C do fixture real preserva UUID, pedido, Supervisor, histórico, serviços, materiais e fotos', () => {
+test('recuperação C do fixture de referência preserva UUID, pedido, Supervisor, histórico, serviços, materiais e fotos', () => {
   const h = harness(); const pending = h.sheet(h.c.meta.APP.pendingSheet);
   if (sourceCase) pending.rows[1] = sourceCase.slice();
   else { const old = harness(baseline), record = old.state().record; old.submit({ ...record, correctionRequestId: randomUUID(), correctionRequestedAt: record.audit.lastCorrectionRequest.requestedAt }); pending.rows[1] = old.row().slice(); }
@@ -494,21 +495,22 @@ function supersededCase() {
   else {
     const old = harness(baseline), record = old.state().record;
     old.submit({ ...record, correctionRequestId: randomUUID(), correctionRequestedAt: record.audit.lastCorrectionRequest.requestedAt });
-    old.c.requireSession_ = () => ({ role: 'supervisor', user: 'Breno' });
-    old.c.supervisorCorrectRecord_({ token: 'fixture', record: { ...old.state().record, pgPostRemoved: 'AF9408X', pgPostInstalled: 'AF9408X' } });
+    old.c.requireSession_ = () => ({ role: 'supervisor', user: 'Supervisor FIXTURE' });
+    old.c.supervisorCorrectRecord_({ token: 'fixture', record: { ...old.state().record, pgPostRemoved: 'PG_SUPERVISOR_FIXTURE', pgPostInstalled: 'PG_SUPERVISOR_FIXTURE' } });
     h.sheet(h.c.meta.APP.pendingSheet).rows[1] = old.row().slice();
   }
   return h;
 }
-test('estado atual 11321: correção direta do Supervisor preservada sem badge de reenvio vazio', () => {
+test('fixture de edição posterior: correção direta do Supervisor preservada sem badge de reenvio vazio', () => {
   const h = supersededCase(), before = h.row().slice(), state = h.state();
-  assert.equal(state.status, 'AGUARDANDO_SUPERVISOR'); assert.equal(state.record.pgPostRemoved, 'AF9408X'); assert.equal(state.record.pgPostInstalled, 'AF9408X');
+  assert.equal(state.status, 'AGUARDANDO_SUPERVISOR'); assert.equal(state.record.pgPostRemoved, before[h.c.meta.COL.PG_POST_REMOVED - 1]); assert.equal(state.record.pgPostInstalled, before[h.c.meta.COL.PG_POST_INSTALLED - 1]);
   assert.equal(state.record.observation, ''); assert.equal(core.correctedAfterResend(state.record), false);
   assert.deepEqual(h.row(), before); assert.equal(h.resends(), 0);
 });
 test('reenvio antigo após correção do Supervisor não sobrescreve nem reabre o UUID', () => {
   const h = supersededCase(), before = h.row().slice(), record = h.state().record, receipt = record.audit.lastCorrectionSubmission;
-  assert.throws(() => h.submit({ ...record, pgPostRemoved: 'R64583', pgPostInstalled: 'R64583', correctionRequestId: receipt.requestId, correctionRequestedAt: receipt.requestedAt }), e => e.code === 'CORRECTION_PAYLOAD_CHANGED');
+  const previous = field => record.audit.lastSupervisorCorrection.changes.find(change => change.field === field)?.previousValue || 'PG_ORIGINAL_FIXTURE';
+  assert.throws(() => h.submit({ ...record, pgPostRemoved: previous('PG do poste retirado'), pgPostInstalled: previous('PG do poste instalado'), correctionRequestId: receipt.requestId, correctionRequestedAt: receipt.requestedAt }), e => e.code === 'CORRECTION_PAYLOAD_CHANGED');
   assert.deepEqual(h.row(), before); assert.equal(h.state().status, 'AGUARDANDO_SUPERVISOR'); assert.equal(h.resends(), 0);
 });
 test('recuperação C não reabre correção legítima do Supervisor; classificação A preserva tudo', () => {
@@ -533,10 +535,10 @@ test('somente marcador superseded não confirma correção: timestamp, delta, ti
   }
 });
 test('Supervisor pode corrigir novamente o estado preservado sem novo evento de reenvio da equipe', () => {
-  const h = supersededCase(); h.c.requireSession_ = () => ({ role: 'supervisor', user: 'beatriz martins' });
+  const h = supersededCase(); h.c.requireSession_ = () => ({ role: 'supervisor', user: 'Supervisor FIXTURE' });
   const corrected = h.c.supervisorCorrectRecord_({ token: 'fixture', record: { ...h.state().record, observation: 'OBSERVAÇÃO DA SUPERVISÃO' } });
   assert.equal(corrected.status, 'AGUARDANDO_SUPERVISOR'); assert.equal(h.state().record.observation, 'OBSERVAÇÃO DA SUPERVISÃO');
-  assert.equal(h.state().record.pgPostInstalled, 'AF9408X'); assert.equal(h.resends(), 0); assert.equal(core.correctedAfterResend(h.state().record), false);
+  assert.equal(h.state().record.pgPostInstalled, currentCase ? currentCase[h.c.meta.COL.PG_POST_INSTALLED - 1] : 'PG_SUPERVISOR_FIXTURE'); assert.equal(h.resends(), 0); assert.equal(core.correctedAfterResend(h.state().record), false);
 });
 
 let failures = 0;
