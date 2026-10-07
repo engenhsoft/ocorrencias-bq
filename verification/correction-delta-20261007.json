@@ -1,6 +1,6 @@
 {
   "suites": 25,
-  "cases": 748,
+  "cases": 753,
   "additionalGroups": 4,
   "failedSuites": [],
   "productionQaWrites": 0,
@@ -107,7 +107,7 @@
     {
       "suite": "correction-delta",
       "passed": true,
-      "cases": 46
+      "cases": 51
     },
     {
       "suite": "create-photo-commit",
@@ -166,5 +166,15 @@
       "phase": "COMPLETE",
       "uuid": "946fd69c-58c5-4ee8-b8e8-a26058c766a0"
     }
-  ]
+  ],
+  "currentCase": {
+    "uuid": "946fd69c-58c5-4ee8-b8e8-a26058c766a0",
+    "pgPostRemoved": "AF9408X",
+    "pgPostInstalled": "AF9408X",
+    "observation": "",
+    "classification": "A",
+    "action": "PRESERVE_SUPERVISOR_CORRECTION",
+    "supervisorCorrectionAt": "2026-10-07T10:32:00-03:00",
+    "productionWrites": 0
+  }
 }

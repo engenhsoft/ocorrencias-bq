@@ -20,10 +20,10 @@
      if (!found || String(found.values[COL.STATUS - 1]) !== STATUS.WAITING_SUPERVISOR) return;
      const audit = safeJson_(found.values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
 -    if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && (receipt.phase !== 'COMPLETE' || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint)) {
-+    if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(found.values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint)) {
++    if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && !correctionSupersededBySupervisor_(found.values, receipt) && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(found.values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint)) {
        pending.getRange(found.row, COL.STATUS).setValue(STATUS.CORRECTION_REQUESTED); flushSheets_();
      }
-@@ -354,11 +354,67 @@
+@@ -354,11 +354,78 @@
    if (previous && previous.requestId === requestId && previous.requestedAt === requestedAt) {
      if (previous.expectedFingerprint !== fingerprint) throw apiError_('CORRECTION_PAYLOAD_CHANGED', 'Este envio já possui outros dados. Preserve a edição e tente um novo envio.');
 +    ['photoPatch', 'evidencePatch'].forEach(function (key) {
@@ -92,9 +92,20 @@
 +  };
 +  if (!complete) return dataChanged || Object.keys(declared).length > 0 || normalizePhotoIndexes_(audit.requestedPhotoIndexes).length > 0;
 +  return Boolean((dataChanged || Object.keys(audit.photoSubmissions || {}).some(verified)) && Object.keys(declared).every(verified));
++}
++
++// A later direct Supervisor correction is authoritative, not a team resubmission.
++function correctionSupersededBySupervisor_(values, receipt) {
++  if (!receipt || receipt.phase !== 'COMPLETE' || !receipt.supersededBySupervisorAt || !receipt.completedAt) return false;
++  const supersededAt = new Date(receipt.supersededBySupervisorAt).getTime(); const completedAt = new Date(receipt.completedAt).getTime();
++  if (!Number.isFinite(supersededAt) || !Number.isFinite(completedAt) || supersededAt < completedAt) return false;
++  const audit = safeJson_(values[COL.AUDIT - 1], {}); const correction = audit.lastSupervisorCorrection;
++  if (!correction || !correction.supervisor || correction.correctedAt !== receipt.supersededBySupervisorAt || !Array.isArray(correction.changes) || !correction.changes.some(function (change) { return change.field && comparableAuditValue_(change.previousValue) !== comparableAuditValue_(change.newValue); })) return false;
++  const timeline = Array.isArray(audit.timeline) ? audit.timeline : [];
++  return timeline.some(function (event) { return event.action === 'CORRIGIDA_PELO_SUPERVISOR' && event.at === correction.correctedAt && event.actor === correction.supervisor; }) && correctionFingerprint_(correctionDataFromValues_(values)) === receipt.expectedFingerprint;
  }
  
-@@ -397,5 +453,7 @@
+@@ -397,5 +464,7 @@
    const audit = safeJson_(found.values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
    if (!receipt || !receipt.dataVerifiedAt || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint) throw apiError_('CORRECTION_DATA_UNCONFIRMED', 'Os campos corrigidos ainda não foram confirmados por releitura.');
 +  if (!correctionReceiptHasChanges_(found.values, receipt, false) && !correctionReceiptHasChanges_(found.values, receipt, true)) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
@@ -102,21 +113,25 @@
 +  if (!correctionReceiptHasChanges_(found.values, receipt, true)) return found;
    // Status is staged first. Readers keep it pending until the receipt is complete.
    const expected = found.values.slice(); expected[COL.STATUS - 1] = STATUS.WAITING_SUPERVISOR;
-@@ -412,5 +470,5 @@
+@@ -412,5 +481,5 @@
  function ensureCorrectionHistory_(values, actor) {
    const audit = safeJson_(values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
 -  if (!receipt || receipt.phase !== 'COMPLETE' || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint) return;
 +  if (!receipt || receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint) return;
    const note = 'Correção confirmada por releitura; envio ' + receipt.requestId;
    const history = sheet_(APP.historySheet); const id = String(values[COL.ID - 1]);
-@@ -440,5 +498,5 @@
+@@ -437,8 +506,9 @@
+         const lastResendAt = resends.length ? resends[resends.length - 1].at : '';
+         if (String(found.values[COL.STATUS - 1]) !== item.expectedStatus || item.expectedStatus !== STATUS.WAITING_SUPERVISOR || correctionRequestedAt_(audit) !== item.requestedAt || lastResendAt !== item.lastResendAt || sha256_(publicationJson_(found.values)) !== item.expectedRowFingerprint) throw apiError_('CORRECTION_RECOVERY_STALE', 'Os dados ou a solicitação mudaram após a análise. Nenhum campo foi alterado.');
++        if (correctionSupersededBySupervisor_(found.values, audit.lastCorrectionSubmission)) throw apiError_('CORRECTION_RECOVERY_PRESERVED', 'A ocorrência já possui correção direta do Supervisor confirmada. Nenhum campo foi alterado.');
+         const next = found.values.slice(); let patch = {};
          if (item.classification === 'B') {
            const receipt = audit.lastCorrectionSubmission;
 -          if (!receipt || receipt.requestedAt !== item.requestedAt || !receipt.expectedPatch || publicationJson_(item.patch) !== publicationJson_(receipt.expectedPatch) || item.sourceRequestId !== receipt.requestId) throw apiError_('CORRECTION_RECOVERY_NO_SOURCE', 'Os valores não correspondem a um payload de correção persistido.');
 +          if (!receipt || receipt.requestedAt !== item.requestedAt || !receipt.expectedPatch || !Object.keys(receipt.expectedPatch).length || !correctionReceiptHasChanges_(found.values, receipt, true) || publicationJson_(item.patch) !== publicationJson_(receipt.expectedPatch) || item.sourceRequestId !== receipt.requestId) throw apiError_('CORRECTION_RECOVERY_NO_SOURCE', 'Os valores não correspondem a um payload de correção persistido.');
            patch = receipt.expectedPatch;
            if (Object.prototype.hasOwnProperty.call(patch, 'recordId') && patch.recordId !== recordId) throw apiError_('CORRECTION_RECOVERY_INVALID_PATCH', 'O UUID não pode ser alterado.');
-@@ -481,4 +539,7 @@
+@@ -481,4 +551,7 @@
      const urlColumn = photoUrlColumn_(photoIndex); const keyColumn = photoUploadKeyColumn_(photoIndex);
      const oldUrl = String(found.values[urlColumn - 1] || ''); const oldKey = String(found.values[keyColumn - 1] || '');
 +    const currentAudit = safeJson_(found.values[COL.AUDIT - 1], {}); const correctionReceipt = currentAudit.lastCorrectionSubmission;
@@ -124,10 +139,10 @@
 +    if (correctionReceipt && correctionReceipt.requestedAt === correctionRequestedAt_(currentAudit) && correctionReceipt.phase !== 'COMPLETE' && declaredPhoto && declaredPhoto.uploadKey !== uploadKey) throw apiError_('CORRECTION_PAYLOAD_CHANGED', 'A foto não corresponde ao envio de correção pendente. Preserve a foto e tente novamente.');
      const storedPhotoReceipt = (safeJson_(found.values[COL.AUDIT - 1], {}).photoSubmissions || {})[photoIndex];
      if (oldKey === uploadKey && oldUrl && (!storedPhotoReceipt || storedPhotoReceipt.uploadKey !== uploadKey || storedPhotoReceipt.expectedUrl === oldUrl)) {
-@@ -900,5 +961,5 @@
+@@ -900,5 +973,5 @@
    if ([STATUS.WAITING_SUPERVISOR, STATUS.SYNCING_PHOTOS].indexOf(status) < 0) return status;
    const audit = safeJson_(values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
 -  if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && (receipt.phase !== 'COMPLETE' || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint)) return STATUS.CORRECTION_REQUESTED;
-+  if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint)) return STATUS.CORRECTION_REQUESTED;
++  if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && !correctionSupersededBySupervisor_(values, receipt) && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint)) return STATUS.CORRECTION_REQUESTED;
    return recordReadyForSupervisorValues_(values) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS;
  }

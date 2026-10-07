@@ -1,6 +1,6 @@
 # Hotfix do delta de correção — 07/10/2026
 
-Patch validado e preparado para publicação. O Apps Script abriu sem sessão autenticada; a implantação e a recuperação operacional não foram executadas nesta sessão. A branch mantém o frontend e o patch do mesmo backend prontos para revisão.
+Patch validado e preparado para publicação. O Apps Script abriu sem sessão autenticada; a implantação não foi executada. A releitura da retomada encontrou uma correção direta do Supervisor já persistida no 11321: esse estado deve ser preservado, sem reabertura automática. A branch mantém o frontend e o patch do mesmo backend prontos para revisão.
 
 ## Referência inicial
 
@@ -33,6 +33,7 @@ Uma vulnerabilidade adicional de ordenação foi reproduzida com armazenamento s
 | Fotos | UploadKey declarado precisa corresponder ao slot; intenção de upload não vale como confirmação final. |
 | COMPLETE | Exige delta de dados real ou foto/evidência nova persistida e confirmada; todos os slots declarados verificados. |
 | Badge/estado | Recibo vazio não produz CORRIGIDO nem habilita a correção para aprovação. |
+| Edição posterior do Supervisor | Preserva a edição direta comprovada por delta, timeline, timestamp e fingerprint atuais; não valida retroativamente um reenvio vazio da equipe. |
 
 Mensagem de no-change: “Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.”
 
@@ -46,11 +47,15 @@ A migração preserva requestId de assinaturas legadas, inclusive quantidades co
 
 ## Caso 11321 e consulta recente
 
-A consulta foi somente leitura na planilha oficial. UUID `946fd69c-58c5-4ee8-b8e8-a26058c766a0`, PGs `R64583`, observação vazia, recibo `d327f3be-bd7d-4e04-8928-21de45cb2ab5` COMPLETE com patches vazios. Não há novos valores recuperáveis nesse recibo.
+A consulta inicial foi somente leitura na planilha oficial. UUID `946fd69c-58c5-4ee8-b8e8-a26058c766a0`, PGs `R64583`, observação vazia, recibo `d327f3be-bd7d-4e04-8928-21de45cb2ab5` COMPLETE com patches vazios. Não há novos valores recuperáveis nesse recibo.
 
 Foram pesquisadas auditorias COMPLETE nas abas pendente e oficial com ranges limitados aos respectivos tamanhos observados. Das sete linhas encontradas na aba pendente, cinco eram CREATE com recibos de fotos e foram excluídas; uma tinha delta de dados efetivo e foi preservada (A); uma é o caso 11321 (C). A aba oficial não retornou esse padrão. Resultado: A=1, B=0, C=1; outros falsos corrigidos além do 11321=0 nesse recorte. Nenhuma alteração em massa foi feita.
 
-C requer reabrir a solicitação original, no mesmo UUID, sem alterar PG/observação por suposição. A recuperação foi validada apenas no fixture: preservou pedido, Supervisor, timeline, recibo técnico anterior, fotos, serviços e materiais; a segunda execução foi idempotente. A ação real depende de uma nova leitura/lease do registro imediatamente antes da execução. A recuperação B agora também rejeita patch vazio.
+Na retomada, uma nova busca pelo UUID e leitura da linha encontrou os PGs retirado e instalado como `AF9408X`, observação vazia e `lastSupervisorCorrection` por Breno em `2026-10-07T10:32:00-03:00`. O recibo antigo possui `supersededBySupervisorAt` nessa mesma data, fingerprint atualizado e timeline `CORRIGIDA_PELO_SUPERVISOR`. Esses valores foram observados, não aplicados por este trabalho. O 11321 passa a A: preservar a correção direta atual. No conjunto anteriormente identificado, A=2, B=0, C=0 após essa atualização individual; não houve nova varredura geral de todos os registros.
+
+O backend distingue uma edição direta comprovada do Supervisor de um recibo vazio da equipe. A proteção exige timestamp válido posterior ao recibo, delta efetivo no `lastSupervisorCorrection`, evento correspondente e fingerprint coincidente com os dados persistidos. Retry antigo não sobrescreve nem reabre esse estado; recuperação B/C também o preserva. O badge de reenvio vazio da equipe continua bloqueado. A edição direta do Supervisor e seu badge próprio permanecem no fluxo atual.
+
+Para casos ainda classificados C, a recuperação guardada do pedido original continua disponível no mesmo UUID, sem inventar PG/observação; foi validada somente em fixture e preserva pedido, Supervisor, timeline, fotos, serviços e materiais. A recuperação B rejeita patch vazio. Não há recuperação real a executar sobre o 11321 no estado observado nesta retomada.
 
 ## Prova end-to-end
 
@@ -69,20 +74,20 @@ O teste carrega o HTML real, registra os handlers de `bindEvents`, edita input P
 
 `NOVO_PG` e esse texto são valores de teste pedidos no roteiro; não foram aplicados ao registro real.
 
-46 cenários focados aprovados: PG retirado/instalado, observação, ambos, clear explícito, seis campos de trafo individuais/combinados, PG condutor, no-change em cliente/backend, metadata sem mudança, fingerprint/recibo inválido, foto-only, evidência-only, slots parciais, resposta perdida, requestId legado, histórico preservado, serviço novo, material com zero inicial, QTD 15,50 no handler DOM, material 2,50 no handler DOM, offline, reload, reentrada e recuperação A/B/C nas suítes pertinentes.
+51 cenários focados aprovados: PG retirado/instalado, observação, ambos, clear explícito, seis campos de trafo individuais/combinados, PG condutor, no-change em cliente/backend, metadata sem mudança, fingerprint/recibo inválido, foto-only, evidência-only, slots parciais, resposta perdida, requestId legado, histórico preservado, serviço novo, material com zero inicial, QTD 15,50 no handler DOM, material 2,50 no handler DOM, offline, reload, reentrada e recuperação A/B/C nas suítes pertinentes. Cinco cenários adicionais validam a correção direta já persistida do Supervisor, retry antigo, recuperação indevida, marcador sem prova suficiente e nova edição legítima do Supervisor.
 
-Total executado: 25 suítes, 748 casos e quatro grupos adicionais, todos aprovados. Regressões incluem login/primeira carga, Supervisor, serviços históricos, publicação/reconciliação, fotos, materiais, decimal, estabilidade, CREATE e PWA. Os benchmarks de login/carga usam `--current-baseline` para comparar ao estado inicial já otimizado; o modo histórico antigo continua disponível. `profile-stability` é uma medição mockada, não latência no celular nem no Apps Script real.
+Total executado: 25 suítes, 753 casos e quatro grupos adicionais, todos aprovados. Regressões incluem login/primeira carga, Supervisor, serviços históricos, publicação/reconciliação, fotos, materiais, decimal, estabilidade, CREATE e PWA. Os benchmarks de login/carga usam `--current-baseline` para comparar ao estado inicial já otimizado; o modo histórico antigo continua disponível. `profile-stability` é uma medição mockada, não latência no celular nem no Apps Script real.
 
 Comando focado, com fontes privados fora do repositório:
 
 ```bash
-node tests/correction-delta.mjs BACKEND_CANDIDATO.gs BACKEND_INICIAL.gs FIXTURE_READ_ONLY.json FRONTEND_INICIAL
+node tests/correction-delta.mjs BACKEND_CANDIDATO.gs BACKEND_INICIAL.gs FIXTURE_HISTORICA.json FRONTEND_INICIAL FIXTURE_ATUAL_READ_ONLY.json
 ```
 
 O frontend inicial pode ser extraído do HEAD acima. Os resultados sanitizados estão em `verification/correction-delta-20261007.json`.
 
 ## Publicação pendente
 
-Aplicar `patches/backend-correction-delta-20261007.patch` ao mesmo `ApprovalIntegrity20260911.gs`, conferir o fonte ativo antes do write, salvar e atualizar a implantação existente para a versão candidata. Manter endpoint, acesso e projeto. Depois atualizar main/Pages com este commit e verificar os assets/release/cache servidos. Só então executar a recuperação C guardada após nova leitura do UUID.
+Aplicar `patches/backend-correction-delta-20261007.patch` ao mesmo `ApprovalIntegrity20260911.gs`, conferir o fonte ativo antes do write, salvar e atualizar a implantação existente para a versão candidata. Manter endpoint, acesso e projeto. Depois atualizar main/Pages com este commit e verificar os assets/release/cache servidos. Preservar o 11321 na classificação A confirmada pela releitura; nenhum valor ou histórico foi modificado por este trabalho.
 
-O editor redirecionou para a página pública do Apps Script com “Fazer login”. Não foram pedidas credenciais, criados backend/endpoint alternativos ou publicados frontend e backend em versões desencontradas. O frontend candidato e o backend candidato ainda não são a release em produção.
+O editor redirecionou para a página pública do Apps Script com “Fazer login”. Na retomada, o Google mostrou a conta Breno Santana desconectada. A revisão automática rejeitou a seleção segura da conta porque iniciar login pode pedir credenciais, em conflito com a instrução explícita do usuário. Nenhum prompt de credenciais foi apresentado, nenhum backend/endpoint alternativo foi criado e não houve publicação parcial. A reautenticação requer autorização atual do usuário; o frontend candidato e o backend candidato ainda não são a release em produção.

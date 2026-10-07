@@ -25,6 +25,7 @@ const factory = vm.runInNewContext(previousTests.match(/class MemorySheet \{[^]*
 const photoDrive = vm.runInNewContext(extract(previousTests, 'fakePhotoDrive') + '\nfakePhotoDrive', { Buffer });
 const CASE = '946fd69c-58c5-4ee8-b8e8-a26058c766a0';
 const sourceCase = process.argv[4] ? JSON.parse(await readFile(process.argv[4], 'utf8')).real.values[0] : null;
+const currentCase = process.argv[6] ? JSON.parse(await readFile(process.argv[6], 'utf8')).values[0] : null;
 const tests = [], traces = [];
 const test = (name, run) => tests.push({ name, run });
 const noChanges = 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.';
@@ -485,6 +486,57 @@ test('DOM: reabrir CORRIGIR com foto 1 confirmada sem blob exige apenas foto 2 f
   await ui.c.hooks.handleMineAction({ target: button }); assert.deepEqual(plain(ui.c.hooks.active().requestedPhotoIndexes), [2]);
   failSecond = false; await ui.click(); assert.equal(h.state().status, 'AGUARDANDO_SUPERVISOR'); assert.equal(h.drive.created(), 2); assert.equal(h.resends(), 1);
   assert.equal(h.state().record.photoStates[0].uploadKey, key1); assert.equal(h.state().record.photoStates[1].uploadKey, key2);
+});
+
+function supersededCase() {
+  const h = harness();
+  if (currentCase) h.sheet(h.c.meta.APP.pendingSheet).rows[1] = currentCase.slice();
+  else {
+    const old = harness(baseline), record = old.state().record;
+    old.submit({ ...record, correctionRequestId: randomUUID(), correctionRequestedAt: record.audit.lastCorrectionRequest.requestedAt });
+    old.c.requireSession_ = () => ({ role: 'supervisor', user: 'Breno' });
+    old.c.supervisorCorrectRecord_({ token: 'fixture', record: { ...old.state().record, pgPostRemoved: 'AF9408X', pgPostInstalled: 'AF9408X' } });
+    h.sheet(h.c.meta.APP.pendingSheet).rows[1] = old.row().slice();
+  }
+  return h;
+}
+test('estado atual 11321: correção direta do Supervisor preservada sem badge de reenvio vazio', () => {
+  const h = supersededCase(), before = h.row().slice(), state = h.state();
+  assert.equal(state.status, 'AGUARDANDO_SUPERVISOR'); assert.equal(state.record.pgPostRemoved, 'AF9408X'); assert.equal(state.record.pgPostInstalled, 'AF9408X');
+  assert.equal(state.record.observation, ''); assert.equal(core.correctedAfterResend(state.record), false);
+  assert.deepEqual(h.row(), before); assert.equal(h.resends(), 0);
+});
+test('reenvio antigo após correção do Supervisor não sobrescreve nem reabre o UUID', () => {
+  const h = supersededCase(), before = h.row().slice(), record = h.state().record, receipt = record.audit.lastCorrectionSubmission;
+  assert.throws(() => h.submit({ ...record, pgPostRemoved: 'R64583', pgPostInstalled: 'R64583', correctionRequestId: receipt.requestId, correctionRequestedAt: receipt.requestedAt }), e => e.code === 'CORRECTION_PAYLOAD_CHANGED');
+  assert.deepEqual(h.row(), before); assert.equal(h.state().status, 'AGUARDANDO_SUPERVISOR'); assert.equal(h.resends(), 0);
+});
+test('recuperação C não reabre correção legítima do Supervisor; classificação A preserva tudo', () => {
+  const h = supersededCase(), before = h.row().slice(), audit = JSON.parse(before[h.c.meta.COL.AUDIT - 1]);
+  const item = { recordId: CASE, classification: 'C', recoveryId: 'fixture-supervisor-preservation', expectedStatus: 'AGUARDANDO_SUPERVISOR', requestedAt: audit.lastCorrectionRequest.requestedAt,
+    lastResendAt: audit.timeline.filter(e => e.action === 'CORRECAO_REENVIADA').at(-1).at, expectedRowFingerprint: h.c.sha256_(h.c.publicationJson_(before)) };
+  assert.equal(h.c.recoverCorrectionCases_([item])[0].error, 'CORRECTION_RECOVERY_PRESERVED'); assert.deepEqual(h.row(), before);
+  assert.equal(h.c.recoverCorrectionCases_([{ ...item, classification: 'A' }])[0].action, 'PRESERVED'); assert.deepEqual(h.row(), before);
+});
+test('somente marcador superseded não confirma correção: timestamp, delta, timeline e fingerprint obrigatórios', () => {
+  for (const invalid of ['timestamp', 'delta', 'timeline', 'fingerprint']) {
+    const h = supersededCase(), row = h.row(), audit = JSON.parse(row[h.c.meta.COL.AUDIT - 1]);
+    if (invalid === 'timestamp') {
+      audit.lastCorrectionSubmission.supersededBySupervisorAt = 'inválido'; audit.lastSupervisorCorrection.correctedAt = 'inválido';
+      audit.timeline.filter(e => e.action === 'CORRIGIDA_PELO_SUPERVISOR').forEach(e => { e.at = 'inválido'; });
+    }
+    if (invalid === 'delta') audit.lastSupervisorCorrection.changes = [];
+    if (invalid === 'timeline') audit.timeline = audit.timeline.filter(e => e.action !== 'CORRIGIDA_PELO_SUPERVISOR');
+    if (invalid === 'fingerprint') row[h.c.meta.COL.PG_POST_INSTALLED - 1] = 'DIVERGENTE';
+    row[h.c.meta.COL.AUDIT - 1] = JSON.stringify(audit);
+    assert.equal(h.state().status, 'CORRECAO_SOLICITADA', invalid); assert.equal(core.correctedAfterResend(h.state().record), false);
+  }
+});
+test('Supervisor pode corrigir novamente o estado preservado sem novo evento de reenvio da equipe', () => {
+  const h = supersededCase(); h.c.requireSession_ = () => ({ role: 'supervisor', user: 'beatriz martins' });
+  const corrected = h.c.supervisorCorrectRecord_({ token: 'fixture', record: { ...h.state().record, observation: 'OBSERVAÇÃO DA SUPERVISÃO' } });
+  assert.equal(corrected.status, 'AGUARDANDO_SUPERVISOR'); assert.equal(h.state().record.observation, 'OBSERVAÇÃO DA SUPERVISÃO');
+  assert.equal(h.state().record.pgPostInstalled, 'AF9408X'); assert.equal(h.resends(), 0); assert.equal(core.correctedAfterResend(h.state().record), false);
 });
 
 let failures = 0;
