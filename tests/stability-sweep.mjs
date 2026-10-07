@@ -218,6 +218,21 @@ test('sincronização offline não sobrescreve edição posterior de outra aba',
   load(c, 'performSyncSingleRecord'); await c.performSyncSingleRecord('A', false);
   assert.equal(latest.observation, 'edição mais recente');
 });
+const previousWorkerUrl = 'https://app.test/ocorrencias-bq/service-worker.js?v=' + core.APP_VERSION.replace(/\d+$/, revision => Number(revision) - 1);
+for (const [name, controllerUrl, expectedUrl] of [
+  ['atualização mantém URL do controlador e não reinstala a mesma release', previousWorkerUrl, previousWorkerUrl],
+  ['primeira instalação usa versão atual', '', 'https://app.test/ocorrencias-bq/service-worker.js?v=' + core.APP_VERSION],
+  ['controlador de outro aplicativo não é reutilizado', 'https://app.test/outro/service-worker.js?v=antiga', 'https://app.test/ocorrencias-bq/service-worker.js?v=' + core.APP_VERSION]
+]) {
+  test('PWA: ' + name, async () => {
+    const registrations = [];
+    const c = { APP_VERSION: core.APP_VERSION, URL, location: { href: 'https://app.test/ocorrencias-bq/' },
+      navigator: { serviceWorker: { controller: controllerUrl ? { scriptURL: controllerUrl } : null,
+        register: async url => { registrations.push(new URL(String(url), 'https://app.test/ocorrencias-bq/').href); return { waiting: null, addEventListener() {}, update: async () => {} }; },
+        addEventListener() {} } }, console: { warn() {} } };
+    load(c, 'setupServiceWorker'); await c.setupServiceWorker(); assert.deepEqual(registrations, [expectedUrl]);
+  });
+}
 
 let passed = 0;
 const failures = [];

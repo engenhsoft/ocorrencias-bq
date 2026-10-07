@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.06.4';
+} from './core.js?v=2026.10.06.5';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.06.4';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.4';
+} from './db.js?v=2026.10.06.5';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.5';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -619,7 +619,10 @@ function showReleaseNoticeOnce() {
 async function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   try {
-    const registration = await navigator.serviceWorker.register(`./service-worker.js?v=${encodeURIComponent(APP_VERSION)}`, { scope: './' });
+    const requestedUrl = new URL(`./service-worker.js?v=${encodeURIComponent(APP_VERSION)}`, location.href);
+    const controllerUrl = navigator.serviceWorker.controller?.scriptURL ? new URL(navigator.serviceWorker.controller.scriptURL) : null;
+    const workerUrl = controllerUrl?.origin === requestedUrl.origin && controllerUrl.pathname === requestedUrl.pathname ? controllerUrl.href : requestedUrl.href;
+    const registration = await navigator.serviceWorker.register(workerUrl, { scope: './' });
     const offerUpdate = (worker) => {
       if (!worker || !navigator.serviceWorker.controller) return;
       waitingServiceWorker = worker;
