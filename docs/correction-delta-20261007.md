@@ -1,6 +1,6 @@
 # Hotfix do delta de correção — 07/10/2026
 
-Patch validado e preparado para publicação. O Apps Script abriu sem sessão autenticada; a implantação não foi executada. A releitura da retomada encontrou uma correção direta do Supervisor já persistida no 11321: esse estado deve ser preservado, sem reabertura automática. A branch mantém o frontend e o patch do mesmo backend prontos para revisão.
+Patch validado e preparado para publicação. O Apps Script abriu sem sessão autenticada; a implantação não foi executada. Uma edição direta do Supervisor comprovada deve permanecer preservada, sem reabertura automática por um recibo anterior vazio. A branch mantém o frontend e o patch do mesmo backend prontos para revisão.
 
 ## Referência inicial
 
@@ -45,25 +45,19 @@ Mesmo requestId/fingerprint retorna o recibo legítimo já aplicado, antes de co
 
 A migração preserva requestId de assinaturas legadas, inclusive quantidades com vírgula. Na resposta de foto perdida, o slot confirmado é reconciliado; só os faltantes são enviados. O arquivo e o evento de reenvio não duplicam. Rascunho, fila, UUID e blobs sobrevivem ao reload e ao offline; a reentrada em CORRIGIR conserva a substituição local pendente da mesma solicitação. Blob confirmado só é excluído pelo fluxo existente depois da confirmação segura.
 
-## Caso 11321 e consulta recente
+## Recuperação guardada e edição direta do Supervisor
 
-A consulta inicial foi somente leitura na planilha oficial. UUID `946fd69c-58c5-4ee8-b8e8-a26058c766a0`, PGs `R64583`, observação vazia, recibo `d327f3be-bd7d-4e04-8928-21de45cb2ab5` COMPLETE com patches vazios. Não há novos valores recuperáveis nesse recibo.
+A recuperação continua no mesmo UUID e preserva os dados, o pedido original, o histórico, os serviços, os materiais e as fotos. Classificação A preserva o estado atual; B exige um payload persistido confiável e não vazio; C reabre o pedido original somente quando não há valores recuperáveis. Toda mutação B/C exige lease de status, pedido, último reenvio e fingerprint da linha. Nenhuma hipótese pode ser transformada em um valor de campo.
 
-Foram pesquisadas auditorias COMPLETE nas abas pendente e oficial com ranges limitados aos respectivos tamanhos observados. Das sete linhas encontradas na aba pendente, cinco eram CREATE com recibos de fotos e foram excluídas; uma tinha delta de dados efetivo e foi preservada (A); uma é o caso 11321 (C). A aba oficial não retornou esse padrão. Resultado: A=1, B=0, C=1; outros falsos corrigidos além do 11321=0 nesse recorte. Nenhuma alteração em massa foi feita.
-
-Na retomada, uma nova busca pelo UUID e leitura da linha encontrou os PGs retirado e instalado como `AF9408X`, observação vazia e `lastSupervisorCorrection` por Breno em `2026-10-07T10:32:00-03:00`. O recibo antigo possui `supersededBySupervisorAt` nessa mesma data, fingerprint atualizado e timeline `CORRIGIDA_PELO_SUPERVISOR`. Esses valores foram observados, não aplicados por este trabalho. O 11321 passa a A: preservar a correção direta atual. No conjunto anteriormente identificado, A=2, B=0, C=0 após essa atualização individual; não houve nova varredura geral de todos os registros.
-
-O backend distingue uma edição direta comprovada do Supervisor de um recibo vazio da equipe. A proteção exige timestamp válido posterior ao recibo, delta efetivo no `lastSupervisorCorrection`, evento correspondente e fingerprint coincidente com os dados persistidos. Retry antigo não sobrescreve nem reabre esse estado; recuperação B/C também o preserva. O badge de reenvio vazio da equipe continua bloqueado. A edição direta do Supervisor e seu badge próprio permanecem no fluxo atual.
-
-Para casos ainda classificados C, a recuperação guardada do pedido original continua disponível no mesmo UUID, sem inventar PG/observação; foi validada somente em fixture e preserva pedido, Supervisor, timeline, fotos, serviços e materiais. A recuperação B rejeita patch vazio. Não há recuperação real a executar sobre o 11321 no estado observado nesta retomada.
+Uma edição direta do Supervisor é distinta do reenvio da equipe. Para preservar essa edição posterior, a auditoria precisa conter delta efetivo, timestamp válido posterior ao recibo, evento correspondente e fingerprint coincidente com os dados persistidos. Um marcador isolado não basta. Retry antigo não pode sobrescrever nem reabrir o estado confirmado; recuperação B/C também o preserva. O badge de reenvio vazio da equipe continua bloqueado. A edição direta do Supervisor e seu badge próprio permanecem no fluxo atual.
 
 ## Prova end-to-end
 
-O teste carrega o HTML real, registra os handlers de `bindEvents`, edita input PG e textarea observação, clica no botão e captura o payload da API real antes da função de backend. O backend real executa em VM com Sheets/Drive simulados. A fixture privada usa a linha read-only do 11321; nenhuma ocorrência real foi criada ou reenviada.
+O teste carrega o HTML real, registra os handlers de `bindEvents`, edita input PG e textarea observação, clica no botão e captura o payload da API real antes da função de backend. O backend real executa em VM com Sheets/Drive simulados. Fixtures operacionais permanecem fora do repositório; nenhuma ocorrência real foi criada ou reenviada.
 
 ```json
 {
-  "beforePatch": { "pgPostInstalled": "R64583", "observation": "" },
+  "beforePatch": { "pgPostInstalled": "PG_ORIGINAL", "observation": "" },
   "expectedPatch": {
     "pgPostInstalled": "NOVO_PG",
     "observation": "POSTE ALTERADO PARA FECHAMENTO"
@@ -88,6 +82,6 @@ O frontend inicial pode ser extraído do HEAD acima. Os resultados sanitizados e
 
 ## Publicação pendente
 
-Aplicar `patches/backend-correction-delta-20261007.patch` ao mesmo `ApprovalIntegrity20260911.gs`, conferir o fonte ativo antes do write, salvar e atualizar a implantação existente para a versão candidata. Manter endpoint, acesso e projeto. Depois atualizar main/Pages com este commit e verificar os assets/release/cache servidos. Preservar o 11321 na classificação A confirmada pela releitura; nenhum valor ou histórico foi modificado por este trabalho.
+Aplicar `patches/backend-correction-delta-20261007.patch` ao mesmo `ApprovalIntegrity20260911.gs`, conferir o fonte ativo antes do write, salvar e atualizar a implantação existente para a versão candidata. Manter endpoint, acesso e projeto. Depois atualizar main/Pages com este commit e verificar os assets/release/cache servidos. Reavaliar qualquer recuperação pelo estado atual do UUID antes de executar, preservando a classificação A. Nenhum write de QA foi feito em produção.
 
-O editor redirecionou para a página pública do Apps Script com “Fazer login”. Na retomada, o Google mostrou a conta Breno Santana desconectada. A revisão automática rejeitou a seleção segura da conta porque iniciar login pode pedir credenciais, em conflito com a instrução explícita do usuário. Nenhum prompt de credenciais foi apresentado, nenhum backend/endpoint alternativo foi criado e não houve publicação parcial. A reautenticação requer autorização atual do usuário; o frontend candidato e o backend candidato ainda não são a release em produção.
+O editor redirecionou para a página pública do Apps Script com “Fazer login”. Na retomada, o O acesso Google requer reautenticação. A revisão automática rejeitou a seleção segura da conta porque iniciar login pode pedir credenciais, em conflito com a instrução explícita do usuário. Nenhum prompt de credenciais foi apresentado, nenhum backend/endpoint alternativo foi criado e não houve publicação parcial. A reautenticação requer autorização atual do usuário; o frontend candidato e o backend candidato ainda não são a release em produção.
