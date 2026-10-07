@@ -131,9 +131,9 @@ test('Campo não usa a nova consulta em lote e mantém payload byte a byte', () 
   assert.equal(JSON.stringify(b.c.listMine_({ token: 'fixture' })), JSON.stringify(a.c.listMine_({ token: 'fixture' })));
   assert.equal(calls.tokens, 0); assert.equal(b.calls.drive, a.calls.drive);
 });
-test('todas as funções preexistentes permanecem idênticas salvo lista Supervisor e preload de referências', () => {
+test('todas as funções preexistentes permanecem idênticas salvo lista/preload e funções de persistência do hotfix CREATE/PHOTO', () => {
   for (const match of baseline.matchAll(/^function (\w+)\(/gm)) {
-    if (!['listPending_', 'cachedPublicPhotosForRows_'].includes(match[1])) assert.equal(extract(fixed, match[1]), extract(baseline, match[1]), match[1]);
+    if (!['listPending_', 'cachedPublicPhotosForRows_', 'submitRecord_', 'uploadPhoto_', 'assertCorrectionRow_', 'writeAndReadCorrection_', 'writeCorrectionAudit_'].includes(match[1])) assert.equal(extract(fixed, match[1]), extract(baseline, match[1]), match[1]);
   }
 });
 let passed = 0; const failures = [];

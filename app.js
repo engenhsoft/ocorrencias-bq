@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.06.5';
+} from './core.js?v=2026.10.07.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.06.5';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.06.5';
+} from './db.js?v=2026.10.07.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.07.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -1460,6 +1460,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
   const cacheSummary = summary => { void cacheDailySummary(summary, () => revision === sessionRevision && session?.token === requestSession.token).catch(error => console.warn('[Produção] Confirmação mantida; cache secundário indisponível.', { code: error?.code || error?.name })); };
   const markSynced = () => { void setMeta(LAST_SYNC_META, next.syncedAt).catch(error => console.warn('[Fila] Confirmação mantida; data do último sincronismo não pôde ser armazenada.', { code: error?.code || error?.name })); };
   let correctionPayload = null;
+  let dataCommitConfirmed = false; let photoSyncStarted = false;
   try {
     if (next.correctionMode) {
       const signature = JSON.stringify(correctionDataSnapshot(next));
@@ -1470,7 +1471,16 @@ async function performSyncSingleRecord(recordId, notify = true) {
       correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt };
     }
     if (next.serverConfirmed || next.attempts > 1) {
-      try { next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await save(); }
+      try {
+        const serverState = await api.getRecordState(requestSession.token, next.recordId);
+        dataCommitConfirmed = !next.correctionMode && serverState.record?.recordId === next.recordId
+          && sameUser(serverState.record.user, requestSession.user)
+          && Array.isArray(serverState.record.audit?.expectedPhotoIndexes)
+          && normalizePhotoStates(next.photoStates).filter(photo => photo.localReady || photo.confirmed)
+            .every(photo => serverState.record.audit.expectedPhotoIndexes.includes(photo.photoIndex))
+          && JSON.stringify(correctionDataSnapshot(next)) === JSON.stringify(correctionDataSnapshot(serverState.record));
+        next = reconcilePhotoStates(next, serverState); await save();
+      }
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
     }
     if (next.serverConfirmed && !next.correctionMode && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(next.serverStatus)) {
@@ -1482,19 +1492,22 @@ async function performSyncSingleRecord(recordId, notify = true) {
       }
       return next;
     }
-    next.status = RECORD_STATUS.SYNCING_DATA; await save();
-    const submitResult = await api.submitRecord(requestSession.token, {
-      recordId: next.recordId, ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
-      expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
-      occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
-      pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
-      pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
-      transformer: next.transformer, services: serializeServicesForBackend(next.services), materials: serializeMaterialsForBackend(next.materials),
-      totalServices: correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services)).percentage,
-      observation: next.observation
-    }, APP_VERSION);
-    if (correctionPayload && !correctionConfirmationMatches(correctionPayload, submitResult)) throw new ApiError('O servidor ainda não confirmou os campos corrigidos. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
-    next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
+    if (!dataCommitConfirmed) {
+      next.status = RECORD_STATUS.SYNCING_DATA; await save();
+      const submitResult = await api.submitRecord(requestSession.token, {
+        recordId: next.recordId, ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
+        expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
+        occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
+        pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
+        pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
+        transformer: next.transformer, services: serializeServicesForBackend(next.services), materials: serializeMaterialsForBackend(next.materials),
+        totalServices: correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services)).percentage,
+        observation: next.observation
+      }, APP_VERSION);
+      if (correctionPayload && !correctionConfirmationMatches(correctionPayload, submitResult)) throw new ApiError('O servidor ainda não confirmou os campos corrigidos. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
+      next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
+    }
+    photoSyncStarted = true;
     next.status = RECORD_STATUS.SYNCING_PHOTOS; await save();
     next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId)); await save();
     const lastPhotoIndex = normalizeOccurrenceTypes(next.occurrenceTypes).includes(TYPE_TRAFO) ? 7 : 5;
@@ -1527,7 +1540,12 @@ async function performSyncSingleRecord(recordId, notify = true) {
     await save(); markSynced(); cacheSummary(finalState.dailyProduction || next.dailyProduction); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
     if (error?.code === 'LOCAL_RECORD_CHANGED') { if (notify) toast(friendlyError(error), 'error'); return getRecord(recordId); }
-    next.status = RECORD_STATUS.ERROR; next.lastError = friendlyError(error); await save();
+    next.status = RECORD_STATUS.ERROR;
+    next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING'].includes(error?.code)
+      ? 'Não foi possível concluir a sincronização das fotos. Os dados e fotos locais pendentes foram preservados. Tente novamente.'
+      : !next.correctionMode && error?.code === 'CORRECTION_PERSISTENCE_MISMATCH'
+        ? 'O servidor ainda não confirmou os dados da ocorrência. Os dados locais foram preservados; tente novamente.' : friendlyError(error);
+    await save();
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
   } finally {
     await updateQueueUi().catch(error => console.error('[Fila] Falha ao atualizar o resumo após sincronização.', { code: error?.code || error?.name }));
@@ -1791,8 +1809,12 @@ async function syncAllRequestedPhotos() {
 function recordCard(record, actionHtml = '') {
   const services = normalizeServices(record.services);
   const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record)); const status = record.status || record.serverStatus; const total = occurrenceTotal(services); const serviceQuantity = services.reduce((sum, service) => sum + (Number(service.quantity) || 0), 0);
+  const photoStates = normalizePhotoStates(record.photoStates).slice(0, 5);
+  const localPhotoCount = photoStates.filter(photo => photo.localReady).length;
+  const serverPhotoCount = photoStates.filter(photo => photo.confirmed && photo.serverUrl).length;
+  const photoSummary = localPhotoCount ? `${localPhotoCount}/5 fotos salvas neste aparelho · ${serverPhotoCount}/5 confirmadas no servidor${photoStates.some(photo => photo.localReady && (!photo.confirmed || photo.replacePending)) ? ' · Sincronização pendente' : ''}` : `${serverPhotoCount}/5 fotos gerais confirmadas no servidor`;
   const correction = record?.audit?.lastSupervisorCorrection;
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${photoCount}/5 fotos gerais</span>${actionHtml}</footer></article>`;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${escapeHtml(photoSummary)}</span>${actionHtml}</footer></article>`;
 }
 
 function openScrollableDialog(dialog, body) {

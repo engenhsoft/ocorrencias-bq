@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.06.5';
-export const APP_BUILD = '2026-10-06-stability-sweep';
+export const APP_VERSION = '2026.10.07.1';
+export const APP_BUILD = '2026-10-07-create-photo-commit';
 
 export const TEAM_GOAL = 6000;
 

@@ -1,0 +1,76 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -7,3 +7,3 @@
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.07.1',
++  version: '2026.10.07.2',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+@@ -262,4 +262,4 @@
+     let persisted;
+-    if (found) persisted = writeAndReadCorrection_(pending, found.row, row);
+-    else { pending.appendRow(row); flushSheets_(); persisted = assertCorrectionRow_(pending, row); }
++    if (found) persisted = writeAndReadCorrection_(pending, found.row, row, receipt ? 'CORRECTION_RESUBMIT' : 'CREATE_DATA');
++    else { pending.appendRow(row); flushSheets_(); persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA'); }
+     if (receipt) {
+@@ -364,15 +364,31 @@
+ 
+-function assertCorrectionRow_(sheet, expected) {
+-  const found = uniqueCorrectionRow_(sheet, String(expected[COL.ID - 1]));
+-  if (!found || publicationJson_(found.values) !== publicationJson_(expected)) throw apiError_('CORRECTION_PERSISTENCE_MISMATCH', 'A releitura não confirmou a gravação completa. A correção permanece pendente.', { recordId: String(expected[COL.ID - 1]) });
+-  return found;
+-}
+-function writeAndReadCorrection_(sheet, row, values) {
++function pendingPersistenceSnapshot_(values) {
++  const snapshot = values.slice();
++  // Sheets pode devolver o contrato como numero. Seu valor exato continua obrigatorio.
++  snapshot[COL.CONTRACT - 1] = String(snapshot[COL.CONTRACT - 1]);
++  return publicationJson_(snapshot);
++}
++
++function assertCorrectionRow_(sheet, expected, operation) {
++  const recordId = String(expected[COL.ID - 1]);
++  // Uma segunda leitura limitada nao repete a escrita nem enfraquece a comparacao.
++  for (let attempt = 0; attempt < 2; attempt++) {
++    const found = uniqueCorrectionRow_(sheet, recordId);
++    if (found && pendingPersistenceSnapshot_(found.values) === pendingPersistenceSnapshot_(expected)) return found;
++    if (!attempt) flushSheets_();
++  }
++  const code = operation === 'CREATE_DATA' ? 'DATA_COMMIT_UNCONFIRMED' : operation === 'PHOTO_SYNC' ? 'PHOTO_COMMIT_UNCONFIRMED' : 'CORRECTION_PERSISTENCE_MISMATCH';
++  const message = operation === 'CREATE_DATA' ? 'A releitura não confirmou os dados da ocorrência. Os dados locais foram preservados; tente novamente.'
++    : operation === 'PHOTO_SYNC' ? 'Não foi possível concluir a sincronização das fotos. Os dados foram preservados. Tente novamente.'
++    : 'A releitura não confirmou a gravação completa. A correção permanece pendente.';
++  throw apiError_(code, message, { recordId: recordId, operation: operation || 'CORRECTION_RESUBMIT' });
++}
++function writeAndReadCorrection_(sheet, row, values, operation) {
+   sheet.getRange(row, 1, 1, COL.WIDTH).setValues([values]); flushSheets_();
+-  return assertCorrectionRow_(sheet, values);
+-}
+-function writeCorrectionAudit_(sheet, found, audit) {
++  return assertCorrectionRow_(sheet, values, operation);
++}
++function writeCorrectionAudit_(sheet, found, audit, operation) {
+   const expected = found.values.slice(); expected[COL.AUDIT - 1] = correctionAuditJson_(audit);
+   sheet.getRange(found.row, COL.AUDIT).setValue(expected[COL.AUDIT - 1]); flushSheets_();
+-  return assertCorrectionRow_(sheet, expected);
++  return assertCorrectionRow_(sheet, expected, operation);
+ }
+@@ -474,3 +490,3 @@
+         currentAudit.lastPhotoConfirmation = storedPhotoReceipt.receivedAt; currentAudit.lastPhotoIndex = photoIndex; currentAudit.lastPhotoUploadKey = uploadKey;
+-        verifiedFound = writeCorrectionAudit_(sheet, found, currentAudit);
++        verifiedFound = writeCorrectionAudit_(sheet, found, currentAudit, 'PHOTO_SYNC');
+       }
+@@ -518,6 +534,6 @@
+       intentAudit.photoSubmissions = audit.photoSubmissions; intent[COL.AUDIT - 1] = correctionAuditJson_(intentAudit);
+-      writeAndReadCorrection_(sheet, found.row, intent);
+-      let persisted = writeAndReadCorrection_(sheet, found.row, nextValues);
++      writeAndReadCorrection_(sheet, found.row, intent, 'PHOTO_SYNC');
++      let persisted = writeAndReadCorrection_(sheet, found.row, nextValues, 'PHOTO_SYNC');
+       audit.photoSubmissions[photoIndex].phase = 'COMPLETE'; audit.photoSubmissions[photoIndex].verifiedAt = nowIso_();
+-      persisted = writeCorrectionAudit_(sheet, persisted, audit);
++      persisted = writeCorrectionAudit_(sheet, persisted, audit, 'PHOTO_SYNC');
+       if (activeCorrection) persisted = finishCorrection_(sheet, persisted, auth.user);
+@@ -529,3 +545,3 @@
+         verified[COL.AUDIT - 1] = correctionAuditJson_(audit);
+-        persisted = writeAndReadCorrection_(sheet, persisted.row, verified);
++        persisted = writeAndReadCorrection_(sheet, persisted.row, verified, 'PHOTO_SYNC');
+       }
