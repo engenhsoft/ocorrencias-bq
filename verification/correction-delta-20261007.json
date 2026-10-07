@@ -1,0 +1,176 @@
+{
+  "suites": 25,
+  "cases": 753,
+  "additionalGroups": 4,
+  "failedSuites": [],
+  "productionQaWrites": 0,
+  "environment": "Node VM: handlers, app, serializer, API e backend reais; DOM, rede, IndexedDB, Sheets e Drive simulados. Não é execução no celular.",
+  "initialHead": "1603921c304d496d1c5995544ed77a69eb3e810a",
+  "candidateFrontend": "2026.10.07.2",
+  "candidateBackend": "2026.10.07.3",
+  "results": [
+    {
+      "suite": "audit-regression",
+      "passed": true,
+      "cases": 80
+    },
+    {
+      "suite": "contract-pricing",
+      "passed": true,
+      "cases": 16
+    },
+    {
+      "suite": "correction-persistence",
+      "passed": true,
+      "cases": 53
+    },
+    {
+      "suite": "field-historical-correction",
+      "passed": true,
+      "cases": 48
+    },
+    {
+      "suite": "login-supervisor-decimal",
+      "passed": true,
+      "cases": 17
+    },
+    {
+      "suite": "material-catalog",
+      "passed": true,
+      "cases": 28
+    },
+    {
+      "suite": "modal-scroll",
+      "passed": true,
+      "cases": 7
+    },
+    {
+      "suite": "operational-package",
+      "passed": true,
+      "cases": 55
+    },
+    {
+      "suite": "operational-stability",
+      "passed": true,
+      "cases": 9
+    },
+    {
+      "suite": "photo-sync-notice",
+      "passed": true,
+      "cases": null
+    },
+    {
+      "suite": "publication-reconciliation",
+      "passed": true,
+      "cases": 59
+    },
+    {
+      "suite": "pwa-release",
+      "passed": true,
+      "cases": null
+    },
+    {
+      "suite": "service-snapshot-approval",
+      "passed": true,
+      "cases": 40
+    },
+    {
+      "suite": "stability-audit",
+      "passed": true,
+      "cases": 64
+    },
+    {
+      "suite": "stability-sweep",
+      "passed": true,
+      "cases": 42
+    },
+    {
+      "suite": "static-audit",
+      "passed": true,
+      "cases": 39
+    },
+    {
+      "suite": "supervisor-load-completion",
+      "passed": true,
+      "cases": 26
+    },
+    {
+      "suite": "supervisor-navigation",
+      "passed": true,
+      "cases": null
+    },
+    {
+      "suite": "supervisor-workflow",
+      "passed": true,
+      "cases": 14
+    },
+    {
+      "suite": "correction-delta",
+      "passed": true,
+      "cases": 51
+    },
+    {
+      "suite": "create-photo-commit",
+      "passed": true,
+      "cases": 24
+    },
+    {
+      "suite": "supervisor-photo-batch",
+      "passed": true,
+      "cases": 23
+    },
+    {
+      "suite": "initial-load-profile",
+      "passed": true,
+      "cases": 14
+    },
+    {
+      "suite": "login-initial-load",
+      "passed": true,
+      "cases": 44
+    },
+    {
+      "suite": "profile-stability",
+      "passed": true,
+      "cases": null
+    }
+  ],
+  "focusedTraces": [
+    {
+      "scenario": "baseline-empty",
+      "phase": "COMPLETE",
+      "expectedPatch": {},
+      "resends": 1
+    },
+    {
+      "scenario": "baseline-normal-dom",
+      "payloadCapturedBoth": true
+    },
+    {
+      "scenario": "baseline-late-autosave",
+      "domPg": "NOVO_PG",
+      "payloadPg": "PG_ORIGINAL_FIXTURE",
+      "expectedPatch": {},
+      "phase": "COMPLETE"
+    },
+    {
+      "scenario": "fixed-realistic-dom",
+      "beforePatch": {
+        "pgPostInstalled": "PG_ORIGINAL_FIXTURE",
+        "observation": ""
+      },
+      "expectedPatch": {
+        "pgPostInstalled": "NOVO_PG",
+        "observation": "POSTE ALTERADO PARA FECHAMENTO"
+      },
+      "phase": "COMPLETE",
+      "uuid": "FIXTURE_UUID"
+    }
+  ],
+  "supervisorPreservation": {
+    "verified": true,
+    "staleRetryBlocked": true,
+    "recoveryPreserved": true,
+    "unsupportedMarkerRejected": true
+  }
+}

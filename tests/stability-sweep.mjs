@@ -201,7 +201,7 @@ test('salvar rascunho durante logout não acessa formulário encerrado', async (
   const work = deferred(), metas = [];
   const c = { activeRecord: record(), currentStep: 2, session: { user: 'Campo FICTÍCIO' }, sessionRevision: 1, Date,
     putRecord: () => work.promise, setMeta: async (...args) => metas.push(args), ACTIVE_DRAFT_META: 'activeDraftId', showDraftId() {} };
-  load(c, 'saveActiveDraft'); const task = c.saveActiveDraft(); c.sessionRevision++; c.session = null; c.activeRecord = null;
+  c.occurrenceSubmissionRunning = false; c.activeDraftSavePromise = null; load(c, 'saveActiveDraft'); const task = c.saveActiveDraft(); c.sessionRevision++; c.session = null; c.activeRecord = null;
   work.resolve(record()); await assert.doesNotReject(task); assert.equal(metas.length, 0);
 });
 test('sincronização offline não sobrescreve edição posterior de outra aba', async () => {

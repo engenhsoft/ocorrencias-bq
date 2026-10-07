@@ -1,19 +1,19 @@
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
-  correctedAfterResend, correctionFields, correctionDataSnapshot, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
+  correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.07.1';
+} from './core.js?v=2026.10.07.2';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.07.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.07.1';
+} from './db.js?v=2026.10.07.2';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.07.2';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -151,6 +151,7 @@ let reviewOrder = [];
 let reviewTab = 'occurrences';
 let syncRunning = false;
 let occurrenceSubmissionRunning = false;
+let activeDraftSavePromise = null;
 let supervisorRefreshPromise = null;
 let supervisorRefreshRevision = -1;
 let mineRefreshPromise = null;
@@ -823,8 +824,9 @@ function servicePriceText(service) {
 }
 
 async function handleFormInput(event) {
+  if (occurrenceSubmissionRunning) return;
   const revision = sessionRevision; const record = await ensureActiveRecord();
-  if (revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
+  if (occurrenceSubmissionRunning || revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
   const previousBase = activeRecord.base;
   syncFormToRecord();
   if (event?.target === elements.operationBase && activeRecord.base !== previousBase) {
@@ -876,13 +878,20 @@ async function loadDailyProduction(teamValue, notify = false) {
 }
 
 async function saveActiveDraft() {
-  if (!activeRecord) return;
-  const record = activeRecord; const revision = sessionRevision;
-  record.step = currentStep; record.updatedAt = new Date().toISOString(); record.user = session?.user || record.user;
-  await putRecord(record);
-  if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return;
-  await setMeta(ACTIVE_DRAFT_META, record.recordId);
-  if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
+  if (!activeRecord || occurrenceSubmissionRunning) return;
+  activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); activeRecord.user = session?.user || activeRecord.user;
+  const record = JSON.parse(JSON.stringify(activeRecord)); const revision = sessionRevision;
+  const previous = activeDraftSavePromise;
+  const task = (async () => {
+    if (previous) await previous.catch(() => {});
+    await putRecord(record);
+    if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return;
+    await setMeta(ACTIVE_DRAFT_META, record.recordId);
+    if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
+  })();
+  activeDraftSavePromise = task;
+  try { await task; }
+  finally { if (activeDraftSavePromise === task) activeDraftSavePromise = null; }
 }
 
 function showDraftId() {
@@ -1305,6 +1314,7 @@ function correctionRequest(record) {
     note: String(request.note || record?.supervisorNote || request.reason || record?.reason || '').trim(),
     supervisor: String(request.supervisor || record?.supervisor || '').trim(),
     requestedAt: request.requestedAt || record?.reviewedAt || '',
+    lastRequestedAt: request.lastRequestedAt || request.requestedAt || record?.reviewedAt || '',
     photoIndexes: correctionPhotoIndexes(record)
   };
 }
@@ -1382,6 +1392,16 @@ function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.d
 async function submitOccurrence() {
   if (occurrenceSubmissionRunning) return;
   if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) < 3) { toast('Complete os dados e adicione pelo menos 3 fotos da ocorrência.', 'error'); return; }
+  if (photoSelectionRequests.size) { toast('Aguarde o preparo das fotos antes de enviar.', 'error'); return; }
+  syncFormToRecord();
+  const candidate = JSON.parse(JSON.stringify(activeRecord)); const revision = sessionRevision;
+  if (candidate.correctionMode) {
+    if (!candidate.correctionOriginal) { toast('Atualize a lista e abra novamente a correção para confirmar os dados originais. Sua edição foi preservada.', 'error'); return; }
+    Object.assign(candidate, correctionDelta(candidate.correctionOriginal, candidate));
+    if (![candidate.expectedPatch, candidate.photoPatch, candidate.evidencePatch].some(patch => Object.keys(patch).length)) {
+      toast('Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.', 'error'); return;
+    }
+  }
   const requestedWithoutReplacement = activeRecord.correctionMode
     ? normalizeArray(activeRecord.requestedPhotoIndexes, 'requestedPhotoIndexes').map(Number).filter((index) => !activeRecord.photoStates?.[index - 1]?.localReady)
     : [];
@@ -1392,10 +1412,13 @@ async function submitOccurrence() {
   const previousStatus = activeRecord.status;
   try {
     if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
-    submittedId = activeRecord.recordId;
-    syncFormToRecord(); activeRecord.status = RECORD_STATUS.PENDING; activeRecord.lastError = '';
+    if (revision !== sessionRevision || activeRecord?.recordId !== candidate.recordId) return;
+    submittedId = candidate.recordId;
+    candidate.status = RECORD_STATUS.PENDING; candidate.lastError = '';
     setBusy(elements.submitOccurrenceButton, true, 'Guardando…');
-    await putRecord(activeRecord); locallyQueued = true;
+    if (activeDraftSavePromise) await activeDraftSavePromise;
+    if (revision !== sessionRevision || activeRecord?.recordId !== submittedId) return;
+    await putRecord(candidate); locallyQueued = true;
     await clearMetaIfValue(ACTIVE_DRAFT_META, submittedId);
     toast('Ocorrência guardada na fila. A sincronização continuará automaticamente.');
     void syncSingleRecord(submittedId, false).then((result) => {
@@ -1463,12 +1486,18 @@ async function performSyncSingleRecord(recordId, notify = true) {
   let dataCommitConfirmed = false; let photoSyncStarted = false;
   try {
     if (next.correctionMode) {
-      const signature = JSON.stringify(correctionDataSnapshot(next));
-      if (!next.correctionRequestId || next.correctionPayloadSignature !== signature) next.correctionRequestId = generateUuid();
+      if (next.correctionOriginal) Object.assign(next, correctionDelta(next.correctionOriginal, next));
+      const legacyData = correctionDataSnapshot(next);
+      legacyData.services.forEach((service, index) => { service.quantity = Number(next.services[index].quantity); });
+      legacyData.materials.forEach((material, index) => { material.quantity = Number(next.materials[index].quantity); });
+      const legacySignature = JSON.stringify(legacyData);
+      const signature = JSON.stringify({ data: correctionDataSnapshot(next), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} });
+      if (!next.correctionRequestId || ![signature, legacySignature].includes(next.correctionPayloadSignature)) next.correctionRequestId = generateUuid();
       next.correctionPayloadSignature = signature;
       if (!Object.hasOwn(next, 'correctionRequestedAt')) next.correctionRequestedAt = correctionRequest(next).lastRequestedAt || correctionRequest(next).requestedAt || '';
       await save();
-      correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt };
+      correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt,
+        ...(next.correctionOriginal ? { expectedPatch: next.expectedPatch, beforePatch: next.beforePatch } : {}), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} };
     }
     if (next.serverConfirmed || next.attempts > 1) {
       try {
@@ -1495,7 +1524,8 @@ async function performSyncSingleRecord(recordId, notify = true) {
     if (!dataCommitConfirmed) {
       next.status = RECORD_STATUS.SYNCING_DATA; await save();
       const submitResult = await api.submitRecord(requestSession.token, {
-        recordId: next.recordId, ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
+        recordId: next.recordId, ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt,
+          ...(next.correctionOriginal ? { expectedPatch: correctionPayload.expectedPatch, beforePatch: correctionPayload.beforePatch } : {}), photoPatch: correctionPayload.photoPatch, evidencePatch: correctionPayload.evidencePatch } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
         expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
         occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
         pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
@@ -1540,7 +1570,7 @@ async function performSyncSingleRecord(recordId, notify = true) {
     await save(); markSynced(); cacheSummary(finalState.dailyProduction || next.dailyProduction); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
     if (error?.code === 'LOCAL_RECORD_CHANGED') { if (notify) toast(friendlyError(error), 'error'); return getRecord(recordId); }
-    next.status = RECORD_STATUS.ERROR;
+    next.status = error?.code === 'NO_CORRECTION_CHANGES' ? RECORD_STATUS.CORRECTION_REQUESTED : RECORD_STATUS.ERROR;
     next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING'].includes(error?.code)
       ? 'Não foi possível concluir a sincronização das fotos. Os dados e fotos locais pendentes foram preservados. Tente novamente.'
       : !next.correctionMode && error?.code === 'CORRECTION_PERSISTENCE_MISMATCH'
@@ -1837,9 +1867,10 @@ async function handleMineAction(event) {
     elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); return;
   }
   if (button.dataset.mineAction === 'correct') {
-    const requested = new Set(correctionPhotoIndexes(record));
-    const states = normalizePhotoStates(record.photoStates).map((state) => requested.has(state.photoIndex) ? { ...state, confirmed: false, localReady: false, replacePending: true } : { ...state, replacePending: false });
+    const requested = new Set(normalizeArray(record.audit?.requestedPhotoIndexes ?? correctionPhotoIndexes(record), 'requestedPhotoIndexes').map(Number));
     const requestAt = correctionRequest(record).lastRequestedAt || correctionRequest(record).requestedAt || '';
+    const resuming = local?.correctionMode && local?.correctionRequestedAt === requestAt;
+    const states = normalizePhotoStates(record.photoStates).map((state) => requested.has(state.photoIndex) ? { ...state, confirmed: false, localReady: Boolean(resuming && state.localReady), replacePending: true } : { ...state, replacePending: Boolean(resuming && state.replacePending) });
     const correction = { ...record, correctionRequestedAt: requestAt, ...(local?.correctionRequestedAt !== requestAt ? { correctionRequestId: '', correctionPayloadSignature: '' } : {}), status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, requestedPhotoIndexes: [...requested], photoStates: states };
     await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId);
     toast(requested.size ? `Refaça: ${[...requested].map(photoIndexLabel).join(', ')}.` : 'Correção carregada. Confira a observação do Supervisor.');
@@ -1860,7 +1891,26 @@ function renderFieldCorrectionBanner(record) {
 }
 
 async function loadRecordIntoForm(record) {
+  const revision = sessionRevision; const token = session?.token;
+  const loadId = loadRecordIntoForm.loadId = (loadRecordIntoForm.loadId || 0) + 1;
   record = normalizeOccurrenceRecord(record);
+  if (record.correctionMode && (!record.correctionOriginal || record.correctionOriginalRequestedAt !== record.correctionRequestedAt)) {
+    if (navigator.onLine) {
+      const server = (await api.getRecordState(session.token, record.recordId)).record;
+      if (revision !== sessionRevision || token !== session?.token || loadId !== loadRecordIntoForm.loadId) return;
+      const receipt = server.audit?.lastCorrectionSubmission;
+      const original = JSON.parse(JSON.stringify(server));
+      if (receipt?.requestedAt === record.correctionRequestedAt && receipt.requestId === record.correctionRequestId) {
+        Object.assign(original, receipt.beforePatch || {});
+        for (const [index, before] of Object.entries({ ...receipt.beforePhotoPatch, ...receipt.beforeEvidencePatch })) {
+          original.photoStates[Number(index) - 1] = { ...original.photoStates[Number(index) - 1], ...before };
+        }
+      }
+      record.correctionOriginal = correctionOriginalSnapshot(original);
+      record.correctionOriginalRequestedAt = record.correctionRequestedAt;
+    }
+  }
+  if (record.correctionOriginal) record.correctionOriginal = correctionOriginalSnapshot({ ...record.correctionOriginal.data, photoStates: record.correctionOriginal.photoStates });
   fieldServiceSnapshot = record.registeredAt || record.serverConfirmed || record.correctionMode ? normalizeServices(record.audit?.pendingServices || record.services).map((service) => ({ ...service })) : [];
   const services = record.services.map((service, index) => ({ ...service, lineId: service.lineId || (fieldServiceSnapshot.length ? `historical:${record.recordId}:${index}` : generateUuid()) }));
   const materials = record.materials.map((material) => ({ ...material, lineId: material.lineId || generateUuid() })); const photoStates = record.photoStates;
@@ -1889,7 +1939,7 @@ async function loadRecordIntoForm(record) {
     for (const photo of photos) {
       if (activePhotos.has(photo.photoIndex)) continue;
       const state = activeRecord.photoStates[photo.photoIndex - 1] || { photoIndex: photo.photoIndex };
-      activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: state.uploadKey || photo.uploadKey || '' };
+      activeRecord.photoStates[photo.photoIndex - 1] = { ...state, localReady: true, uploadKey: photo.uploadKey || state.uploadKey || '' };
       activePhotos.set(photo.photoIndex, photo);
       setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob));
     }
@@ -1902,6 +1952,7 @@ async function loadRecordIntoForm(record) {
 }
 
 function resetForm({ preserveTeam = false } = {}) {
+  loadRecordIntoForm.loadId = (loadRecordIntoForm.loadId || 0) + 1;
   const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
   catalogSearchRequestId += 1; materialSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearTimeout(materialSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
   [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.materialSearch, elements.observation].forEach((input) => { input.value = ''; });

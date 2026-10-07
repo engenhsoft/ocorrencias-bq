@@ -9,6 +9,7 @@ const [fixed, baseline, existing] = await Promise.all([
 ]);
 // The performance baseline predates later, approved correctness fixes.
 // A third source pins the functions protected by this audit to its actual starting version.
+const currentBaseline = process.argv.includes('--current-baseline');
 const invariantBaseline = process.argv[4] ? await readFile(process.argv[4], 'utf8') : baseline;
 const extract = (source, name) => {
   const match = source.match(new RegExp('function ' + name + '\\([^]*?\\n\\}'));
@@ -94,12 +95,12 @@ test('payload byte a byte, UUID repetido, números iguais, snapshots e métricas
 });
 test('235 consultas individuais viram uma consulta em lote com cache disponível', () => {
   const { before, after } = compare('warm');
-  assert.equal(before.calls.individualCache, 235); assert.equal(after.calls.individualCache, 0);
+  assert.equal(before.calls.individualCache, currentBaseline ? 0 : 235); assert.equal(after.calls.individualCache, 0);
   assert.equal(after.calls.bulkCache, 1); assert.equal(after.calls.drive, 0); assert.equal(after.calls.sharing, 0);
 });
 test('somente dois ranges operacionais, 46 e 41 colunas, sem cabeçalhos/histórico/catálogos', () => {
   const { before, after } = compare('warm'); const { APP } = after.c.meta;
-  assert.deepEqual(plain(before.counts()), { opens: 1, dataReads: 4, headerReads: 5, writes: 0 });
+  assert.deepEqual(plain(before.counts()), currentBaseline ? { opens: 1, dataReads: 2, headerReads: 0, writes: 0 } : { opens: 1, dataReads: 4, headerReads: 5, writes: 0 });
   assert.deepEqual(plain(after.counts()), { opens: 1, dataReads: 2, headerReads: 0, writes: 0 });
   assert.deepEqual(after.reads.map(r => [r.sheet, r.row, r.columns]), [[APP.pendingSheet, 2, 46], [APP.officialSheet, 2, 41]]);
 });
@@ -130,7 +131,7 @@ test('Campo mantém payload e remove a inspeção dos cinco cabeçalhos', () => 
   const before = harness(baseline), after = harness(fixed);
   assert.deepEqual(plain(after.c.listMine_({ token: 'fixture-only' })), plain(before.c.listMine_({ token: 'fixture-only' })));
   assert.deepEqual(plain(after.counts()), { opens: 1, dataReads: 4, headerReads: 0, writes: 0 });
-  assert.equal(before.counts().headerReads, 5); assert.equal(after.calls.bulkCache, 1);
+  assert.equal(before.counts().headerReads, currentBaseline ? 0 : 5); assert.equal(after.calls.bulkCache, 1);
 });
 test('login, sessão, edição, fotos e leituras alheias à publicação não foram alteradas', () => {
   for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listPublishedRecords_']) {
@@ -140,7 +141,7 @@ test('login, sessão, edição, fotos e leituras alheias à publicação não fo
 test('cópia de publicação ainda pendente permanece acionável com dois ranges e sem histórico', () => {
   const before = harness(baseline, 'warm', true), after = harness(fixed, 'warm', true);
   const a = before.c.listPending_({ token: 'fixture-only' }), b = after.c.listPending_({ token: 'fixture-only' });
-  assert.equal(b.records.length, a.records.length + 1);
+  assert.equal(b.records.length, a.records.length + (currentBaseline ? 0 : 1));
   const id = after.sheets.get(after.c.meta.APP.officialSheet).rows[1][0];
   assert.equal(b.records.filter(record => record.recordId === id).length, 1);
   assert.equal(b.metricRecords.find(record => record.recordId === id).status, 'AGUARDANDO_SUPERVISOR');

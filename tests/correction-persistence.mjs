@@ -137,7 +137,7 @@ function fieldFormHarness() {
   const inputs = core.OCCURRENCE_TYPES.map(value => ({ value, checked: false }));
   const elements = new Proxy({}, { get(target, key) { return target[key] ||= { value: '', hidden: false, textContent: '', disabled: false, scrollIntoView() {} }; } });
   const context = vm.createContext({
-    ...core, console, sessionRevision: 1, CSS: { escape: value => value }, elements, activeRecord: null, fieldServiceSnapshot: [], fieldAssignmentSnapshot: null,
+    ...core, console, sessionRevision: 1, occurrenceSubmissionRunning: false, navigator: { onLine: false }, session: { token: 'fixture' }, CSS: { escape: value => value }, elements, activeRecord: null, fieldServiceSnapshot: [], fieldAssignmentSnapshot: null,
     dailyProduction: { totalExcludingRecord: 0 }, catalogResults: [], previewUrls: new Map(), activePhotos: new Map(),
     TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO', TYPE_POST: 'SUBSTITUIÇÃO DE POSTE', TYPE_CONDUCTOR: 'SUBSTITUIÇÃO DE CONDUTOR', TYPE_OTHER: 'OUTRO',
     blankRecord: () => ({ transformer: {}, transformerPhotos: {}, photoStates: [] }),
@@ -383,7 +383,7 @@ function recoveryPlan(h, classification = 'C') {
     expectedRowFingerprint: h.c.sha256_(h.c.publicationJson_(row)) };
 }
 test('recuperação C reabre somente UUID alvo e preserva pedido/histórico/fotos', () => {
-  const h = fieldHarness(); const p = seedRequested(h, pgRecord()); h.submit(p);
+  const h = fieldHarness(); const p = seedRequested(h, pgRecord()); p.observation = 'ALTERAÇÃO ANTERIOR COMPROVADA'; h.submit(p);
   const before = Array.from(actualRow(h).values); const audit = JSON.parse(before[h.c.meta.COL.AUDIT - 1]);
   // Synthetic legacy lost-data case: no persisted payload exists.
   delete audit.lastCorrectionSubmission; before[h.c.meta.COL.AUDIT - 1] = JSON.stringify(audit); h.sheet(h.c.meta.APP.pendingSheet).rows[1] = before.slice();
@@ -404,7 +404,7 @@ test('recuperação B usa valor persistido verificável e não cria reenvio fict
 });
 test('recuperação preserva A, rejeita fonte inventada, estado novo ou publicado', () => {
   for (const cause of ['A', 'source', 'stale', 'published']) {
-    const h = fieldHarness(); const p = seedRequested(h, pgRecord()); h.submit(p); const plan = recoveryPlan(h, cause === 'A' ? 'A' : cause === 'source' ? 'B' : 'C');
+    const h = fieldHarness(); const p = seedRequested(h, pgRecord()); p.observation = 'ALTERAÇÃO ANTERIOR COMPROVADA'; h.submit(p); const plan = recoveryPlan(h, cause === 'A' ? 'A' : cause === 'source' ? 'B' : 'C');
     if (cause === 'source') { plan.patch = { pgPostRemoved: 'INVENTADO' }; plan.sourceRequestId = 'inexistente'; }
     if (cause === 'stale') h.sheet(h.c.meta.APP.pendingSheet).rows[1][h.c.meta.COL.OBSERVATION - 1] = 'ALTERADA APÓS ANÁLISE';
     if (cause === 'published') h.sheet(h.c.meta.APP.officialSheet).appendRow(actualRow(h).values);

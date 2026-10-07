@@ -281,7 +281,7 @@ function fieldFormHarness() {
   const inputs = core.OCCURRENCE_TYPES.map(value => ({ value, checked: false }));
   const elements = new Proxy({}, { get(target, key) { return target[key] ||= { value: '', hidden: false, textContent: '', disabled: false, scrollIntoView() {} }; } });
   const context = vm.createContext({
-    ...core, console, sessionRevision: 1, CSS: { escape: value => value }, elements, activeRecord: null, fieldServiceSnapshot: [], fieldAssignmentSnapshot: null,
+    ...core, console, sessionRevision: 1, occurrenceSubmissionRunning: false, navigator: { onLine: false }, session: { token: 'fixture' }, CSS: { escape: value => value }, elements, activeRecord: null, fieldServiceSnapshot: [], fieldAssignmentSnapshot: null,
     dailyProduction: { totalExcludingRecord: 0 }, catalogResults: [], previewUrls: new Map(), activePhotos: new Map(),
     TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO', TYPE_POST: 'SUBSTITUIÇÃO DE POSTE', TYPE_CONDUCTOR: 'SUBSTITUIÇÃO DE CONDUTOR', TYPE_OTHER: 'OUTRO',
     blankRecord: () => ({ transformer: {}, transformerPhotos: {}, photoStates: [] }),

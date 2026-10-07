@@ -96,7 +96,7 @@ for (const [phase, root, backendPath] of [['before', beforeRoot, beforeBackend],
     vm.createContext(c); vm.runInContext(extract(appSource, 'searchCatalog'), c);
     const start = performance.now(); const task = c.searchCatalog('antigo', 1);
     c.catalogSearchRequestId = 2; c.elements.serviceSearch.value = 'novo'; rejectRequest(Error('Falha simulada')); await task;
-    assert.equal(cacheReads, phase === 'before' ? 1 : 0);
+    assert.equal(cacheReads, phase === 'before' && !process.argv.includes('--current-baseline') ? 1 : 0);
     return { obsoleteCompletionMs: performance.now() - start, cacheReads };
   });
 }

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.07.1';
-export const APP_BUILD = '2026-10-07-create-photo-commit';
+export const APP_VERSION = '2026.10.07.2';
+export const APP_BUILD = '2026-10-07-correction-delta';
 
 export const TEAM_GOAL = 6000;
 
@@ -122,7 +122,7 @@ export function statusTone(status) {
 export function correctedAfterResend(record) {
   if (!record?.recordId || record.status !== RECORD_STATUS.WAITING_SUPERVISOR) return false;
   const receipt = record.audit?.lastCorrectionSubmission;
-  if (receipt && receipt.phase !== 'COMPLETE') return false;
+  if (receipt && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges(record, true))) return false;
   const timeline = Array.isArray(record.audit?.timeline) ? record.audit.timeline : [];
   let correctionRequested = false; let resent = false;
   for (const event of timeline) {
@@ -144,10 +144,58 @@ export function correctionDataSnapshot(record = {}) {
   for (const key of EDITABLE_CORRECTION_FIELDS.filter(key => !['occurrenceTypes', 'transformer', 'services', 'materials', 'totalServices'].includes(key))) result[key] = text(record[key]);
   result.occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
   result.transformer = Object.fromEntries(['removedCode', 'removedCia', 'removedBto', 'newCode', 'newCia', 'newBto'].map(key => [key, text(record.transformer?.[key])]));
-  result.services = normalizeServices(record.services).map(service => ({ ...Object.fromEntries(['catalogKey', 'code', 'catalogText', 'unit', 'group', 'contract', 'origin'].map(key => [key, text(service[key])])), quantity: Number(service.quantity), referenceValue: Number(service.referenceValue), totalValue: Number(service.totalValue) }));
-  result.materials = normalizeMaterials(record.materials).map(material => ({ code: text(material.code), description: text(material.description), unit: text(material.unit), quantity: Number(material.quantity) }));
+  result.services = normalizeServices(record.services).map(service => ({ ...Object.fromEntries(['catalogKey', 'code', 'catalogText', 'unit', 'group', 'contract', 'origin'].map(key => [key, text(service[key])])), quantity: parseServiceQuantity(service.quantity), referenceValue: Number(service.referenceValue), totalValue: Number(service.totalValue) }));
+  result.materials = normalizeMaterials(record.materials).map(material => ({ code: text(material.code), description: text(material.description), unit: text(material.unit), quantity: parseMaterialQuantity(material.quantity) }));
   result.totalServices = Math.round(Number(record.totalServices ?? occurrenceTotal(record.services)) * 100) / 100;
   return result;
+}
+
+export function correctionOriginalSnapshot(record = {}) {
+  const snapshot = {
+    data: correctionDataSnapshot(record),
+    photoStates: normalizePhotoStates(record.photoStates).map(photo => ({
+      photoIndex: photo.photoIndex, uploadKey: String(photo.uploadKey || ''),
+      serverUrl: photo.serverUrl || (photo.photoIndex <= 5 ? record.photos?.[photo.photoIndex - 1] : photo.photoIndex === 6 ? record.transformerPhotos?.removed : record.transformerPhotos?.installed) || ''
+    }))
+  };
+  const freeze = value => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
+  return freeze(JSON.parse(JSON.stringify(snapshot)));
+}
+
+export function correctionDelta(original, current = {}) {
+  const before = original?.data || correctionDataSnapshot({});
+  const after = correctionDataSnapshot(current);
+  const expectedPatch = {}, beforePatch = {}, photoPatch = {}, evidencePatch = {};
+  for (const key of EDITABLE_CORRECTION_FIELDS) {
+    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+      expectedPatch[key] = after[key]; beforePatch[key] = before[key];
+    }
+  }
+  for (const photo of normalizePhotoStates(current.photoStates)) {
+    const previous = original?.photoStates?.[photo.photoIndex - 1] || {};
+    if (photo.uploadKey && photo.uploadKey !== previous.uploadKey && (photo.localReady || photo.replacePending || (photo.confirmed && photo.serverUrl))) {
+      (photo.photoIndex <= 5 ? photoPatch : evidencePatch)[photo.photoIndex] = { uploadKey: photo.uploadKey };
+    }
+  }
+  return JSON.parse(JSON.stringify({ expectedPatch, beforePatch, photoPatch, evidencePatch }));
+}
+
+export function correctionReceiptHasChanges(record = {}, complete = false) {
+  const receipt = record.audit?.lastCorrectionSubmission;
+  if (!receipt) return false;
+  const dataChanged = EDITABLE_CORRECTION_FIELDS.some(key => Object.hasOwn(receipt.expectedPatch || {}, key)
+    && Object.hasOwn(receipt.beforePatch || {}, key)
+    && JSON.stringify(correctionDataSnapshot({ [key]: receipt.expectedPatch[key] })[key]) !== JSON.stringify(correctionDataSnapshot({ [key]: receipt.beforePatch[key] })[key]));
+  const declared = { ...(receipt.photoPatch || {}), ...(receipt.evidencePatch || {}) };
+  const verified = index => {
+    const photo = normalizePhotoStates(record.photoStates)[Number(index) - 1], entry = record.audit?.photoSubmissions?.[index];
+    return entry?.phase === 'COMPLETE' && entry.requestedAt === receipt.requestedAt
+      && Date.parse(entry.receivedAt) >= Date.parse(receipt.receivedAt) && entry.expectedUrl && entry.expectedUrl !== (entry.previousUrl || '')
+      && photo?.confirmed && photo.uploadKey === entry.uploadKey && photo.serverUrl === entry.expectedUrl
+      && (!declared[index] || declared[index].uploadKey === entry.uploadKey);
+  };
+  if (!complete) return dataChanged || Object.keys(declared).length > 0 || normalizeFailedIndexes(record.audit?.requestedPhotoIndexes).length > 0 || Object.keys(record.audit?.photoSubmissions || {}).some(verified);
+  return (dataChanged || Object.keys(record.audit?.photoSubmissions || {}).some(verified)) && Object.keys(declared).every(verified);
 }
 
 export function correctionConfirmationMatches(submitted, state, complete = false) {
@@ -155,6 +203,7 @@ export function correctionConfirmationMatches(submitted, state, complete = false
   return state?.recordId === submitted?.recordId && receipt?.requestId === submitted?.correctionRequestId
     && receipt?.requestedAt === submitted?.correctionRequestedAt && Boolean(receipt?.dataVerifiedAt)
     && (complete ? receipt.phase === 'COMPLETE' : ['DATA_VERIFIED', 'COMPLETE'].includes(receipt.phase))
+    && correctionReceiptHasChanges(state.record, complete)
     && JSON.stringify(correctionDataSnapshot(submitted)) === JSON.stringify(correctionDataSnapshot(state.record));
 }
 

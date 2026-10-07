@@ -1,0 +1,148 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -6,5 +6,5 @@
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.07.2',
++  version: '2026.10.07.3',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+@@ -221,6 +221,6 @@
+     if (found && [STATUS.REJECTED, STATUS.APPROVED, STATUS.PUBLISHED].indexOf(previousStatus) >= 0) throw apiError_('CORRECTION_CLOSED', 'Esta ocorrência já recebeu uma decisão. Atualize a lista.');
+     const receipt = correction ? prepareCorrectionReceipt_(existing, model, submitted, auth.user) : null;
+-    if (receipt && previousStatus === STATUS.WAITING_SUPERVISOR && existingAudit.lastCorrectionSubmission && existingAudit.lastCorrectionSubmission.phase === 'COMPLETE' && existingAudit.lastCorrectionSubmission.requestedAt === receipt.requestedAt && existingAudit.lastCorrectionSubmission.requestId !== receipt.requestId) throw apiError_('CORRECTION_ALREADY_CONFIRMED', 'Esta correção já foi confirmada. Atualize a lista antes de editar novamente.');
+-    if (receipt && receipt.phase === 'COMPLETE' && correctionFingerprint_(original) === receipt.expectedFingerprint) {
++    if (receipt && previousStatus === STATUS.WAITING_SUPERVISOR && existingAudit.lastCorrectionSubmission && existingAudit.lastCorrectionSubmission.phase === 'COMPLETE' && correctionReceiptHasChanges_(existing, existingAudit.lastCorrectionSubmission, true) && existingAudit.lastCorrectionSubmission.requestedAt === receipt.requestedAt && existingAudit.lastCorrectionSubmission.requestId !== receipt.requestId) throw apiError_('CORRECTION_ALREADY_CONFIRMED', 'Esta correção já foi confirmada. Atualize a lista antes de editar novamente.');
++    if (receipt && receipt.phase === 'COMPLETE' && correctionReceiptHasChanges_(existing, receipt, true) && correctionFingerprint_(original) === receipt.expectedFingerprint) {
+       ensureCorrectionHistory_(existing, auth.user);
+       return stateResponse_(recordFromValuesAt_(existing), false, true);
+@@ -281,5 +281,5 @@
+     if (!found || String(found.values[COL.STATUS - 1]) !== STATUS.WAITING_SUPERVISOR) return;
+     const audit = safeJson_(found.values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
+-    if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && (receipt.phase !== 'COMPLETE' || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint)) {
++    if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && !correctionSupersededBySupervisor_(found.values, receipt) && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(found.values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint)) {
+       pending.getRange(found.row, COL.STATUS).setValue(STATUS.CORRECTION_REQUESTED); flushSheets_();
+     }
+@@ -354,11 +354,78 @@
+   if (previous && previous.requestId === requestId && previous.requestedAt === requestedAt) {
+     if (previous.expectedFingerprint !== fingerprint) throw apiError_('CORRECTION_PAYLOAD_CHANGED', 'Este envio já possui outros dados. Preserve a edição e tente um novo envio.');
++    ['photoPatch', 'evidencePatch'].forEach(function (key) {
++      if (Object.prototype.hasOwnProperty.call(submitted, key) && publicationJson_(submitted[key] || {}) !== publicationJson_(previous[key] || {})) throw apiError_('CORRECTION_PAYLOAD_CHANGED', 'Este envio já possui outras fotos. Preserve a edição e tente um novo envio.');
++    });
++    if (!correctionReceiptHasChanges_(values, previous, previous.phase === 'COMPLETE')) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
+     return Object.assign({}, previous);
+   }
+   const before = correctionDataFromValues_(values); const after = correctionModelData_(model); const expectedPatch = {}; const beforePatch = {};
+   Object.keys(after).forEach(function (key) {
+-    if (publicationJson_(before[key]) !== publicationJson_(after[key])) { expectedPatch[key] = after[key]; beforePatch[key] = before[key]; }
+-  });
+-  return { requestId: requestId, requestedAt: requestedAt, actor: actor, receivedAt: nowIso_(), phase: 'STAGED', expectedFingerprint: fingerprint, expectedPatch: expectedPatch, beforePatch: beforePatch };
++    if (key !== 'recordId' && publicationJson_(correctionComparableValue_(key, before[key])) !== publicationJson_(correctionComparableValue_(key, after[key]))) { expectedPatch[key] = after[key]; beforePatch[key] = before[key]; }
++  });
++  if (Object.prototype.hasOwnProperty.call(submitted, 'expectedPatch')) {
++    const candidatePatch = submitted.expectedPatch || {};
++    if (publicationJson_(Object.keys(candidatePatch).sort()) !== publicationJson_(Object.keys(expectedPatch).sort()) || Object.keys(expectedPatch).some(function (key) { return publicationJson_(correctionComparableValue_(key, candidatePatch[key])) !== publicationJson_(correctionComparableValue_(key, expectedPatch[key])) || !Object.prototype.hasOwnProperty.call(submitted.beforePatch || {}, key) || publicationJson_(correctionComparableValue_(key, submitted.beforePatch[key])) !== publicationJson_(correctionComparableValue_(key, beforePatch[key])); })) throw apiError_('CORRECTION_DELTA_MISMATCH', 'A edição não corresponde ao estado original confirmado. Sua edição foi preservada; atualize a solicitação.');
++  }
++  const photoPatch = correctionPhotoPatch_(submitted.photoPatch, values, 1, 5);
++  const evidencePatch = correctionPhotoPatch_(submitted.evidencePatch, values, 6, 7);
++  if (Object.keys(evidencePatch).length && model.occurrenceTypes.indexOf(TYPES[0]) < 0) throw apiError_('INVALID_PHOTO_INDEX', 'A evidência específica requer substituição de transformador.');
++  const receipt = { requestId: requestId, requestedAt: requestedAt, actor: actor, receivedAt: nowIso_(), phase: 'STAGED', expectedFingerprint: fingerprint, expectedPatch: expectedPatch, beforePatch: beforePatch,
++    photoPatch: photoPatch, evidencePatch: evidencePatch, beforePhotoPatch: correctionBeforePhotos_(values, photoPatch), beforeEvidencePatch: correctionBeforePhotos_(values, evidencePatch) };
++  if ((Object.prototype.hasOwnProperty.call(submitted, 'photoPatch') || Object.prototype.hasOwnProperty.call(submitted, 'evidencePatch')) && !Object.keys(expectedPatch).length && !Object.keys(photoPatch).length && !Object.keys(evidencePatch).length) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
++  if (!correctionReceiptHasChanges_(values, receipt, false)) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
++  return receipt;
++}
++
++// Compare operational values. Local line IDs and search metadata are not edits.
++function correctionComparableValue_(key, value) {
++  const text = function (item) { return String(item == null ? '' : item).trim(); };
++  if (key === 'occurrenceTypes') return (Array.isArray(value) ? value : []).map(text).filter(function (item, index, all) { return item && all.indexOf(item) === index; });
++  if (key === 'transformer') { const result = {}; ['removedCode', 'removedCia', 'removedBto', 'newCode', 'newCia', 'newBto'].forEach(function (field) { result[field] = text(value && value[field]); }); return result; }
++  if (key === 'services') return (Array.isArray(value) ? value : []).map(function (service) { const result = {}; ['catalogKey', 'code', 'catalogText', 'unit', 'group', 'contract', 'origin'].forEach(function (field) { result[field] = text(service[field]); }); ['quantity', 'referenceValue', 'totalValue'].forEach(function (field) { result[field] = Number(service[field]); }); return result; });
++  if (key === 'materials') return (Array.isArray(value) ? value : []).map(function (material) { const decoded = normalizeMaterial_(material); return { code: text(decoded.code), description: text(decoded.description), unit: text(decoded.unit), quantity: Number(decoded.quantity) }; });
++  if (key === 'totalServices') return roundMoney_(Number(value));
++  return text(value);
++}
++function correctionPhotoPatch_(patch, values, first, last) {
++  if (patch == null) return {};
++  if (typeof patch !== 'object' || Array.isArray(patch)) throw apiError_('INVALID_PHOTO_INDEX', 'Delta de fotos inválido.');
++  const result = {};
++  Object.keys(patch).forEach(function (slot) {
++    const index = Number(slot); if (!Number.isInteger(index) || index < first || index > last || String(index) !== slot) throw apiError_('INVALID_PHOTO_INDEX', 'Índice da foto inválido.');
++    const uploadKey = requireUuid_(patch[slot] && patch[slot].uploadKey);
++    if (uploadKey !== String(values[photoUploadKeyColumn_(index) - 1] || '')) result[index] = { uploadKey: uploadKey };
++  });
++  return result;
++}
++function correctionBeforePhotos_(values, patch) {
++  const result = {};
++  Object.keys(patch).forEach(function (index) { result[index] = { uploadKey: String(values[photoUploadKeyColumn_(Number(index)) - 1] || ''), serverUrl: String(values[photoUrlColumn_(Number(index)) - 1] || '') }; });
++  return result;
++}
++function correctionReceiptHasChanges_(values, receipt, complete) {
++  if (!receipt) return false;
++  const audit = safeJson_(values[COL.AUDIT - 1], {});
++  const allowed = correctionDataFromValues_(emptyRow_());
++  const dataChanged = Object.keys(receipt.expectedPatch || {}).some(function (key) { return key !== 'recordId' && Object.prototype.hasOwnProperty.call(allowed, key) && Object.prototype.hasOwnProperty.call(receipt.beforePatch || {}, key) && publicationJson_(correctionComparableValue_(key, receipt.expectedPatch[key])) !== publicationJson_(correctionComparableValue_(key, receipt.beforePatch[key])); });
++  const declared = Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {});
++  const verified = function (slot) {
++    const index = Number(slot); if (!Number.isInteger(index) || index < 1 || index > 7) return false;
++    const photo = (audit.photoSubmissions || {})[slot];
++    return photo && photo.phase === 'COMPLETE' && photo.requestedAt === receipt.requestedAt && new Date(photo.receivedAt).getTime() >= new Date(receipt.receivedAt).getTime() && photo.expectedUrl && photo.expectedUrl !== (photo.previousUrl || '') && String(values[photoUrlColumn_(index) - 1] || '') === photo.expectedUrl && String(values[photoUploadKeyColumn_(index) - 1] || '') === photo.uploadKey && (!declared[slot] || declared[slot].uploadKey === photo.uploadKey);
++  };
++  if (!complete) return dataChanged || Object.keys(declared).length > 0 || normalizePhotoIndexes_(audit.requestedPhotoIndexes).length > 0;
++  return Boolean((dataChanged || Object.keys(audit.photoSubmissions || {}).some(verified)) && Object.keys(declared).every(verified));
++}
++
++// A later direct Supervisor correction is authoritative, not a team resubmission.
++function correctionSupersededBySupervisor_(values, receipt) {
++  if (!receipt || receipt.phase !== 'COMPLETE' || !receipt.supersededBySupervisorAt || !receipt.completedAt) return false;
++  const supersededAt = new Date(receipt.supersededBySupervisorAt).getTime(); const completedAt = new Date(receipt.completedAt).getTime();
++  if (!Number.isFinite(supersededAt) || !Number.isFinite(completedAt) || supersededAt < completedAt) return false;
++  const audit = safeJson_(values[COL.AUDIT - 1], {}); const correction = audit.lastSupervisorCorrection;
++  if (!correction || !correction.supervisor || correction.correctedAt !== receipt.supersededBySupervisorAt || !Array.isArray(correction.changes) || !correction.changes.some(function (change) { return change.field && comparableAuditValue_(change.previousValue) !== comparableAuditValue_(change.newValue); })) return false;
++  const timeline = Array.isArray(audit.timeline) ? audit.timeline : [];
++  return timeline.some(function (event) { return event.action === 'CORRIGIDA_PELO_SUPERVISOR' && event.at === correction.correctedAt && event.actor === correction.supervisor; }) && correctionFingerprint_(correctionDataFromValues_(values)) === receipt.expectedFingerprint;
+ }
+ 
+@@ -397,5 +464,7 @@
+   const audit = safeJson_(found.values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
+   if (!receipt || !receipt.dataVerifiedAt || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint) throw apiError_('CORRECTION_DATA_UNCONFIRMED', 'Os campos corrigidos ainda não foram confirmados por releitura.');
++  if (!correctionReceiptHasChanges_(found.values, receipt, false) && !correctionReceiptHasChanges_(found.values, receipt, true)) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
+   if (normalizePhotoIndexes_(audit.requestedPhotoIndexes).length || !recordReadyForSupervisorValues_(found.values)) return found;
++  if (!correctionReceiptHasChanges_(found.values, receipt, true)) return found;
+   // Status is staged first. Readers keep it pending until the receipt is complete.
+   const expected = found.values.slice(); expected[COL.STATUS - 1] = STATUS.WAITING_SUPERVISOR;
+@@ -412,5 +481,5 @@
+ function ensureCorrectionHistory_(values, actor) {
+   const audit = safeJson_(values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
+-  if (!receipt || receipt.phase !== 'COMPLETE' || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint) return;
++  if (!receipt || receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint) return;
+   const note = 'Correção confirmada por releitura; envio ' + receipt.requestId;
+   const history = sheet_(APP.historySheet); const id = String(values[COL.ID - 1]);
+@@ -437,8 +506,9 @@
+         const lastResendAt = resends.length ? resends[resends.length - 1].at : '';
+         if (String(found.values[COL.STATUS - 1]) !== item.expectedStatus || item.expectedStatus !== STATUS.WAITING_SUPERVISOR || correctionRequestedAt_(audit) !== item.requestedAt || lastResendAt !== item.lastResendAt || sha256_(publicationJson_(found.values)) !== item.expectedRowFingerprint) throw apiError_('CORRECTION_RECOVERY_STALE', 'Os dados ou a solicitação mudaram após a análise. Nenhum campo foi alterado.');
++        if (correctionSupersededBySupervisor_(found.values, audit.lastCorrectionSubmission)) throw apiError_('CORRECTION_RECOVERY_PRESERVED', 'A ocorrência já possui correção direta do Supervisor confirmada. Nenhum campo foi alterado.');
+         const next = found.values.slice(); let patch = {};
+         if (item.classification === 'B') {
+           const receipt = audit.lastCorrectionSubmission;
+-          if (!receipt || receipt.requestedAt !== item.requestedAt || !receipt.expectedPatch || publicationJson_(item.patch) !== publicationJson_(receipt.expectedPatch) || item.sourceRequestId !== receipt.requestId) throw apiError_('CORRECTION_RECOVERY_NO_SOURCE', 'Os valores não correspondem a um payload de correção persistido.');
++          if (!receipt || receipt.requestedAt !== item.requestedAt || !receipt.expectedPatch || !Object.keys(receipt.expectedPatch).length || !correctionReceiptHasChanges_(found.values, receipt, true) || publicationJson_(item.patch) !== publicationJson_(receipt.expectedPatch) || item.sourceRequestId !== receipt.requestId) throw apiError_('CORRECTION_RECOVERY_NO_SOURCE', 'Os valores não correspondem a um payload de correção persistido.');
+           patch = receipt.expectedPatch;
+           if (Object.prototype.hasOwnProperty.call(patch, 'recordId') && patch.recordId !== recordId) throw apiError_('CORRECTION_RECOVERY_INVALID_PATCH', 'O UUID não pode ser alterado.');
+@@ -481,4 +551,7 @@
+     const urlColumn = photoUrlColumn_(photoIndex); const keyColumn = photoUploadKeyColumn_(photoIndex);
+     const oldUrl = String(found.values[urlColumn - 1] || ''); const oldKey = String(found.values[keyColumn - 1] || '');
++    const currentAudit = safeJson_(found.values[COL.AUDIT - 1], {}); const correctionReceipt = currentAudit.lastCorrectionSubmission;
++    const declaredPhoto = correctionReceipt && Object.assign({}, correctionReceipt.photoPatch || {}, correctionReceipt.evidencePatch || {})[photoIndex];
++    if (correctionReceipt && correctionReceipt.requestedAt === correctionRequestedAt_(currentAudit) && correctionReceipt.phase !== 'COMPLETE' && declaredPhoto && declaredPhoto.uploadKey !== uploadKey) throw apiError_('CORRECTION_PAYLOAD_CHANGED', 'A foto não corresponde ao envio de correção pendente. Preserve a foto e tente novamente.');
+     const storedPhotoReceipt = (safeJson_(found.values[COL.AUDIT - 1], {}).photoSubmissions || {})[photoIndex];
+     if (oldKey === uploadKey && oldUrl && (!storedPhotoReceipt || storedPhotoReceipt.uploadKey !== uploadKey || storedPhotoReceipt.expectedUrl === oldUrl)) {
+@@ -900,5 +973,5 @@
+   if ([STATUS.WAITING_SUPERVISOR, STATUS.SYNCING_PHOTOS].indexOf(status) < 0) return status;
+   const audit = safeJson_(values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
+-  if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && (receipt.phase !== 'COMPLETE' || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint)) return STATUS.CORRECTION_REQUESTED;
++  if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && !correctionSupersededBySupervisor_(values, receipt) && (receipt.phase !== 'COMPLETE' || !correctionReceiptHasChanges_(values, receipt, true) || correctionFingerprint_(correctionDataFromValues_(values)) !== receipt.expectedFingerprint)) return STATUS.CORRECTION_REQUESTED;
+   return recordReadyForSupervisorValues_(values) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS;
+ }
