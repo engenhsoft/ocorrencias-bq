@@ -22,7 +22,7 @@ function submissionHarness({ delayedSave = false } = {}) {
   const events = [];
   const context = {
     activeRecord: { recordId: 'registro-a', base: 'ASSÚ', correctionMode: false, status: 'RASCUNHO' },
-    currentView: 'new', occurrenceSubmissionRunning: false,
+    currentView: 'new', occurrenceSubmissionRunning: false, activeDraftSavePromise: null, photoSelectionRequests: new Map(), sessionRevision: 1,
     ACTIVE_DRAFT_META: 'activeDraftId',
     RECORD_STATUS: { PENDING: 'PENDENTE_ENVIO', WAITING_SUPERVISOR: 'AGUARDANDO_SUPERVISOR', ERROR: 'ERRO' },
     validateStepOne: () => true, countReadyPhotoStates: () => 3,

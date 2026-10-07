@@ -134,8 +134,11 @@ test('correcao com contrato numerico mantem releitura, fingerprint e receipt COM
   const payload={...before,observation:'corrigida',correctionRequestId:key(9),correctionRequestedAt:'',expectedPhotoIndexes:[1,2,3]};
   const result=h.submit(payload);assert.equal(result.status,'AGUARDANDO_SUPERVISOR');assert.equal(result.record.observation,'corrigida');assert.equal(result.record.audit.lastCorrectionSubmission.phase,'COMPLETE');assert.ok(result.record.audit.lastCorrectionSubmission.dataVerifiedAt);
 });
-test('protecoes de correcao, publicacao e batching anterior permanecem byte a byte',()=>{
-  for(const name of ['finishCorrection_','prepareCorrectionReceipt_','correctionFingerprint_','photoSlotConfirmed_','recordReadyForSupervisorValues_','readPublicPhotoReferencesBatch_','publicPhotoReferencesFromBatch_','cachedPublicPhotosForRows_','supervisorCorrectRecord_','supervisorAction_'])assert.equal(extract(fixed,name),extract(baseline,name),name);
+test('fingerprint, fotos, publicacao e batching permanecem byte a byte; correcao mantem releitura e exige delta',()=>{
+  for(const name of ['correctionFingerprint_','photoSlotConfirmed_','recordReadyForSupervisorValues_','readPublicPhotoReferencesBatch_','publicPhotoReferencesFromBatch_','cachedPublicPhotosForRows_','supervisorCorrectRecord_','supervisorAction_'])assert.equal(extract(fixed,name),extract(baseline,name),name);
+  assert.match(extract(fixed,'finishCorrection_'), /CORRECTION_DATA_UNCONFIRMED/);
+  assert.match(extract(fixed,'finishCorrection_'), /assertCorrectionRow_/);
+  assert.match(extract(fixed,'prepareCorrectionReceipt_'), /NO_CORRECTION_CHANGES/);
 });
 let passed=0;const failures=[];for(const {name,run} of tests){try{await run();passed++;}catch(e){failures.push({name,error:e.stack});}}
 const result={total:tests.length,passed,failed:failures.length,productionWrites:0,traces,failures};console.log(JSON.stringify(result,null,2));

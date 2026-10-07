@@ -11,6 +11,7 @@ const dataUrl = source => 'data:text/javascript;base64,' + Buffer.from(source).t
 const core = await import(dataUrl(coreSource));
 const apiModule = await import(dataUrl(apiSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${dataUrl(coreSource)}'`).replace(/^import .*?from '\.\/config\.js[^']*';\n/m, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
 const { ApiError } = apiModule;
+const currentBaseline = process.argv.includes('--current-baseline');
 const baselineApp = process.argv[4] ? await readFile(process.argv[4], 'utf8') : null;
 const tests = [];
 const test = (name, run) => tests.push({ name, run });
@@ -295,7 +296,7 @@ for (const action of ['listPending_', 'listMine_']) {
     const old = backendHarness(baseline), fixed = backendHarness(backend);
     const oldPayload = old.c[action]({ token: 'fixture' }), fixedPayload = fixed.c[action]({ token: 'fixture' });
     assert.deepEqual(plain(fixedPayload), plain(oldPayload));
-    assert.deepEqual(old.counts(), { opens: 7, dataReads: 6, headerReads: 5, writes: 0 });
+    assert.deepEqual(old.counts(), currentBaseline ? (action === 'listPending_' ? { opens: 1, dataReads: 2, headerReads: 0, writes: 0 } : { opens: 1, dataReads: 4, headerReads: 0, writes: 0 }) : { opens: 7, dataReads: 6, headerReads: 5, writes: 0 });
     assert.deepEqual(fixed.counts(), action === 'listPending_'
       ? { opens: 1, dataReads: 2, headerReads: 0, writes: 0 }
       : { opens: 1, dataReads: 4, headerReads: 0, writes: 0 });
