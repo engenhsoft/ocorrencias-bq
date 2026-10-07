@@ -8,8 +8,8 @@ const [core, html, app, api, db, worker] = await Promise.all([
 ]);
 
 const version = core.match(/APP_VERSION = '([^']+)'/)?.[1];
-assert.equal(version, '2026.10.07.2');
-assert.match(core, /APP_BUILD = '2026-10-07-correction-delta'/);
+assert.equal(version, '2026.10.07.3');
+assert.match(core, /APP_BUILD = '2026-10-07-stage-validation'/);
 assert.ok(worker.includes(`WORKER_VERSION = '${version}'`));
 assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}\$\{WORKER_VERSION\}`/);
 assert.match(worker, /new Request\(asset, \{ cache: 'reload' \}\)/);

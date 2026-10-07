@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.07.2';
-export const APP_BUILD = '2026-10-07-correction-delta';
+export const APP_VERSION = '2026.10.07.3';
+export const APP_BUILD = '2026-10-07-stage-validation';
 
 export const TEAM_GOAL = 6000;
 
@@ -662,9 +662,21 @@ export function goalProgress(total, goal = TEAM_GOAL) {
   };
 }
 
-export function validateOccurrence(record = {}, { historicalServices = false, originalServices = [] } = {}) {
+export function validateOccurrence(record = {}, { historicalServices = false, originalServices = [], validationStage } = {}) {
   const errors = [];
   const types = normalizeOccurrenceTypes(record.occurrenceTypes);
+  // Evidências da tela de fotos nunca participam da validação da etapa de dados.
+  // Chamadas sem etapa preservam o contrato anterior dos demais fluxos.
+  const photoErrors = () => {
+    const pending = [];
+    if ((validationStage === 'photos' || validationStage === 'final') && countReadyPhotoStates(record) < 3) pending.push('Adicione pelo menos 3 fotos da ocorrência.');
+    if (types.includes('SUBSTITUIÇÃO DE TRAFO')) {
+      if (!transformerPhotoReady(record, 'removed')) pending.push('Adicione a evidência do transformador retirado.');
+      if (!transformerPhotoReady(record, 'installed')) pending.push('Adicione a evidência do transformador instalado.');
+    }
+    return pending;
+  };
+  if (validationStage === 'photos') return photoErrors();
   const services = normalizeServices(record.services);
   const materials = normalizeMaterials(record.materials, 'materials');
   const expectedContract = contractForBase(record.base);
@@ -690,9 +702,8 @@ export function validateOccurrence(record = {}, { historicalServices = false, or
     if (!String(record.transformer?.newCode || '').trim() || String(record.transformer?.newCode || '').trim() === '999999') errors.push('Informe uma série válida para o transformador instalado.');
     if (!String(record.transformer?.newCia || '').trim()) errors.push('Informe a CIA do trafo novo.');
     if (!String(record.transformer?.newBto || '').trim()) errors.push('Informe o BTO do transformador instalado.');
-    if (!transformerPhotoReady(record, 'removed')) errors.push('Adicione a evidência do transformador retirado.');
-    if (!transformerPhotoReady(record, 'installed')) errors.push('Adicione a evidência do transformador instalado.');
   }
+  if (validationStage !== 'data') errors.push(...photoErrors());
   if (record.correctionMode && !types.includes('SUBSTITUIÇÃO DE TRAFO') && String(record.transformer?.newCode ?? '').trim() === '999999') errors.push('Informe uma série válida para o transformador instalado.');
   if (!services.length) errors.push('Adicione pelo menos um serviço da aba Emergência.');
   if (historicalServices) errors.push(...serviceSnapshotErrors(record.services));

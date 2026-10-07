@@ -26,6 +26,7 @@ function submissionHarness({ delayedSave = false } = {}) {
     ACTIVE_DRAFT_META: 'activeDraftId',
     RECORD_STATUS: { PENDING: 'PENDENTE_ENVIO', WAITING_SUPERVISOR: 'AGUARDANDO_SUPERVISOR', ERROR: 'ERRO' },
     validateStepOne: () => true, countReadyPhotoStates: () => 3,
+    validateOccurrence: () => [], fieldServiceSnapshot: [],
     confirmAction: async () => true, syncFormToRecord: () => {},
     putRecord: async () => { events.push('save'); if (delayedSave) await save.promise; },
     clearMetaIfValue: async (_, id) => { events.push(`clear:${id}`); },

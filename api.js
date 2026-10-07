@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.10.07.2';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.07.2';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.07.3';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.07.3';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {

@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.07.2';
+} from './core.js?v=2026.10.07.3';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.07.2';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.07.2';
+} from './db.js?v=2026.10.07.3';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.07.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -478,7 +478,9 @@ function bindEvents() {
   elements.continueToPhotosButton.addEventListener('click', () => {
     if (validateStepOne(true)) goToStep(2);
   });
-  elements.continueToReviewButton.addEventListener('click', () => { renderReview(); goToStep(3); });
+  elements.continueToReviewButton.addEventListener('click', () => {
+    if (validatePhotoStep(true)) { renderReview(); goToStep(3); }
+  });
   $$('[data-back-step]').forEach((button) => button.addEventListener('click', () => goToStep(Number(button.dataset.backStep))));
   elements.submitOccurrenceButton.addEventListener('click', submitOccurrence);
   elements.refreshDailyGoalButton.addEventListener('click', () => loadDailyProduction(elements.team.value, true));
@@ -1158,7 +1160,7 @@ async function handleMaterialChange(event) {
 
 function validateStepOne(showErrors = false) {
   if (activeRecord) syncFormToRecord();
-  const errors = activeRecord ? validateOccurrence(activeRecord, { originalServices: fieldServiceSnapshot }) : ['Preencha os dados da ocorrência.'];
+  const errors = activeRecord ? validateOccurrence(activeRecord, { originalServices: fieldServiceSnapshot, validationStage: 'data' }) : ['Preencha os dados da ocorrência.'];
   const relationError = activeRecord && assignmentError(activeRecord, fieldAssignmentSnapshot);
   if (relationError) errors.push(relationError);
   elements.continueToPhotosButton.disabled = errors.length > 0;
@@ -1167,6 +1169,13 @@ function validateStepOne(showErrors = false) {
     elements.stepOneErrors.innerHTML = `<strong>Revise os campos:</strong><ul>${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul>`;
     elements.stepOneErrors.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } else if (!errors.length || !showErrors) { elements.stepOneErrors.hidden = true; }
+  return errors.length === 0;
+}
+
+function validatePhotoStep(showErrors = false) {
+  const errors = validateOccurrence(activeRecord || {}, { validationStage: 'photos' });
+  elements.continueToReviewButton.disabled = errors.length > 0;
+  if (showErrors && errors.length) toast(errors.join(' '), 'error');
   return errors.length === 0;
 }
 
@@ -1267,7 +1276,7 @@ function updatePhotoGrid() {
     if (secondary) { secondary.hidden = !present; const button = $('[data-photo-delete]', secondary); if (button) button.hidden = Boolean(state.confirmed && !state.replacePending && !local); }
   }
   elements.photoProgressChip.textContent = `${ready}/5 fotos`; elements.photoProgressChip.className = `status-chip ${ready >= 3 ? 'status-chip--success' : 'status-chip--warning'}`;
-  elements.continueToReviewButton.disabled = ready < 3;
+  validatePhotoStep(false);
 }
 
 function serviceTable(services = []) {
@@ -1392,6 +1401,8 @@ function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.d
 async function submitOccurrence() {
   if (occurrenceSubmissionRunning) return;
   if (!activeRecord || !validateStepOne(true) || countReadyPhotoStates(activeRecord) < 3) { toast('Complete os dados e adicione pelo menos 3 fotos da ocorrência.', 'error'); return; }
+  const errors = validateOccurrence(activeRecord, { originalServices: fieldServiceSnapshot, validationStage: 'final' });
+  if (errors.length) { toast(errors.join(' '), 'error'); return; }
   if (photoSelectionRequests.size) { toast('Aguarde o preparo das fotos antes de enviar.', 'error'); return; }
   syncFormToRecord();
   const candidate = JSON.parse(JSON.stringify(activeRecord)); const revision = sessionRevision;
