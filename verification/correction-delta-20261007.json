@@ -149,14 +149,14 @@
     {
       "scenario": "baseline-late-autosave",
       "domPg": "NOVO_PG",
-      "payloadPg": "R64583",
+      "payloadPg": "PG_ORIGINAL_FIXTURE",
       "expectedPatch": {},
       "phase": "COMPLETE"
     },
     {
       "scenario": "fixed-realistic-dom",
       "beforePatch": {
-        "pgPostInstalled": "R64583",
+        "pgPostInstalled": "PG_ORIGINAL_FIXTURE",
         "observation": ""
       },
       "expectedPatch": {
@@ -164,17 +164,13 @@
         "observation": "POSTE ALTERADO PARA FECHAMENTO"
       },
       "phase": "COMPLETE",
-      "uuid": "946fd69c-58c5-4ee8-b8e8-a26058c766a0"
+      "uuid": "FIXTURE_UUID"
     }
   ],
-  "currentCase": {
-    "uuid": "946fd69c-58c5-4ee8-b8e8-a26058c766a0",
-    "pgPostRemoved": "AF9408X",
-    "pgPostInstalled": "AF9408X",
-    "observation": "",
-    "classification": "A",
-    "action": "PRESERVE_SUPERVISOR_CORRECTION",
-    "supervisorCorrectionAt": "2026-10-07T10:32:00-03:00",
-    "productionWrites": 0
+  "supervisorPreservation": {
+    "verified": true,
+    "staleRetryBlocked": true,
+    "recoveryPreserved": true,
+    "unsupportedMarkerRejected": true
   }
 }
