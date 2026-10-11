@@ -269,9 +269,13 @@ test('isolamento core: serializer, delta, estados, serviços e materiais permane
     .replace("  if (validationStage !== 'data') errors.push(...photoErrors());\n", '');
   assert.equal(newData, oldData, 'regras de dados, serviços históricos e materiais não podem mudar');
 });
-test('isolamento app: toda lógica fora dos gates de etapa permanece byte a byte', () => {
+test('isolamento app: lógica fora dos gates e da sincronização visual de Trafo permanece byte a byte', () => {
   const clean = source => {
-    let result = source.replace(/2026\.10\.07\.[23]/g, 'RELEASE');
+    let result = source.replace(/\d{4}\.\d{2}\.\d{2}\.\d+/g, 'RELEASE');
+    // The two visibility-only lines are isolated against the current baseline
+    // in trafo-photo-visibility.mjs; retain the previous stage-gate comparison.
+    result = result.replace('  const previousHasTransformer = activeRecord.occurrenceTypes.includes(TYPE_TRAFO);\n', '');
+    result = result.replace('  if (activeRecord.occurrenceTypes.includes(TYPE_TRAFO) !== previousHasTransformer) updatePhotoGrid();\n', '');
     result = result.replace(/, validationStage: 'data'/g, '');
     const handler = result.match(/  elements\.continueToReviewButton\.addEventListener\('click', [^]*?\);\n  \$\$\('\[data-back-step\]'/)[0];
     result = result.replace(handler, 'REVIEW_GATE');
@@ -285,7 +289,7 @@ test('isolamento app: toda lógica fora dos gates de etapa permanece byte a byte
   assert.equal(pipeline(appSource), pipeline(baseline('app.js')), 'delta/persistência/retry do envio não podem mudar');
 });
 for (const name of ['api.js', 'db.js', 'index.html', 'service-worker.js']) test('isolamento ' + name + ': somente identificadores de release mudaram', async () => {
-  const clean = source => source.replace(/2026\.10\.07\.[23]/g, 'RELEASE');
+  const clean = source => source.replace(/\d{4}\.\d{2}\.\d{2}\.\d+/g, 'RELEASE');
   assert.equal(clean(await read(name)), clean(baseline(name)));
 });
 for (const name of ['config.js', 'styles.css', 'manifest.webmanifest', '.github/workflows/pages.yml']) {

@@ -7,13 +7,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.07.3';
+} from './core.js?v=2026.10.11.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.07.3';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.07.3';
+} from './db.js?v=2026.10.11.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.11.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -830,6 +830,7 @@ async function handleFormInput(event) {
   const revision = sessionRevision; const record = await ensureActiveRecord();
   if (occurrenceSubmissionRunning || revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
   const previousBase = activeRecord.base;
+  const previousHasTransformer = activeRecord.occurrenceTypes.includes(TYPE_TRAFO);
   syncFormToRecord();
   if (event?.target === elements.operationBase && activeRecord.base !== previousBase) {
     clearTimeout(catalogSearchTimer);
@@ -847,6 +848,7 @@ async function handleFormInput(event) {
   elements.pgPostSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST));
   elements.pgConductorSection.hidden = !(activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_CONDUCTOR));
   elements.otherTypeSection.hidden = !activeRecord.occurrenceTypes.includes(TYPE_OTHER);
+  if (activeRecord.occurrenceTypes.includes(TYPE_TRAFO) !== previousHasTransformer) updatePhotoGrid();
   elements.observationCount.textContent = elements.observation.value.length;
   if (event?.target === elements.team) {
     localStorage.setItem(LAST_TEAM_KEY, elements.team.value.trim());

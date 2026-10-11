@@ -1,0 +1,338 @@
+{
+  "initialHead": "5968b6eae8440c1efdfacf479770a9cc4a213889",
+  "branch": "hotfix/trafo-photo-visibility-20261011",
+  "initialRelease": "2026.10.07.3",
+  "finalRelease": "2026.10.11.1",
+  "backendChanged": false,
+  "productionQa": false,
+  "operationalLogins": 0,
+  "physicalDevices": "NÃO VALIDADO FISICAMENTE",
+  "baseline": {
+    "expectedFailed": 1,
+    "reason": "photoCard6.hidden remained true after real checkbox change"
+  },
+  "automatedCases": {
+    "passed": 308,
+    "failed": 0
+  },
+  "additionalGroups": {
+    "passed": 2,
+    "failed": 0
+  },
+  "suites": [
+    {
+      "suite": "trafo-photo-visibility",
+      "exit": 0,
+      "passed": 53,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "stage-validation",
+      "exit": 0,
+      "passed": 70,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "correction-delta",
+      "exit": 0,
+      "passed": 51,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "correction-persistence",
+      "exit": 0,
+      "passed": 53,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "field-historical-correction",
+      "exit": 0,
+      "passed": 48,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "create-photo-commit",
+      "exit": 0,
+      "passed": 24,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "operational-stability",
+      "exit": 0,
+      "passed": 9,
+      "failed": 0,
+      "groupPassed": null
+    },
+    {
+      "suite": "photo-sync-notice",
+      "exit": 0,
+      "passed": null,
+      "failed": null,
+      "groupPassed": true
+    },
+    {
+      "suite": "pwa-release",
+      "exit": 0,
+      "passed": true,
+      "failed": null,
+      "groupPassed": null
+    }
+  ],
+  "focusedScenarios": [
+    {
+      "name": "regressão principal: render inicial sem ocorrência → change real de Trafo mostra seção, slots 6/7 e botões",
+      "passed": true
+    },
+    {
+      "name": "desmarcar e remarcar Trafo atualiza todos os cartões na própria mudança",
+      "passed": true
+    },
+    {
+      "name": "alternância rápida sem esperar entre eventos termina com Trafo e ambos os cartões visíveis",
+      "passed": true
+    },
+    {
+      "name": "atualização dos cartões antecede o término do autosave, sem rede",
+      "passed": true
+    },
+    {
+      "name": "digitar com Trafo selecionado não redesenha a grade nem faz upload",
+      "passed": true
+    },
+    {
+      "name": "intermitência: seleção após Sub-base preenchida",
+      "passed": true
+    },
+    {
+      "name": "intermitência: seleção após diretório carregado depois da abertura",
+      "passed": true
+    },
+    {
+      "name": "intermitência: seleção após serviço adicionado",
+      "passed": true
+    },
+    {
+      "name": "intermitência: seleção após navegar e voltar à etapa",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE TRAFO → SUBSTITUIÇÃO DE POSTE",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE POSTE → SUBSTITUIÇÃO DE TRAFO",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE TRAFO → SUBSTITUIÇÃO DE CONDUTOR",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE CONDUTOR → SUBSTITUIÇÃO DE TRAFO",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE TRAFO → LINHA VIVA",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: LINHA VIVA → SUBSTITUIÇÃO DE TRAFO",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE TRAFO → OUTRO",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: OUTRO → SUBSTITUIÇÃO DE TRAFO",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE TRAFO → SUBSTITUIÇÃO DE POSTE → SUBSTITUIÇÃO DE CONDUTOR",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE TRAFO → SUBSTITUIÇÃO DE CONDUTOR → SUBSTITUIÇÃO DE POSTE",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE POSTE → SUBSTITUIÇÃO DE TRAFO → SUBSTITUIÇÃO DE CONDUTOR",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE POSTE → SUBSTITUIÇÃO DE CONDUTOR → SUBSTITUIÇÃO DE TRAFO",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE CONDUTOR → SUBSTITUIÇÃO DE TRAFO → SUBSTITUIÇÃO DE POSTE",
+      "passed": true
+    },
+    {
+      "name": "tipos combinados, ordem: SUBSTITUIÇÃO DE CONDUTOR → SUBSTITUIÇÃO DE POSTE → SUBSTITUIÇÃO DE TRAFO",
+      "passed": true
+    },
+    {
+      "name": "sem Trafo: SUBSTITUIÇÃO DE POSTE mantém evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "sem Trafo: SUBSTITUIÇÃO DE CONDUTOR mantém evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "sem Trafo: PODA mantém evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "sem Trafo: LINHA VIVA mantém evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "sem Trafo: CAVA & ROCHA mantém evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "sem Trafo: OUTRO mantém evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "botão real take do slot 6 preserva índice e configuração de arquivo/câmera",
+      "passed": true
+    },
+    {
+      "name": "botão real attach do slot 6 preserva índice e configuração de arquivo/câmera",
+      "passed": true
+    },
+    {
+      "name": "botão real replace do slot 6 preserva índice e configuração de arquivo/câmera",
+      "passed": true
+    },
+    {
+      "name": "Excluir slot 6 bloqueia evidência confirmada e preserva fotos 1–5 e o outro Trafo",
+      "passed": true
+    },
+    {
+      "name": "Excluir substituição local do slot 6 preserva URL anterior e demais slots",
+      "passed": true
+    },
+    {
+      "name": "botão real take do slot 7 preserva índice e configuração de arquivo/câmera",
+      "passed": true
+    },
+    {
+      "name": "botão real attach do slot 7 preserva índice e configuração de arquivo/câmera",
+      "passed": true
+    },
+    {
+      "name": "botão real replace do slot 7 preserva índice e configuração de arquivo/câmera",
+      "passed": true
+    },
+    {
+      "name": "Excluir slot 7 bloqueia evidência confirmada e preserva fotos 1–5 e o outro Trafo",
+      "passed": true
+    },
+    {
+      "name": "Excluir substituição local do slot 7 preserva URL anterior e demais slots",
+      "passed": true
+    },
+    {
+      "name": "sete blobs mantêm UUID, slot, identidade, preview e uploadKey ao desmarcar/remarcar, sem upload",
+      "passed": true
+    },
+    {
+      "name": "troca acidental conserva Série/CIA/BTO nos controles e recupera dados ao remarcar, conforme fluxo atual",
+      "passed": true
+    },
+    {
+      "name": "rascunho salvo → reset → resumeDraft mantém mesmo UUID, campos e sete blobs",
+      "passed": true
+    },
+    {
+      "name": "reload simulado com armazenamento compartilhado reidrata Trafo e os mesmos sete slots",
+      "passed": true
+    },
+    {
+      "name": "reidratação mostra cartões antes do carregamento assíncrono dos blobs",
+      "passed": true
+    },
+    {
+      "name": "UUID diferente não herda blobs nem previews dos slots da ocorrência anterior",
+      "passed": true
+    },
+    {
+      "name": "Correção Solicitada: substituir somente 6, navegar e enfileirar evidencePatch sem falso CORRIGIDO",
+      "passed": true
+    },
+    {
+      "name": "Correção Solicitada: substituir somente 7, navegar e enfileirar evidencePatch sem falso CORRIGIDO",
+      "passed": true
+    },
+    {
+      "name": "Correção Solicitada: somente atualizar visibilidade não gera delta, envio ou evento de reenvio",
+      "passed": true
+    },
+    {
+      "name": "Correção Solicitada reaberta mantém cartões visíveis, substituição pendente do slot 7 e original independente",
+      "passed": true
+    },
+    {
+      "name": "Correção Solicitada sem Trafo preserva seção de dados disponível e evidências específicas ocultas",
+      "passed": true
+    },
+    {
+      "name": "validação por etapas: zero fotos não bloqueia continuar; final exige 3 gerais e evidências 6/7",
+      "passed": true
+    },
+    {
+      "name": "HTML/CSS: slots 6/7 continuam incorporados à etapa de dados, botões presentes e regras responsivas preservadas",
+      "passed": true
+    },
+    {
+      "name": "isolamento: única mudança funcional em app.js é sincronizar a grade na mudança da presença de Trafo",
+      "passed": true
+    }
+  ],
+  "build": {
+    "staticFrontend": true,
+    "bundlerRequired": false,
+    "syntaxChecks": [
+      {
+        "file": "app.js",
+        "syntaxPassed": true
+      },
+      {
+        "file": "core.js",
+        "syntaxPassed": true
+      },
+      {
+        "file": "api.js",
+        "syntaxPassed": true
+      },
+      {
+        "file": "db.js",
+        "syntaxPassed": true
+      },
+      {
+        "file": "config.js",
+        "syntaxPassed": true
+      },
+      {
+        "file": "service-worker.js",
+        "syntaxPassed": true
+      },
+      {
+        "file": "tests/trafo-photo-visibility.mjs",
+        "syntaxPassed": true
+      }
+    ],
+    "assetsAndImportsPassed": true,
+    "diffCheckPassed": true,
+    "release": "2026.10.11.1"
+  }
+}

@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.07.3';
-export const APP_BUILD = '2026-10-07-stage-validation';
+export const APP_VERSION = '2026.10.11.1';
+export const APP_BUILD = '2026-10-11-trafo-photo-visibility';
 
 export const TEAM_GOAL = 6000;
 
