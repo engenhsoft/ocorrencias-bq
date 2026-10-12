@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
     <title>Ocorrências B&Q</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.11.1" />
+    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.12.2" />
     <link rel="icon" href="./assets/icon-192.png" sizes="192x192" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=2026.10.11.1" />
+    <link rel="stylesheet" href="./styles.css?v=2026.10.12.2" />
   </head>
   <body>
     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
@@ -43,6 +43,7 @@
           <button id="loginButton" class="button button--primary button--full" type="submit">Entrar</button>
           <p id="loginMessage" class="form-message" role="alert"></p>
         </form>
+        <a class="button button--ghost programacao-access" href="https://programacao-servs-bq.web.app/" target="_blank" rel="noopener noreferrer">PROGRAMAÇÃO</a>
         <div class="login-status"><span id="loginNetworkDot" class="network-dot"></span><span id="loginNetworkText">Verificando conexão…</span><span id="loginAppVersion">v—</span></div>
       </section>
     </main>
@@ -71,6 +72,7 @@
           <button class="nav-item" type="button" data-nav="mine"><span aria-hidden="true">▤</span><span>Minhas ocorrências</span></button>
           <button class="nav-item" type="button" data-nav="sync"><span aria-hidden="true">↻</span><span>Sincronização</span><b id="syncNavCount" class="nav-count" hidden>0</b></button>
           <button id="supervisorNav" class="nav-item" type="button" data-nav="supervisor" hidden><span aria-hidden="true">✓</span><span>Supervisor</span><b id="supervisorNavCount" class="nav-count" hidden>0</b></button>
+          <a class="nav-item programacao-access" href="https://programacao-servs-bq.web.app/" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">↗</span><span>PROGRAMAÇÃO</span></a>
         </nav>
 
         <main class="content-area">
@@ -233,6 +235,6 @@
     <dialog id="releaseNoticeDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Novidades desta versão</p><h2>OCORRÊNCIAS B&amp;Q ATUALIZADO</h2></div></header><div class="modal__body"><p>Mais estabilidade ao anexar fotos, pesquisar serviços e salvar ocorrências sem internet. Quantidades de serviços aceitam vírgula ou ponto decimal. Correções continuam preservando os serviços e preços já registrados; serviços adicionados ou selecionados novamente usam os dados atuais da pesquisa.</p></div><footer class="modal__footer"><button id="releaseNoticeAcknowledge" class="button button--primary" value="acknowledged">Entendi</button></footer></form></dialog>
     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
     <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
-    <script type="module" src="./app.js?v=2026.10.11.1"></script>
+    <script type="module" src="./app.js?v=2026.10.12.2"></script>
   </body>
 </html>
