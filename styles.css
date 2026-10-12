@@ -705,3 +705,7 @@ p { color: var(--muted); line-height: 1.55; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Independent application access: no session or draft handler is involved. */
+a.programacao-access { text-decoration: none; }
+.login-card > .programacao-access { width: 100%; margin-top: .8rem; }
