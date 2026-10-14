@@ -135,7 +135,8 @@ test('Campo mantém payload e remove a inspeção dos cinco cabeçalhos', () => 
 });
 test('login, sessão, edição, fotos e leituras alheias à publicação não foram alteradas', () => {
   for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listPublishedRecords_']) {
-    assert.equal(extract(fixed, name), extract(invariantBaseline, name), name);
+    const current = extract(fixed, name).replace("  if (payload.role === 'fiscal') return loginFiscal_(payload);\n", '').replace("return data.role === 'fiscal' ? fiscalSession_(data) : data;", 'return data;');
+    assert.equal(current, extract(invariantBaseline, name), name);
   }
 });
 test('cópia de publicação ainda pendente permanece acionável com dois ranges e sem histórico', () => {

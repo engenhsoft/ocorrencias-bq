@@ -709,3 +709,59 @@ p { color: var(--muted); line-height: 1.55; }
 /* Independent application access: no session or draft handler is involved. */
 a.programacao-access { text-decoration: none; }
 .login-card > .programacao-access { width: 100%; margin-top: .8rem; }
+
+.role-switch { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.role-switch label span { white-space: normal; }
+.operational-insights { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 1rem; margin: 0 0 1.25rem; }
+.insight-card { min-width: 0; background: #fff; border: 1px solid #d8e5ed; border-radius: 20px; padding: 1.25rem; box-shadow: 0 6px 24px #0b2d5006; }
+.insight-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.insight-heading h3 { margin: .2rem 0; color: var(--navy-900); }
+.insight-heading .field { min-width: 9rem; max-width: 15rem; }
+.insight-tag { font-size: .76rem; color: #14767b; background: #e7f5f3; border-radius: 30px; padding: .5rem .75rem; font-weight: 700; }
+.top-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+.ranking-place { position: relative; padding: 1.2rem .8rem; border: 1px solid #dce7ed; border-radius: 16px; text-align: center; background: linear-gradient(170deg, #f7fafc, #fff); min-width: 0; }
+.ranking-place--1 { border-color: #eac064; background: linear-gradient(170deg, #fff5da, #fff); }
+.ranking-place--2 { border-color: #a6bbc9; }
+.ranking-place--3 { border-color: #caa48c; }
+.ranking-avatar { width: 3.2rem; height: 3.2rem; border-radius: 50%; display: grid; place-items: center; margin: 0 auto .65rem; background: #0b2d50; color: #fff; font-size: 1.1rem; font-weight: 800; }
+.ranking-place--1 .ranking-avatar { background: #b48012; }
+.ranking-position { display: block; color: #755721; font-size: .76rem; font-weight: 800; }
+.ranking-place h4 { font-size: 1rem; overflow-wrap: anywhere; margin: .55rem 0 .3rem; }
+.ranking-place p { font-size: .72rem; margin: .3rem 0 .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+.ranking-place strong, .ranking-place small { display: block; font-size: .9rem; }
+.ranking-place small { color: #477075; font-size: .76rem; margin-top: .3rem; }
+.insight-note { font-size: .75rem; color: var(--muted); margin: 1rem 0 .3rem; }
+.insight-updated { font-size: .7rem; color: var(--muted); }
+.insight-empty { color: var(--muted); padding: .6rem; }
+.bar-chart { overflow-x: auto; padding: .4rem 0; }
+.bar-chart__plot { display: flex; gap: .7rem; min-width: 380px; padding: 0 .3rem; }
+.bar-chart__column { flex: 1; min-width: 52px; max-width: 110px; text-align: center; }
+.bar-chart__column > strong { display: block; font-size: .76rem; min-height: 1.4rem; white-space: nowrap; }
+.bar-chart__track { height: 135px; border-bottom: 1px solid #cbdce7; display: flex; justify-content: center; align-items: flex-end; }
+.bar-chart__track > span { display: block; width: 58%; min-width: 24px; max-width: 55px; border-radius: 6px 6px 0 0; background: linear-gradient(#159898, #237eb3); }
+.bar-chart--rates .bar-chart__track > span { background: linear-gradient(#e2ac48, #b87929); }
+.bar-chart__label { display: block; margin: .6rem 0 .25rem; font-size: .68rem; font-weight: 700; min-height: 2rem; overflow-wrap: anywhere; }
+.bar-chart__column > small { display: block; font-size: .64rem; color: var(--muted); }
+.chart-data { margin-top: .8rem; font-size: .75rem; }
+.chart-data summary { cursor: pointer; color: #176c81; }
+.insight-filters { display: flex; gap: .6rem; flex-wrap: wrap; }
+.entry-pending-content section + section { border-top: 1px solid #dfebf1; padding-top: 1rem; margin-top: 1.2rem; }
+.entry-correction-list { display: grid; gap: .5rem; }
+.entry-correction-list .button { white-space: normal; }
+.fiscal-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; padding: 1.2rem; }
+.fiscal-filters .field { min-width: 0; }
+.fiscal-filters input, .fiscal-filters select { min-width: 0; width: 100%; max-width: 100%; }
+.fiscal-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fiscal-value { grid-column: 1 / -1; }
+.fiscal-pagination { justify-content: flex-end; margin-top: 1rem; }
+@media (max-width: 640px) {
+  .insight-card { padding: .9rem; border-radius: 15px; }
+  .top-three { gap: .4rem; }
+  .ranking-place { padding: .9rem .3rem; }
+  .ranking-avatar { width: 2.5rem; height: 2.5rem; font-size: .9rem; }
+  .ranking-place h4 { font-size: .8rem; }
+  .ranking-place strong { font-size: .76rem; }
+  .ranking-place p, .ranking-place small { font-size: .64rem; }
+  .fiscal-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  .fiscal-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.10.14.1';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.14.1';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.14.2';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.14.2';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -118,7 +118,7 @@ export async function apiRequest(action, payload = {}, options = {}) {
         throw new ApiError('O servidor ainda não confirmou esta foto. Ela continua guardada neste aparelho.', 'PHOTO_CONFIRMATION_PENDING');
       }
     }
-    if (action === 'login' && (!String(data.token || '').trim() || typeof data.user !== 'string' || !data.user.trim() || data.role !== (payload.role === 'supervisor' ? 'supervisor' : 'field'))) {
+    if (action === 'login' && (!String(data.token || '').trim() || typeof data.user !== 'string' || !data.user.trim() || data.role !== (payload.role === 'fiscal' ? 'fiscal' : payload.role === 'supervisor' ? 'supervisor' : 'field'))) {
       throw new ApiError('O servidor retornou uma sessão incompleta. Tente novamente.', 'INVALID_SESSION_RESPONSE');
     }
     return data;
@@ -175,6 +175,10 @@ export function loadMaterialCatalog(options = {}) {
 
 export const api = Object.freeze({
   login: (user, password, role) => apiRequest('login', { user, password, role }),
+  getOperationalSummary: (token) => apiRequest('getOperationalSummary', { token }, { timeoutMs: 60000 }),
+  listFiscalRecords: (token, filters = {}, offset = 0) => apiRequest('listFiscalRecords', { token, filters, offset }, { timeoutMs: 60000 }),
+  getOccurrenceDocument: (token, recordId, detail = false) => apiRequest('getOccurrenceDocument', { token, recordId, detail }, { timeoutMs: 60000 }),
+  getDocumentPhoto: (token, recordId, photoIndex) => apiRequest('getDocumentPhoto', { token, recordId, photoIndex }, { timeoutMs: 60000 }),
   searchCatalog: (token, query, limit = 25, contract = '') => apiRequest('searchCatalog', { token, query, limit, contract }),
   getTeamDirectory: (token) => apiRequest('getTeamDirectory', { token }),
   submitRecord: (token, record, clientVersion) => apiRequest('submitRecord', { token, record, clientVersion }),

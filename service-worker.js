@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const WORKER_VERSION = '2026.10.14.1';
+const WORKER_VERSION = '2026.10.14.2';
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const versioned = (path) => `${path}?v=${WORKER_VERSION}`;
 const APP_SHELL = [
@@ -11,6 +11,9 @@ const APP_SHELL = [
   versioned('./db.js'),
   versioned('./api.js'),
   versioned('./app.js'),
+  versioned('./operational-features.js'),
+  versioned('./occurrence-pdf.js'),
+  './vendor/pdf-lib-1.17.1.min.js',
   versioned('./manifest.webmanifest'),
   './assets/icon-192.png',
   './assets/icon-512.png',
