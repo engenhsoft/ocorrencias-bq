@@ -1,0 +1,27 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.07.3',
++  version: '2026.10.14.1',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -431,8 +431,13 @@
+ 
+ function pendingPersistenceSnapshot_(values) {
+   const snapshot = values.slice();
+-  // Sheets pode devolver o contrato como numero. Seu valor exato continua obrigatorio.
+-  snapshot[COL.CONTRACT - 1] = String(snapshot[COL.CONTRACT - 1]);
++  // Identificadores digitados como texto podem ser relidos como numero pelo Sheets.
++  // String conserva o valor exato: "000123" continua diferente de 123.
++  [COL.CONTRACT, COL.OCCURRENCE_NUMBER, COL.PG_POST_REMOVED, COL.PG_POST_INSTALLED,
++    COL.PG_CONDUCTOR_START, COL.PG_CONDUCTOR_END, COL.REMOVED_CODE, COL.REMOVED_CIA,
++    COL.REMOVED_BTO, COL.NEW_CODE, COL.NEW_CIA, COL.NEW_BTO].forEach(function (column) {
++    snapshot[column - 1] = String(snapshot[column - 1] == null ? '' : snapshot[column - 1]);
++  });
+   return publicationJson_(snapshot);
+ }
+ 

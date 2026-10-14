@@ -6,6 +6,8 @@ import vm from 'node:vm';
 // Synthetic fixtures only. No browser, credentials, network or production storage.
 const root = new URL('../', import.meta.url);
 const initialHead = '7c7ea0deec3dbf2fd8d33f27fbca81c1234be507';
+const isolationHead = process.argv.find(arg => arg.startsWith('--isolation-baseline='))?.split('=')[1] || initialHead;
+const isolationBaseline = name => execFileSync('git', ['show', isolationHead + ':' + name], { cwd: root, encoding: 'utf8' });
 const read = name => readFile(new URL(name, root), 'utf8');
 const baseline = name => execFileSync('git', ['show', initialHead + ':' + name], { cwd: root, encoding: 'utf8' });
 const [appSource, coreSource] = await Promise.all(['app.js', 'core.js'].map(read));
@@ -290,10 +292,10 @@ test('isolamento app: lógica fora dos gates e da sincronização visual de Traf
 });
 for (const name of ['api.js', 'db.js', 'index.html', 'service-worker.js']) test('isolamento ' + name + ': somente identificadores de release mudaram', async () => {
   const clean = source => source.replace(/\d{4}\.\d{2}\.\d{2}\.\d+/g, 'RELEASE');
-  assert.equal(clean(await read(name)), clean(baseline(name)));
+  assert.equal(clean(await read(name)), clean(isolationBaseline(name)));
 });
 for (const name of ['config.js', 'styles.css', 'manifest.webmanifest', '.github/workflows/pages.yml']) {
-  test('isolamento: ' + name + ' está inalterado', async () => assert.equal(await read(name), baseline(name)));
+  test('isolamento: ' + name + ' está inalterado', async () => assert.equal(await read(name), isolationBaseline(name)));
 }
 test('sem etapa explícita: contrato anterior do Supervisor permanece idêntico', () => {
   for (const record of [fixture(), withPhotos(fixture()), fixture({ occurrenceTypes: [POSTE] }), fixture({ team: '' })]) {
