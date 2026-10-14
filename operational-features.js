@@ -1,5 +1,5 @@
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, sameUser, statusLabel, RECORD_STATUS } from './core.js?v=2026.10.14.2';
-import { api, ApiError } from './api.js?v=2026.10.14.2';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, sameUser, statusLabel, RECORD_STATUS } from './core.js?v=2026.10.14.3';
+import { api, ApiError } from './api.js?v=2026.10.14.3';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -44,7 +44,14 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
     if (!summary?.bases || getSession()?.role !== 'supervisor') return;
     const basePeriod = $('#baseChartPeriod')?.value || 'month', ratePeriod = $('#rateChartPeriod')?.value || 'month', dimension = $('#rateChartDimension')?.value || 'base';
     $('#baseChart').innerHTML = barsMarkup(summary.bases[basePeriod] || []);
-    $('#rateChart').innerHTML = barsMarkup(summary.nonconformity?.[ratePeriod]?.[dimension] || [], true);
+    if ($('#nonconformitySection')?.hidden === false) $('#rateChart').innerHTML = barsMarkup(summary.nonconformity?.[ratePeriod]?.[dimension] || [], true);
+  }
+  function setView(view) {
+    const section = $('#nonconformitySection');
+    if (!section) return;
+    section.hidden = getSession()?.role !== 'supervisor' || view !== 'supervisor';
+    if (section.hidden) $('#rateChart').innerHTML = '';
+    else renderCharts();
   }
   async function refreshSummary(force = false) {
     const session = getSession(), revision = getRevision();
@@ -136,7 +143,7 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.2');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.3');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -148,6 +155,7 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
     finally { if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
   }
   function reset() {
+    if ($('#nonconformitySection')) $('#nonconformitySection').hidden = true;
     entryRevision = -1; noticeConsumed = false; pendingNotice = null; summary = null; summaryTask = null; fiscalTask = null; summaryRevision = -1; fiscalRevision = -1; fiscalSequence++;
     if ($('#entryPendingDialog')?.open) $('#entryPendingDialog').close();
     for (const selector of ['#fieldInsights', '#mineInsights', '#supervisorRanking', '#baseChart', '#rateChart', '#fiscalList', '#fiscalKpis', '#mineDetailContent', '#reviewDialogContent']) if ($(selector)) $(selector).innerHTML = '';
@@ -176,5 +184,5 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
     if (target.id === 'fiscalNext' && fiscalNextOffset != null) void refreshFiscal(fiscalNextOffset);
     if (target.hasAttribute('data-refresh-insights')) void refreshSummary(true);
   });
-  return { enter, reset, refreshSummary, acceptMine, refreshFiscal };
+  return { enter, reset, setView, refreshSummary, acceptMine, refreshFiscal };
 }

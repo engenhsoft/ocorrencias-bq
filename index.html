@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
     <title>Ocorrências B&Q</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.14.2" />
+    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.14.3" />
     <link rel="icon" href="./assets/icon-192.png" sizes="192x192" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=2026.10.14.2" />
+    <link rel="stylesheet" href="./styles.css?v=2026.10.14.3" />
   </head>
   <body>
     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
@@ -201,7 +201,7 @@
             <div class="operational-insights">
               <div id="supervisorRanking" aria-live="polite"></div>
               <section class="insight-card"><header class="insight-heading"><div><p class="eyebrow">Distribuição operacional</p><h3>Ocorrências por Base</h3></div><label class="field"><span>Período</span><select id="baseChartPeriod"><option value="month">Mês atual</option><option value="all">Período completo</option></select></label></header><div id="baseChart" aria-live="polite"></div></section>
-              <section class="insight-card"><header class="insight-heading"><div><p class="eyebrow">Decisões do Supervisor</p><h3>Taxa de não conformidade</h3></div><div class="insight-filters"><label class="field"><span>Agrupar por</span><select id="rateChartDimension"><option value="base">Base</option><option value="crewLeader">Chefe de turma</option></select></label><label class="field"><span>Período</span><select id="rateChartPeriod"><option value="month">Mês atual</option><option value="all">Período completo</option></select></label></div></header><div id="rateChart" aria-live="polite"></div><p class="insight-note">UUIDs que receberam correção ou reprovação ÷ UUIDs com decisão de conferência no período × 100. Pedidos repetidos contam uma vez; aprovação posterior preserva a não conformidade. Sem análises: SEM DADOS.</p></section>
+              <section id="nonconformitySection" class="insight-card" hidden><header class="insight-heading"><div><p class="eyebrow">Decisões do Supervisor</p><h3>Taxa de não conformidade</h3></div><div class="insight-filters"><label class="field"><span>Agrupar por</span><select id="rateChartDimension"><option value="base">Base</option><option value="crewLeader">Chefe de turma</option></select></label><label class="field"><span>Período</span><select id="rateChartPeriod"><option value="month">Mês atual</option><option value="all">Período completo</option></select></label></div></header><div id="rateChart" aria-live="polite"></div><p class="insight-note">UUIDs que receberam correção ou reprovação ÷ UUIDs com decisão de conferência no período × 100. Pedidos repetidos contam uma vez; aprovação posterior preserva a não conformidade. Sem análises: SEM DADOS.</p></section>
               <button class="button button--ghost button--small" type="button" data-refresh-insights>Atualizar indicadores</button>
             </div>
             <section id="supervisorKpis" class="supervisor-kpis" aria-label="Indicadores do Supervisor" aria-busy="true"><article class="supervisor-kpi"><span>Publicadas</span><strong id="supervisorKpiTotal">—</strong></article><article class="supervisor-kpi"><span>Aguardando conferência</span><strong id="supervisorKpiWaiting">—</strong></article><article class="supervisor-kpi"><span>Aguardando correção</span><strong id="supervisorKpiCorrection">—</strong></article><article class="supervisor-kpi"><span>Reprovadas</span><strong id="supervisorKpiRejected">—</strong></article><article class="supervisor-kpi"><span>Pendentes de sincronização</span><strong id="supervisorKpiSync">—</strong></article></section>
@@ -260,6 +260,6 @@
     <dialog id="releaseNoticeDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Novidades desta versão</p><h2>OCORRÊNCIAS B&amp;Q ATUALIZADO</h2></div></header><div class="modal__body"><p>Sincronização e reenvio de correções com confirmação por UUID. Os painéis incluem TOP 3 mensal e indicadores por Base. Ocorrências aguardando conferência e publicadas podem gerar PDF. O perfil Fiscal consulta somente as Bases autorizadas.</p></div><footer class="modal__footer"><button id="releaseNoticeAcknowledge" class="button button--primary" value="acknowledged">Entendi</button></footer></form></dialog>
     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
     <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
-    <script type="module" src="./app.js?v=2026.10.14.2"></script>
+    <script type="module" src="./app.js?v=2026.10.14.3"></script>
   </body>
 </html>
