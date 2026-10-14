@@ -41,7 +41,7 @@ async function exercisePhotoSync({ local = true, blobs = [3], resolved = true } 
     getPhotosForRecord: async () => blobs.map((index) => ({ photoIndex: index, blob: {} })),
     api: { getRecordState: async (token, id) => {
       events.push(`remote:${id}`);
-      return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [1, 2].map((index) => ({ photoIndex: index, confirmed: true })), record: { photos: ['foto1', 'foto2'] } };
+      return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [1, 2].map((index) => ({ photoIndex: index, confirmed: true })), record: { recordId: id, user: 'equipe-a', photos: ['foto1', 'foto2'] } };
     } },
     normalizePhotoStates: core.normalizePhotoStates, requiredPhotoDeficit: core.requiredPhotoDeficit, normalizeArray: core.normalizeArray, sameUser: core.sameUser,
     RECORD_STATUS: core.RECORD_STATUS, openPhotoSyncRequest: core.openPhotoSyncRequest,
@@ -67,7 +67,7 @@ const missing = await exercisePhotoSync({ blobs: [] });
 assert.equal(missing.events.includes('sync:uuid-a'), false);
 assert.match(missing.feedback.get('uuid-a'), /fotos necessárias/);
 const otherDevice = await exercisePhotoSync({ local: false });
-assert.equal(otherDevice.events.some((item) => item.startsWith('remote:')), false);
+assert.equal(otherDevice.events.some((item) => item.startsWith('remote:')), true, 'servidor é consultado antes de exigir arquivo local');
 assert.equal(otherDevice.events.includes('sync:uuid-a'), false);
 const unconfirmed = await exercisePhotoSync({ resolved: false });
 assert.equal(unconfirmed.events.includes('refresh'), false);

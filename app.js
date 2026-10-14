@@ -1,4 +1,4 @@
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.14.2';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.14.3';
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -8,13 +8,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.14.2';
+} from './core.js?v=2026.10.14.3';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.14.2';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.14.2';
+} from './db.js?v=2026.10.14.3';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.14.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -743,6 +743,7 @@ async function handleProfileSwitch(event) {
 function logout() { persistSession(null); clearSessionUiState(); showLogin(); }
 
 function navigate(view) {
+  if (view === 'supervisor' && session?.role !== 'supervisor') return;
   if (session?.role === 'fiscal' && view !== 'fiscal') return;
   if (view === 'fiscal' && session?.role !== 'fiscal') return;
   if (view === 'supervisor' && currentView !== 'supervisor') {
@@ -756,6 +757,7 @@ function navigate(view) {
   currentView = view;
   $$('.view').forEach((section) => { const active = section.id === `view-${view}`; section.hidden = !active; section.classList.toggle('is-active', active); });
   $$('.nav-item').forEach((item) => item.classList.toggle('is-active', item.dataset.nav === view));
+  if (typeof featuresController === 'function') featuresController()?.setView(view);
   if (view === 'new' && session?.role === 'field') loadDailyProduction(elements.team.value, false);
   if (view === 'mine') refreshMine(false);
   if (view === 'sync') updateQueueUi();
@@ -1309,9 +1311,18 @@ function materialTable(materials = []) {
 }
 
 function photoUrlsForRecord(record = {}) {
-  return Array.from({ length: 5 }, (_, index) => normalizePhotoUrl(
-    record.photos?.[index] || record.photoStates?.[index]?.serverUrl || record.photoStates?.[index]?.url || previewUrls.get(index + 1) || ''
-  ));
+  return Array.from({ length: 5 }, (_, index) => recordPhotoUrl(record, index + 1));
+}
+
+function recordPhotoUrl(record, index) {
+  const state = record.photoStates?.[index - 1] || {};
+  const local = typeof activePhotos !== 'undefined' ? activePhotos.get(index) : null;
+  const ownPreview = typeof session !== 'undefined' && session?.role === 'field'
+    && typeof activeRecord !== 'undefined' && record.recordId && record.recordId === activeRecord?.recordId
+    && local?.recordId === record.recordId && local.photoIndex === index && state.localReady
+    && state.uploadKey && local.uploadKey === state.uploadKey ? previewUrls.get(index) : '';
+  const remote = index <= 5 ? record.photos?.[index - 1] : record.transformerPhotos?.[index === 6 ? 'removed' : 'installed'];
+  return normalizePhotoUrl(ownPreview || state.serverUrl || state.url || remote || '');
 }
 
 function photoMarkup(record) {
@@ -1323,7 +1334,7 @@ function photoMarkup(record) {
 function transformerPhotoMarkup(record, kind) {
   const index = kind === 'removed' ? 6 : 7;
   const label = kind === 'removed' ? 'Evidência do transformador retirado' : 'Evidência do transformador instalado';
-  const url = normalizePhotoUrl(record.transformerPhotos?.[kind] || record.photoStates?.[index - 1]?.serverUrl || record.photoStates?.[index - 1]?.url || previewUrls.get(index) || '');
+  const url = recordPhotoUrl(record, index);
   if (!url && !normalizeOccurrenceTypes(record.occurrenceTypes).includes(TYPE_TRAFO)) return '';
   return url
     ? `<figure class="review-photo transformer-review-photo" data-photo-index="${index}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="${escapeHtml(label)}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>${escapeHtml(label)}</span></figure>`
@@ -1614,12 +1625,16 @@ async function syncAll(notify = false) {
   if (syncRunning || !requestSession || requestSession.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
   try {
     const queue = (await getAllRecords()).filter((record) => (!record.user || sameUser(record.user, requestSession.user)) && SYNCABLE_STATUSES.has(record.status));
+    let completed = 0; let pending = 0;
     for (const record of queue) {
       if (session?.token !== requestSession.token) break;
-      try { await syncSingleRecord(record.recordId, false); }
-      catch (error) { console.error('[Fila] Falha local em uma ocorrência; os próximos itens continuam.', { recordId: record.recordId, code: error?.code || error?.name }); }
+      try {
+        const result = await syncSingleRecord(record.recordId, false);
+        if (result && !result.lastError && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(result.status)) completed += 1; else pending += 1;
+      }
+      catch (error) { pending += 1; console.error('[Fila] Falha local em uma ocorrência; os próximos itens continuam.', { recordId: record.recordId, code: error?.code || error?.name }); }
     }
-    if (notify) toast(queue.length ? 'Fila verificada e atualizada.' : 'Nenhum registro pendente.', 'success');
+    if (notify && session?.token === requestSession.token) toast(queue.length ? `${completed} ${completed === 1 ? 'ocorrência sincronizada' : 'ocorrências sincronizadas'}; ${pending} ${pending === 1 ? 'continua pendente' : 'continuam pendentes'}.${pending ? ' Consulte os erros e tente novamente.' : ''}` : 'Nenhum registro pendente.', pending ? 'error' : 'success');
   } catch (error) {
     console.error('[Fila] Falha ao verificar a fila.', error);
     if (notify) toast('Não foi possível verificar a fila. Tente novamente.', 'error');
@@ -1792,16 +1807,19 @@ async function syncRequestedPhotos(recordId, { notify = true, refresh = true } =
   if (!remote) return;
   photoSyncAttempts.add(recordId); photoSyncFeedback.delete(recordId); renderPhotoSyncRequests();
   try {
-    const local = await getRecord(recordId);
-    const photos = local && (!local.user || sameUser(local.user, requestSession.user)) ? await getPhotosForRecord(recordId) : [];
-    const stored = new Set(photos.filter((photo) => photo.blob).map((photo) => photo.photoIndex));
-    if (revision !== sessionRevision) return { ok: false, recordId };
-    if (!local || (local.user && !sameUser(local.user, requestSession.user))) {
-      throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
-    }
     const serverState = await api.getRecordState(requestSession.token, recordId);
     if (revision !== sessionRevision) return { ok: false, recordId };
+    if (serverState.record?.recordId !== recordId || (serverState.record.user && !sameUser(serverState.record.user, requestSession.user))) {
+      throw new ApiError('A confirmação não corresponde a esta ocorrência.', 'INVALID_RECORD_STATE');
+    }
+    const confirmed = normalizePhotoStates(serverState.photoStates);
+    const expected = normalizeArray(serverState.record?.audit?.expectedPhotoIndexes).map(Number);
     if (serverState.status === RECORD_STATUS.WAITING_SUPERVISOR) {
+      const validSlot = index => Boolean(confirmed[index - 1]?.confirmed && (confirmed[index - 1]?.serverUrl || confirmed[index - 1]?.url));
+      const transformer = normalizeArray(serverState.record?.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO');
+      if ([1, 2, 3, 4, 5].filter(validSlot).length < 3 || expected.some(index => !validSlot(index)) || (transformer && (!validSlot(6) || !validSlot(7)))) {
+        throw new ApiError('O servidor ainda não confirmou todas as evidências necessárias. A solicitação foi preservada.', 'PHOTO_SYNC_PENDING');
+      }
       if (refresh) await refreshMine(false);
       photoSyncFeedback.delete(recordId);
       if (notify) toast('Fotos já confirmadas pelo servidor. Ocorrência disponível ao Supervisor.', 'success');
@@ -1811,7 +1829,13 @@ async function syncRequestedPhotos(recordId, { notify = true, refresh = true } =
       if (refresh) await refreshMine(false);
       throw new ApiError('A ocorrência não está mais aguardando fotos. Atualize a lista.', 'PHOTO_SYNC_UPDATED');
     }
-    const confirmed = normalizePhotoStates(serverState.photoStates);
+    const local = await getRecord(recordId);
+    const photos = local && (!local.user || sameUser(local.user, requestSession.user)) ? await getPhotosForRecord(recordId) : [];
+    const stored = new Set(photos.filter((photo) => photo.blob).map((photo) => photo.photoIndex));
+    if (revision !== sessionRevision) return { ok: false, recordId };
+    if (!local || (local.user && !sameUser(local.user, requestSession.user))) {
+      throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
+    }
     const available = {
       ...remote,
       photos: serverState.record?.photos || [],
@@ -1823,7 +1847,6 @@ async function syncRequestedPhotos(recordId, { notify = true, refresh = true } =
         localReady: stored.has(index + 1)
       }))
     };
-    const expected = normalizeArray(serverState.record?.audit?.expectedPhotoIndexes).map(Number);
     if (requiredPhotoDeficit(available) > 0 || expected.some((index) => !confirmed[index - 1]?.confirmed && !stored.has(index))) {
       throw new ApiError('Não foi possível localizar neste dispositivo as fotos necessárias para concluir a sincronização.', 'LOCAL_PHOTO_MISSING');
     }

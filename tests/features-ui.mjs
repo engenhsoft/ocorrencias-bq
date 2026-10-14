@@ -58,6 +58,9 @@ try {
       await page.locator('#appShell').waitFor({ state: 'visible' });
     };
     await login('field');
+    assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
+    await page.evaluate(() => document.querySelector('#supervisorNav').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    assert.equal(await page.locator('#view-supervisor').isVisible(), false);
     if (await page.locator('#releaseNoticeDialog').isVisible()) await page.locator('#releaseNoticeAcknowledge').click();
     await page.locator('#entryPendingDialog').waitFor({ state: 'visible' });
     assert.match(await page.locator('#entryPendingContent').innerText(), /1 ocorrência com fotos pendentes/); assert.match(await page.locator('#entryPendingContent').innerText(), /1 ocorrência aguardando sua correção/);
@@ -69,12 +72,18 @@ try {
     await page.waitForFunction(() => document.querySelector('#occurrenceNumber').value === 'O-2'); assert.equal(await page.locator('#occurrenceNumber').inputValue(), 'O-2');
     await page.locator('#logoutButton').click(); await login('supervisor');
     await page.locator('#supervisorRanking .ranking-place').first().waitFor(); await page.locator('#baseChartPeriod').selectOption('all'); await page.locator('#rateChartDimension').selectOption('crewLeader');
+    assert.equal(await page.locator('#nonconformitySection').isVisible(), true);
     assert.match(await page.locator('#rateChart').innerText(), /SEM DADOS/);
+    await page.reload(); await page.locator('#supervisorRanking .ranking-place').first().waitFor();
+    assert.equal(await page.locator('#nonconformitySection').isVisible(), true);
+    assert.equal(await page.locator('#rateChartPeriod').inputValue(), 'month');
     await page.locator('#supervisorList [data-export-record]').first().waitFor();
     if (name === 'mobile') { await page.screenshot({ path: path.join(evidence, name + '-overflow.png'), fullPage: true }); await writeFile(path.join(evidence, 'overflow.json'), JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(el).display !== 'none').map(el => ({ tag: el.tagName, id: el.id, className: el.className, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, text: (el.textContent || '').slice(0, 60) }))), null, 2)); }
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1); assert.equal(overflow, false, name + ' horizontal page overflow');
     await page.screenshot({ path: path.join(evidence, name + '-supervisor.png'), fullPage: true });
     await page.locator('#logoutButton').click(); await login('fiscal'); await page.locator('#fiscalList [data-fiscal-detail]').first().waitFor();
+    assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
+    assert.equal(await page.locator('#rateChart').innerText(), '');
     assert.equal(await page.locator('#mainNav [data-nav="sync"]').isVisible(), false); assert.equal(await page.locator('#mainNav [data-nav="new"]').isVisible(), false);
     assert.equal((await page.locator('#fiscalList').innerText()).includes('MOSSORÓ'), false);
     const directoryCalls = calls.filter(call => call.viewport === name && call.action === 'getTeamDirectory').length;
@@ -89,6 +98,8 @@ try {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: path.join(evidence, name + '-fiscal.png'), fullPage: true });
     await page.locator('#logoutButton').click(); assert.equal(await page.locator('#fiscalList').innerText(), ''); assert.equal(await page.locator('#mineDetailContent').innerText(), '');
+    assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
+    assert.equal(await page.locator('#rateChart').innerText(), '');
     results.push({ viewport: name, pendingEntry: true, noRerenderRepeat: true, newLoginNotice: true, correctUuid: true, supervisorCharts: true, fiscalScope: true, pdfDownloaded: true, logoutCleared: true });
     await context.close();
   }

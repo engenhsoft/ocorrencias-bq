@@ -44,7 +44,7 @@ function harness(source = appSource) {
   // Executar os helpers reais de filtros, KPIs, badges, cards e seleção; somente o DOM é simulado.
   const names = ['populateSupervisorFilters', 'supervisorPublishedRecords', 'dateForSupervisorRecord', 'supervisorFilterRange',
     'filteredSupervisorRecords', 'renderSupervisorNavigation', 'pendingCountLabel', 'setSupervisorSummary', 'supervisorActiveRecords',
-    'supervisorActiveCountLabel', 'photoUrlsForRecord', 'photoFallbackUrl', 'occurrenceTypesText', 'correctionRequest',
+    'supervisorActiveCountLabel', 'recordPhotoUrl', 'photoUrlsForRecord', 'photoFallbackUrl', 'occurrenceTypesText', 'correctionRequest',
     'correctionRequestMarkup', 'photoIndexLabel', 'pendingSupervisorCard', 'publishedSupervisorCard', 'supervisorPricingIssues',
     'selectableSupervisorRecords', 'updateSupervisorSelectionUi'];
   vm.runInContext(names.map(name => extract(source, name)).join('\n'), c);
