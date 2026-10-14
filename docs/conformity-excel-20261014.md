@@ -1,6 +1,6 @@
 # Ocorrências B&Q — conformidades e Excel consolidado
 
-14/10/2026, America/Bahia. Frontend `2026.10.14.4`, build `2026-10-14-conformity-excel`. Backend `2026.10.14.3`, implantação oficial 33. Duas melhorias implementadas e testadas. A alternância financeira depende da identificação do gráfico existente, ausente no código oficial verificado; nenhum gráfico financeiro foi criado.
+14/10/2026, America/Bahia. Frontend `2026.10.14.5`, build `2026-10-14-conformity-excel`. Backend `2026.10.14.3`, implantação oficial 33. Duas melhorias implementadas e testadas. A alternância financeira depende da identificação do gráfico existente, ausente no código oficial verificado; nenhum gráfico financeiro foi criado.
 
 ## 1. Arquivos modificados
 
@@ -45,7 +45,7 @@ O fonte oficial confirma `audit.supervisorCorrections[].changes`, inclusive o ca
 
 | Suíte | Aprovados | Falhas finais |
 |---|---:|---:|
-| Conformidades + backend de resumo + XLSX | 21 | 0 |
+| Conformidades + backend de resumo + XLSX | 22 | 0 |
 | Operational features, com fonte oficial e mocks | 42 | 0 |
 | Operational package, com fonte oficial e mocks | 55 | 0 |
 | Supervisor workflow | 14 | 0 |
@@ -53,9 +53,11 @@ O fonte oficial confirma `audit.supervisorCorrections[].changes`, inclusive o ca
 | Hotfix de fotos e isolamento de perfil | 23 | 0 |
 | PDF individual | 13 | 0 |
 | UI adjacente: desktop e mobile | 16 | 0 |
-| **Casos reportados pelas suítes** | **237** | **0** |
+| **Casos reportados pelas suítes** | **238** | **0** |
 
-PWA/release/cache passou. O novo harness de navegador passou em dois cenários adicionais (1440×1000 e 390×844): filtros, categorias, download do XLSX com 12 imagens associadas a dois UUIDs, proporções, clique duplicado, PDF individual, paginação fiscal de 61 registros, isolamento do Campo e limpeza no logout. Sem erros de JavaScript ou overflow da página. Cenários entre suítes se sobrepõem; a contagem não representa 237 situações operacionais únicas.
+PWA/release/cache passou. O novo harness de navegador passou em dois cenários adicionais (1440×1000 e 390×844): filtros, categorias, download do XLSX com 12 imagens associadas a dois UUIDs, proporções, clique duplicado, PDF individual, paginação fiscal de 61 registros, isolamento do Campo e limpeza no logout. Sem erros de JavaScript ou overflow da página. Cenários entre suítes se sobrepõem; a contagem não representa 238 situações operacionais únicas.
+
+A validação independente com openpyxl também identifica todas as imagens. As fotografias usam âncoras `twoCellAnchor` com os dois pontos dentro da mesma célula de foto; `editAs="oneCell"` preserva o movimento com a célula sem distorção e é válido nesse tipo. O uso de `editAs` em `oneCellAnchor` foi eliminado porque é um atributo de `twoCellAnchor`.
 
 Falhas encontradas na implementação inicial foram corrigidas antes da publicação, incluindo a leitura do objeto audit e a fonte da ACL fiscal na seleção. A suíte UI antiga também passou após esperar explicitamente pelo primeiro aviso assíncrono, eliminando uma corrida no próprio harness. Todos os testes usam usuários, planilhas, Drive, rede e dados sintéticos ou mocks. **Zero login operacional para QA e zero escrita de QA em dados de produção.**
 
@@ -71,7 +73,7 @@ A implantação existente foi atualizada da versão 32 para a **33**, confirmada
 
 ## 8. Commit, release e publicação
 
-O patch parte de `main` limpa, HEAD `5041affd42038e55c26e2fcbf72fe95a2212415c`, última publicação Pages #59. Todos os commits anteriores permanecem ancestrais. Este relatório pertence ao commit da release frontend **2026.10.14.4**; a publicação usa o workflow Pages existente disparado pelo avanço autorizado de `main`. O resultado e o SHA definitivo são apresentados no relatório final da execução.
+O patch parte de `main` limpa, HEAD `5041affd42038e55c26e2fcbf72fe95a2212415c`, última publicação Pages #59. Todos os commits anteriores permanecem ancestrais. Este relatório pertence ao commit da release frontend **2026.10.14.5**; a publicação usa o workflow Pages existente disparado pelo avanço autorizado de `main`. O resultado e o SHA definitivo são apresentados no relatório final da execução.
 
 ## 9. Pendências reais
 

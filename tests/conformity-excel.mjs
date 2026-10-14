@@ -111,13 +111,18 @@ test('uma ocorrência gera um XLSX verdadeiro com fotos incorporadas', async () 
   assert.deepEqual(workbook.worksheets.map(sheet => sheet.name), ['OCORRÊNCIAS', 'SERVIÇOS', 'MATERIAIS', 'FOTOGRAFIAS']);
   assert.equal(workbook.getWorksheet('OCORRÊNCIAS').rowCount, 2); assert.equal(workbook.getWorksheet('FOTOGRAFIAS').getImages().length, 5);
 });
+test('leitor independente aceita DrawingML e preserva fotografias e células', async () => {
+  const output = await buildOccurrenceWorkbook(await collect([id(1)]), { ExcelJS });
+  const check = execFileSync('python3', ['-c', "import sys,io; from openpyxl import load_workbook; w=load_workbook(io.BytesIO(sys.stdin.buffer.read())); assert len(w['FOTOGRAFIAS']._images)==5; assert w['SERVIÇOS']['C2'].value=='000123'; assert w['SERVIÇOS']['F2'].value==1.25; print('OK')"], { input: Buffer.from(output.bytes), encoding: 'utf8' });
+  assert.equal(check.trim(), 'OK');
+});
 test('várias ocorrências geram um único arquivo; serviços, materiais e 7 slots de Trafo ligados ao UUID', async () => {
   const entries = await collect([id(1), id(2)]); consolidated = await buildOccurrenceWorkbook(entries, { ExcelJS });
   const wb = new ExcelJS.Workbook(); await wb.xlsx.load(consolidated.bytes);
   assert.equal(wb.getWorksheet('OCORRÊNCIAS').rowCount, 3); assert.equal(wb.getWorksheet('SERVIÇOS').rowCount, 3); assert.equal(wb.getWorksheet('MATERIAIS').rowCount, 3);
   const photos = wb.getWorksheet('FOTOGRAFIAS'); assert.equal(photos.rowCount, 13); assert.equal(photos.getImages().length, 12);
   assert.equal(photos.getCell('B2').value, id(1)); assert.equal(photos.getCell('B7').value, id(2)); assert.match(photos.getCell('C12').value, /Trafo retirado/); assert.match(photos.getCell('C13').value, /Trafo instalado/);
-  for (const image of photos.getImages()) { const owner = photos.getCell(image.range.tl.nativeRow + 1, 2).value; assert.ok([id(1), id(2)].includes(owner)); assert.equal(image.range.ext.width / image.range.ext.height, 2); }
+  for (const image of photos.getImages()) { const owner = photos.getCell(image.range.tl.nativeRow + 1, 2).value; assert.ok([id(1), id(2)].includes(owner)); assert.equal((image.range.br.nativeColOff - image.range.tl.nativeColOff) / (image.range.br.nativeRowOff - image.range.tl.nativeRowOff), 2); }
   assert.equal(wb.getWorksheet('SERVIÇOS').getCell('C2').value, '000123'); assert.equal(wb.getWorksheet('SERVIÇOS').getCell('F2').value, 1.25); assert.equal(wb.getWorksheet('SERVIÇOS').getCell('H2').value, 13.125);
   assert.equal(wb.getWorksheet('MATERIAIS').getCell('C2').value, '000067'); assert.equal(wb.getWorksheet('MATERIAIS').getCell('F2').value, 2.75);
   for (const s of wb.worksheets) assert.ok(s.autoFilter);

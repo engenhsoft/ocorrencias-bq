@@ -1,5 +1,5 @@
 {
-  "frontendVersion": "2026.10.14.4",
+  "frontendVersion": "2026.10.14.5",
   "frontendBuild": "2026-10-14-conformity-excel",
   "baselineHead": "5041affd42038e55c26e2fcbf72fe95a2212415c",
   "backendVersion": "2026.10.14.3",
@@ -8,7 +8,7 @@
   "sameBackendEndpoint": true,
   "implemented": ["supervisor_conformity_comparison", "consolidated_xlsx_with_photographs"],
   "financialToggle": "pending_existing_financial_chart_not_found_in_official_supervisor",
-  "testCasesReportedBySuites": 237,
+  "testCasesReportedBySuites": 238,
   "finalFailedTests": 0,
   "pwaCheckPassed": true,
   "newUiScenarios": [

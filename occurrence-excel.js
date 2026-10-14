@@ -1,4 +1,4 @@
-import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.14.4';
+import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.14.5';
 
 const moneyFormat = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
 const decimalFormat = '#,##0.###';
@@ -117,7 +117,9 @@ export async function buildOccurrenceWorkbook(entries, { ExcelJS = globalThis.Ex
       if (photo.dataUrl) {
         const scale = Math.min(300 / photo.width, 190 / photo.height, 1), width = Math.max(1, Math.round(photo.width * scale)), height = Math.max(1, Math.round(photo.height * scale));
         const imageId = workbook.addImage({ base64: photo.dataUrl, extension: photo.extension });
-        photographs.addImage(imageId, { tl: { nativeCol: 4, nativeColOff: Math.round((320 - width) / 2 * 9525), nativeRow: row.number - 1, nativeRowOff: Math.round((206 - height) / 2 * 9525) }, ext: { width, height }, editAs: 'oneCell' });
+        const left = Math.round((320 - width) / 2 * 9525), top = Math.round((206 - height) / 2 * 9525);
+        // editAs is valid on twoCellAnchor. Keep both anchors inside this photo row.
+        photographs.addImage(imageId, { tl: { nativeCol: 4, nativeColOff: left, nativeRow: row.number - 1, nativeRowOff: top }, br: { nativeCol: 4, nativeColOff: left + width * 9525, nativeRow: row.number - 1, nativeRowOff: top + height * 9525 }, editAs: 'oneCell' });
       }
     }
     onProgress(`Organizando planilha · ${position + 1}/${entries.length}`);
@@ -136,7 +138,7 @@ export function writeExcelInWorker(entries, { onProgress = () => {}, signal } = 
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(cancelled()); return; }
     let worker;
-    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.14.4', import.meta.url)); }
+    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.14.5', import.meta.url)); }
     catch { reject(new Error('Não foi possível iniciar o Excel. Atualize o aplicativo e tente novamente.')); return; }
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); worker.terminate(); };
     const abort = () => { cleanup(); reject(cancelled()); };
