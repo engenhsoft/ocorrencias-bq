@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import * as conformity from '../supervisor-conformity.js';
 
 const root = new URL('../', import.meta.url);
 const [app, coreSource, features, html, beforeApp, beforeFeatures] = await Promise.all([
@@ -41,10 +42,11 @@ function navigation(source = app, role = 'field') {
 }
 function charts(role = 'supervisor') {
   const hosts = new Map(), events = [], state = { role, revision: 1 };
-  const host = selector => { if (!hosts.has(selector)) hosts.set(selector, { hidden: false, innerHTML: '', value: selector === '#rateChartDimension' ? 'base' : 'month', removeAttribute() {}, setAttribute() {} }); return hosts.get(selector); };
+  const host = selector => { if (!hosts.has(selector)) hosts.set(selector, { hidden: false, innerHTML: '', checked: false, value: selector === '#rateChartDimension' ? 'base' : selector.endsWith('Period') ? 'month' : '', removeAttribute() {}, setAttribute() {} }); return hosts.get(selector); };
   const summary = { top3: [], month: '2026-10', bases: { month: [{ label: 'CAICÓ', count: 4, percentage: 100 }], all: [] }, nonconformity: { month: { base: [{ label: 'CAICÓ', analysed: 4, nonconforming: 1, percentage: 25 }], crewLeader: [] }, all: { base: [], crewLeader: [] } } };
+  summary.conformityRecords = [{ recordId: A, base: 'CAICÓ', crewLeader: 'Chefe A', audit: { timeline: [{ action: 'PUBLICADA', actor: 'Supervisor A', at: '2026-10-14T12:00:00-03:00' }] } }];
   const api = { getOperationalSummary: async () => { events.push('summary'); return state.role === 'field' ? { top3: [], month: '2026-10' } : summary; }, listFiscalRecords: async () => { events.push('fiscal'); return { records: [], bases: ['CAICÓ'], summary: { total: 0 }, nextOffset: null }; } };
-  const c = vm.createContext({ ...core, api, navigator: { onLine: true }, document: { querySelector: host, addEventListener() {}, querySelectorAll: () => [] }, ApiError: class extends Error {} });
+  const c = vm.createContext({ ...core, ...conformity, api, navigator: { onLine: true }, document: { querySelector: host, addEventListener() {}, querySelectorAll: () => [] }, ApiError: class extends Error {} });
   vm.runInContext(features.replace(/^import .*?;\n/gm, '').replace(/^export /gm, ''), c);
   const controller = c.createOperationalFeatures({ getSession: () => state.role ? { role: state.role, user: 'Fixture', token: 't' + state.revision } : null, getRevision: () => state.revision, onNavigate() {}, onCorrection() {}, onSynchronize() {}, onOpenRecord() {}, onLogout() {} });
   return { controller, state, host, events };
@@ -100,7 +102,7 @@ test('baseline navegação Campo pode ativar seção do Supervisor', () => { con
 test('Campo, Fiscal e login não ativam seção do Supervisor', () => { for (const role of ['field', 'fiscal', null]) { const h = navigation(app, role); h.c.navigate('supervisor'); assert.equal(h.views[1].hidden, true); } });
 test('HTML inicia seção de não conformidade fechada', () => assert.match(html, /<section id="nonconformitySection"[^>]* hidden>/));
 test('Supervisor mostra indicador e preserva valor e filtro', async () => {
-  const h = charts(); h.controller.enter(); h.controller.setView('supervisor'); await h.controller.refreshSummary(); assert.equal(h.host('#nonconformitySection').hidden, false); assert.match(h.host('#rateChart').innerHTML, /25%/); h.host('#rateChartPeriod').value = 'all'; h.controller.setView('supervisor'); assert.match(h.host('#rateChart').innerHTML, /SEM DADOS/);
+  const h = charts(); h.controller.enter(); h.controller.setView('supervisor'); await h.controller.refreshSummary(); assert.equal(h.host('#nonconformitySection').hidden, false); assert.match(h.host('#rateChart').innerHTML, /Aprovadas sem edição direta/); h.host('#rateChartPeriod').value = 'all'; h.controller.setView('supervisor'); assert.match(h.host('#rateChart').innerHTML, /Aprovadas sem edição direta/); assert.equal(h.host('#rateChartPeriod').value, 'all');
 });
 test('Campo mantém TOP3 sem renderizar taxa; Fiscal não consulta resumo global', async () => {
   for (const role of ['field', 'fiscal']) { const h = charts(role); h.controller.enter(); h.controller.setView(role === 'field' ? 'new' : 'fiscal'); await h.controller.refreshSummary(); assert.equal(h.host('#nonconformitySection').hidden, true); assert.equal(h.host('#rateChart').innerHTML, ''); if (role === 'field') assert.match(h.host('#fieldInsights').innerHTML, /TOP 3/); else assert.equal(h.events.includes('summary'), false); }

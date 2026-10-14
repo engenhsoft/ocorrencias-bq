@@ -61,6 +61,7 @@ try {
     assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
     await page.evaluate(() => document.querySelector('#supervisorNav').dispatchEvent(new MouseEvent('click', { bubbles: true })));
     assert.equal(await page.locator('#view-supervisor').isVisible(), false);
+    await page.waitForFunction(() => document.querySelector('#releaseNoticeDialog').open || document.querySelector('#entryPendingDialog').open);
     if (await page.locator('#releaseNoticeDialog').isVisible()) await page.locator('#releaseNoticeAcknowledge').click();
     await page.locator('#entryPendingDialog').waitFor({ state: 'visible' });
     assert.match(await page.locator('#entryPendingContent').innerText(), /1 ocorrência com fotos pendentes/); assert.match(await page.locator('#entryPendingContent').innerText(), /1 ocorrência aguardando sua correção/);

@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const WORKER_VERSION = '2026.10.14.3';
+const WORKER_VERSION = '2026.10.14.4';
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const versioned = (path) => `${path}?v=${WORKER_VERSION}`;
 const APP_SHELL = [
@@ -13,6 +13,10 @@ const APP_SHELL = [
   versioned('./app.js'),
   versioned('./operational-features.js'),
   versioned('./occurrence-pdf.js'),
+  versioned('./supervisor-conformity.js'),
+  versioned('./occurrence-excel.js'),
+  versioned('./occurrence-excel-worker.js'),
+  './vendor/exceljs-4.4.0.min.js',
   './vendor/pdf-lib-1.17.1.min.js',
   versioned('./manifest.webmanifest'),
   './assets/icon-192.png',

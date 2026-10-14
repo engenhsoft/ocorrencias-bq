@@ -765,3 +765,27 @@ a.programacao-access { text-decoration: none; }
   .fiscal-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
   .fiscal-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Supervisor comparison and compact consolidated export. Existing charts keep their styles. */
+.comparison-options, .comparison-legend { display: flex; flex-wrap: wrap; gap: .7rem 1rem; margin: .8rem 0; }
+.comparison-options .checkbox-label { font-size: .76rem; }
+.comparison-key { font-size: .72rem; color: var(--muted); }
+.comparison-key::before { content: ''; display: inline-block; width: .6rem; height: .6rem; border-radius: 2px; margin-right: .35rem; background: #159898; }
+.comparison-key--corrected::before, .bar-chart__track .comparison-fill--corrected { background: #cd962e; }
+.comparison-key--rejected::before, .bar-chart__track .comparison-fill--rejected { background: #b84b53; }
+.comparison-key--requested::before, .bar-chart__track .comparison-fill--requested { background: #557bb2; }
+.comparison-group { flex: 1; min-width: 110px; text-align: center; }
+.comparison-bars { display: flex; justify-content: center; gap: .25rem; }
+.comparison-bars .bar-chart__column { min-width: 25px; }
+.comparison-bars .bar-chart__track > span { min-width: 18px; }
+.excel-modal { width: min(94vw, 620px); }
+.excel-select-all { margin: 1rem 0; font-size: .85rem; }
+.excel-record-list { max-height: min(38vh, 340px); overflow-y: auto; margin: .8rem 0; }
+.excel-record { display: flex; align-items: flex-start; gap: .65rem; padding: .75rem .3rem; border-bottom: 1px solid #e0eaf0; }
+.excel-record input { margin-top: .2rem; flex-shrink: 0; }
+.excel-record span { min-width: 0; }
+.excel-record strong, .excel-record small { display: block; overflow-wrap: anywhere; }
+.excel-record strong { font-size: .82rem; }
+.excel-record small { color: var(--muted); font-size: .72rem; margin-top: .25rem; }
+#excelSelectedCount { font-size: .85rem; }
+#excelStatus { overflow-wrap: anywhere; }

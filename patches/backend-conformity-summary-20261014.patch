@@ -1,0 +1,62 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.14.2',
++  version: '2026.10.14.3',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -2094,6 +2094,7 @@
+   }).sort(function (a, b) { return b.count - a.count || (normalize_(a.crewLeader) < normalize_(b.crewLeader) ? -1 : normalize_(a.crewLeader) > normalize_(b.crewLeader) ? 1 : 0); }).slice(0, 3);
+   const result = { month: month, timeZone: APP.timeZone, top3: leaders, calculatedAt: nowIso_() };
+   if (!supervisor) return result;
++  result.conformityRecords = buildConformityRecords_(rows, history);
+   result.bases = {};
+   ['month', 'all'].forEach(function (period) {
+     const total = bases.reduce(function (sum, base) { return sum + distribution[period][base]; }, 0);
+@@ -2269,3 +2270,42 @@
+     return { ok: true, success: true, recordId: id, photoIndex: index, available: true, dataUrl: 'data:' + mime + ';base64,' + Utilities.base64Encode(bytes) };
+   } catch (error) { if (['AUTH_REQUIRED', 'FORBIDDEN'].indexOf(error.code) >= 0) throw error; return missing; }
+ }
++
++// Read projection only; no operational writes or photo access.
++function buildConformityRecords_(rows, history) {
++  const byId = {}, originals = {}, events = {};
++  const actions = ['APROVADA', 'PUBLICADA', 'APROVADA_E_PUBLICADA', 'CORRIGIDA_PELO_SUPERVISOR', 'REPROVADA', 'CORRECAO_SOLICITADA', 'CORRECAO_FOTOS_SOLICITADA'];
++  rows.forEach(function (row) {
++    const id = String(row[COL.ID - 1] || ''), audit = safeJson_(row[COL.AUDIT - 1], {});
++    if (!id || audit.testOnly || audit.harness || audit.syntheticFixture || audit.publicationState === 'RECONCILIACAO_NECESSARIA') return;
++    byId[id] = row;
++  });
++  function add(id, action, actor, at) {
++    if (!byId[id] || actions.indexOf(action) < 0 || !actor || !featureDate_(at)) return;
++    const key = action + '|' + isoValue_(at) + '|' + String(actor);
++    const saved = events[id] || (events[id] = {});
++    saved[key] = { action: action, actor: String(actor), at: isoValue_(at) };
++  }
++  history.forEach(function (event) {
++    const id = String(event[0] || ''), action = String(event[3] || '');
++    if (action === 'CRIADA' && !originals[id]) originals[id] = { base: event[11], team: event[9], crewLeader: event[12] };
++    add(id, action, event[2], event[1]);
++  });
++  return Object.keys(byId).map(function (id) {
++    const row = byId[id], audit = safeJson_(row[COL.AUDIT - 1], {});
++    (Array.isArray(audit.timeline) ? audit.timeline : []).forEach(function (event) {
++      if (event) add(id, String(event.action || ''), event.actor, event.at || event.timestamp);
++    });
++    (Array.isArray(audit.supervisorCorrections) ? audit.supervisorCorrections : []).concat([audit.lastSupervisorCorrection]).forEach(function (correction) {
++      if (!correction || !Array.isArray(correction.changes) || !correction.changes.some(function (change) { return change && String(change.previousValue == null ? '' : change.previousValue) !== String(change.newValue == null ? '' : change.newValue); })) return;
++      add(id, 'CORRIGIDA_PELO_SUPERVISOR', correction.supervisor, correction.correctedAt);
++    });
++    [audit.lastCorrectionRequest, audit.lastPhotoCorrectionRequest].forEach(function (request) {
++      if (request) { add(id, 'CORRECAO_SOLICITADA', request.supervisor, request.requestedAt); add(id, 'CORRECAO_SOLICITADA', request.supervisor, request.lastRequestedAt); }
++    });
++    const identity = featureIdentity_(row, originals[id]);
++    return { recordId: id, status: operationalStatusFromValues_(row), base: identity.base, crewLeader: identity.crewLeader,
++      supervisor: String(row[COL.SUPERVISOR - 1] || ''), reviewedAt: isoValue_(row[COL.REVIEWED_AT - 1]), publishedAt: String(audit.publishedAt || ''),
++      audit: { registrationIdentity: identity, timeline: Object.keys(events[id] || {}).map(function (key) { return events[id][key]; }) } };
++  });
++}

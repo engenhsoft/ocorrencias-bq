@@ -1,5 +1,6 @@
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, sameUser, statusLabel, RECORD_STATUS } from './core.js?v=2026.10.14.3';
-import { api, ApiError } from './api.js?v=2026.10.14.3';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid } from './core.js?v=2026.10.14.4';
+import { api, ApiError } from './api.js?v=2026.10.14.4';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.14.4';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -27,10 +28,19 @@ export function barsMarkup(items, nonconformity = false) {
   }).join('')}</div></div><details class="chart-data"><summary>Ver dados do gráfico</summary><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>Base / chefe</th><th>${nonconformity ? 'Analisadas' : 'Ocorrências'}</th>${nonconformity ? '<th>Não conformes</th>' : ''}<th>Percentual</th></tr></thead><tbody>${(items || []).map(item => `<tr><td data-label="Base / chefe">${text(item.label)}</td><td data-label="${nonconformity ? 'Analisadas' : 'Ocorrências'}">${text(nonconformity ? item.analysed : item.count)}</td>${nonconformity ? `<td data-label="Não conformes">${text(item.nonconforming)}</td>` : ''}<td data-label="Percentual">${text(percent(item.percentage))}</td></tr>`).join('')}</tbody></table></div></details>`;
 }
 
-export function createOperationalFeatures({ getSession, getRevision, onNavigate, onCorrection, onSynchronize, onOpenRecord, onLogout }) {
+export function excelSelectableRecords(records, session) {
+  if (!session || !['field', 'supervisor', 'fiscal'].includes(session.role)) return [];
+  const statuses = [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED];
+  return [...new Map((records || []).filter(record => isUuid(record?.recordId) && statuses.includes(record.status)
+    && (session.role !== 'field' || sameUser(record.user, session.user))
+    && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId, record])).values()];
+}
+
+export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onSynchronize, onOpenRecord, onLogout }) {
   const $ = selector => document.querySelector(selector);
   let summary = null, summaryTask = null, fiscalTask = null, summaryRevision = -1, fiscalRevision = -1;
   let entryRevision = -1, noticeConsumed = false, pendingNotice = null, fiscalOffset = 0, fiscalNextOffset = null, fiscalSequence = 0;
+  let excelCandidates = [], excelSelected = new Set(), excelOpening = false, excelRunning = false, excelAbort = null, excelSequence = 0, excelVisibleLimit = 100;
   const current = (revision, token) => getRevision() === revision && getSession()?.token === token;
   function message(host, error) { if (host) host.innerHTML = `<p class="insight-empty" role="status">${text(error?.message || 'Dados indisponíveis. Atualize para tentar novamente.')}</p>`; }
   function renderSummary() {
@@ -44,7 +54,19 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
     if (!summary?.bases || getSession()?.role !== 'supervisor') return;
     const basePeriod = $('#baseChartPeriod')?.value || 'month', ratePeriod = $('#rateChartPeriod')?.value || 'month', dimension = $('#rateChartDimension')?.value || 'base';
     $('#baseChart').innerHTML = barsMarkup(summary.bases[basePeriod] || []);
-    if ($('#nonconformitySection')?.hidden === false) $('#rateChart').innerHTML = barsMarkup(summary.nonconformity?.[ratePeriod]?.[dimension] || [], true);
+    if ($('#nonconformitySection')?.hidden === false) {
+      const records = summary.conformityRecords;
+      $('#rateChart').innerHTML = Array.isArray(records) ? conformityMarkup(buildConformityComparison(records, { period: ratePeriod, month: summary.month, dimension, base: $('#rateChartBase')?.value || '', crewLeader: $('#rateChartLeader')?.value || '' }), ['approved', 'corrected', ...($('#rateShowRejected')?.checked ? ['rejected'] : []), ...($('#rateShowRequested')?.checked ? ['requested'] : [])]) : '<p class="insight-empty" role="status">SEM DADOS HISTÓRICOS SUFICIENTES. Atualize os indicadores após a atualização do servidor.</p>';
+    }
+  }
+  function fillConformityFilters() {
+    if (!Array.isArray(summary?.conformityRecords)) return;
+    for (const [selector, key] of [['#rateChartBase', 'base'], ['#rateChartLeader', 'crewLeader']]) {
+      const select = $(selector); if (!select) continue;
+      const selected = select.value, values = [...new Set(summary.conformityRecords.map(record => conformityIdentity(record)[key]))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      select.innerHTML = '<option value="">Todos</option>' + values.map(value => `<option value="${text(value)}">${text(value)}</option>`).join('');
+      if (values.includes(selected)) select.value = selected;
+    }
   }
   function setView(view) {
     const section = $('#nonconformitySection');
@@ -64,7 +86,7 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
         const result = await api.getOperationalSummary(session.token);
         if (!current(revision, session.token)) return;
         if (!Array.isArray(result.top3) || !/^\d{4}-\d{2}$/.test(result.month) || (session.role === 'supervisor' && (!result.bases || !result.nonconformity))) throw new ApiError('O resumo retornou dados incompletos. Tente novamente.', 'INVALID_SUMMARY');
-        summary = result; renderSummary(); return result;
+        summary = result; fillConformityFilters(); renderSummary(); return result;
       } catch (error) {
         if (!current(revision, session.token)) return;
         for (const selector of session.role === 'supervisor' ? ['#supervisorRanking', '#baseChart', '#rateChart'] : ['#fieldInsights', '#mineInsights']) message($(selector), error);
@@ -105,7 +127,7 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
         select.innerHTML = `<option value="">Todas as autorizadas</option>${result.bases.map(base => `<option value="${text(base)}">${text(base)}</option>`).join('')}`; select.value = selectedBase;
         const labels = [['total', 'Total de ocorrências'], ['waiting', 'Aguardando conferência'], ['published', 'Publicadas / aprovadas'], ['correction', 'Aguardando correção'], ['rejected', 'Reprovadas'], ['photoPending', 'Fotos pendentes']];
         $('#fiscalKpis').innerHTML = labels.map(([key, label]) => `<article class="supervisor-kpi"><span>${text(label)}</span><strong>${text(formatNumber(result.summary[key]))}</strong></article>`).join('') + `<article class="supervisor-kpi fiscal-value"><span>Valor das aguardando e aprovadas/publicadas elegíveis</span><strong>${text(formatCurrency(result.summary.eligibleValue))}</strong></article>`;
-        host.innerHTML = result.records.length ? result.records.map(record => `<article class="record-card"><header class="record-card__header"><div><h3>Ocorrência ${text(record.occurrenceNumber)}</h3><small>${text(record.recordId)}</small></div><span class="status-chip">${text(statusLabel(record.status))}</span></header><p>${text(record.base)} · ${text(record.team)} · ${text(record.crewLeader)}</p><p>${text(formatDateTime(record.registeredAt))} · ${text(formatCurrency(record.totalServices))}</p><footer class="record-card__footer"><button class="button button--ghost" type="button" data-fiscal-detail="${text(record.recordId)}">Visualizar</button><button class="button button--primary" type="button" data-export-record="${text(record.recordId)}">Gerar PDF</button></footer></article>`).join('') : '<p class="insight-empty">Nenhuma ocorrência neste filtro.</p>';
+        host.innerHTML = result.records.length ? result.records.map(record => `<article class="record-card"><header class="record-card__header"><div><h3>Ocorrência ${text(record.occurrenceNumber)}</h3><small>${text(record.recordId)}</small></div><span class="status-chip">${text(statusLabel(record.status))}</span></header><p>${text(record.base)} · ${text(record.team)} · ${text(record.crewLeader)}</p><p>${text(formatDateTime(record.registeredAt))} · ${text(formatCurrency(record.totalServices))}</p><footer class="record-card__footer"><button class="button button--ghost" type="button" data-fiscal-detail="${text(record.recordId)}">Visualizar</button><button class="button button--primary" type="button" data-export-record="${text(record.recordId)}">Gerar PDF</button><button class="button button--ghost" type="button" data-export-excel="${text(record.recordId)}">GERAR EXCEL</button></footer></article>`).join('') : '<p class="insight-empty">Nenhuma ocorrência neste filtro.</p>';
         fiscalNextOffset = result.nextOffset;
         $('#fiscalPrevious').disabled = !offset; $('#fiscalNext').disabled = fiscalNextOffset == null;
         $('#fiscalResultCount').textContent = `${result.summary.total} ocorrências · atualizado em ${formatDateTime(result.calculatedAt)}`;
@@ -143,7 +165,7 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.3');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.4');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -154,23 +176,96 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
     } catch (error) { if (current(revision, session.token)) { button.textContent = error.message || 'Falha ao gerar PDF'; if (error.code === 'AUTH_REQUIRED') onLogout(); return; } }
     finally { if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
   }
+  function excelMatches() {
+    const query = normalizeText($('#excelSearch')?.value || '');
+    return excelCandidates.filter(record => !query || [record.occurrenceNumber, record.recordId, record.base, record.team, record.crewLeader, record.project].some(value => normalizeText(value).includes(query)));
+  }
+  function renderExcelSelection() {
+    const host = $('#excelRecordList'); if (!host) return;
+    const records = excelMatches();
+    host.innerHTML = records.slice(0, excelVisibleLimit).map(record => `<label class="excel-record"><input type="checkbox" data-excel-select="${text(record.recordId)}" ${excelSelected.has(record.recordId) ? 'checked' : ''} ${excelRunning ? 'disabled' : ''}/><span><strong>${text(record.occurrenceNumber || record.recordId)} · ${text(record.base)}</strong><small>${text(record.team)} · ${text(record.crewLeader)}</small><small>${text(record.recordId)}</small></span></label>`).join('') + (records.length > excelVisibleLimit ? '<button class="button button--ghost button--small" type="button" data-excel-more>Mostrar mais registros</button>' : '') || '<p class="insight-empty">Nenhuma ocorrência neste filtro.</p>';
+    $('#excelSelectedCount').textContent = `${excelSelected.size} ${excelSelected.size === 1 ? 'ocorrência selecionada' : 'ocorrências selecionadas'}`;
+    $('#excelFilterCount').textContent = `Selecionar todos do filtro atual (${records.length})`;
+    const all = $('#excelSelectAll'); all.checked = !!records.length && records.every(record => excelSelected.has(record.recordId)); all.indeterminate = !all.checked && records.some(record => excelSelected.has(record.recordId)); all.disabled = excelRunning || !records.length;
+    $('#generateExcelButton').disabled = excelRunning || !excelSelected.size;
+    $('#generateExcelButton').textContent = excelRunning ? 'GERANDO EXCEL' : 'GERAR PLANILHA';
+    $('#excelSearch').disabled = excelRunning;
+  }
+  async function openExcelSelection(recordId, button) {
+    if (excelOpening || excelRunning) return;
+    const session = getSession(), revision = getRevision(), sequence = ++excelSequence; if (!session) return;
+    excelOpening = true; button.disabled = true;
+    try {
+      let records = getExportRecords(), access = session;
+      if (session.role === 'fiscal') {
+        records = []; let offset = 0; const filters = fiscalFilters(), offsets = new Set();
+        do {
+          if (!current(revision, session.token) || sequence !== excelSequence) return;
+          if (offsets.has(offset)) throw new Error('A paginação fiscal retornou uma página repetida.'); offsets.add(offset);
+          const result = await api.listFiscalRecords(session.token, filters, offset);
+          if (!current(revision, session.token) || sequence !== excelSequence) return;
+          if (!Array.isArray(result.records) || !Array.isArray(result.bases) || result.records.some(record => !isUuid(record?.recordId) || !result.bases.some(base => normalizeText(base) === normalizeText(record.base)))) throw new Error('A consulta de Excel retornou registros fora das Bases autorizadas.');
+          const acl = result.bases.map(normalizeText).sort().join('|');
+          if (access !== session && acl !== access.bases.map(normalizeText).sort().join('|')) throw new ApiError('As Bases autorizadas mudaram. Entre novamente.', 'AUTH_REQUIRED');
+          access = { ...session, bases: result.bases };
+          records.push(...result.records); offset = result.nextOffset;
+          if (offset != null && (!Number.isInteger(offset) || offset < 0)) throw new Error('A paginação fiscal retornou dados inválidos.');
+        } while (offset != null);
+      }
+      if (!current(revision, session.token) || sequence !== excelSequence) return;
+      excelCandidates = excelSelectableRecords(records, access);
+      excelSelected = new Set(excelCandidates.some(record => record.recordId === recordId) ? [recordId] : []);
+      excelVisibleLimit = 100; $('#excelSearch').value = ''; $('#excelStatus').textContent = ''; renderExcelSelection(); $('#excelDialog').showModal();
+    } catch (error) { if (current(revision, session.token)) { button.textContent = error.message || 'Falha ao abrir Excel'; if (error.code === 'AUTH_REQUIRED') onLogout(); } }
+    finally { if (sequence === excelSequence) excelOpening = false; if (current(revision, session.token)) button.disabled = false; }
+  }
+  async function generateExcel() {
+    if (excelRunning || !excelSelected.size) return;
+    const session = getSession(), revision = getRevision(), sequence = excelSequence, abort = new AbortController(); if (!session) return;
+    const valid = () => current(revision, session.token) && sequence === excelSequence && !abort.signal.aborted;
+    excelRunning = true; excelAbort = abort; renderExcelSelection();
+    const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
+    try {
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.14.4');
+      if (!valid()) return;
+      const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
+      if (!valid()) return;
+      const output = await writeExcelInWorker(entries, { signal: abort.signal, onProgress: progress });
+      if (!valid()) return;
+      downloadOccurrenceExcel(output);
+      const missing = entries.reduce((sum, entry) => sum + entry.photos.filter(photo => !photo.dataUrl).length, 0);
+      $('#excelStatus').textContent = `Excel gerado com ${entries.length} ocorrências.${missing ? ` ${missing} fotos indisponíveis, identificadas na aba FOTOGRAFIAS.` : ''}`;
+    } catch (error) { if (valid()) { $('#excelStatus').textContent = error.message || 'Não foi possível gerar Excel.'; if (['AUTH_REQUIRED', 'FORBIDDEN'].includes(error.code)) { abort.abort(); if (error.code === 'AUTH_REQUIRED') onLogout(); } } }
+    finally { if (sequence === excelSequence) { excelRunning = false; excelAbort = null; renderExcelSelection(); } }
+  }
+  function clearExcel() {
+    excelSequence++; excelAbort?.abort(); excelAbort = null; excelOpening = false; excelRunning = false; excelCandidates = []; excelSelected.clear();
+    if ($('#excelRecordList')) $('#excelRecordList').innerHTML = '';
+    if ($('#excelStatus')) $('#excelStatus').textContent = '';
+  }
   function reset() {
     if ($('#nonconformitySection')) $('#nonconformitySection').hidden = true;
     entryRevision = -1; noticeConsumed = false; pendingNotice = null; summary = null; summaryTask = null; fiscalTask = null; summaryRevision = -1; fiscalRevision = -1; fiscalSequence++;
     if ($('#entryPendingDialog')?.open) $('#entryPendingDialog').close();
+    clearExcel(); if ($('#excelDialog')?.open) $('#excelDialog').close();
     for (const selector of ['#fieldInsights', '#mineInsights', '#supervisorRanking', '#baseChart', '#rateChart', '#fiscalList', '#fiscalKpis', '#mineDetailContent', '#reviewDialogContent']) if ($(selector)) $(selector).innerHTML = '';
     $('#photoDialogImage')?.removeAttribute('src');
     if ($('#fiscalAuthorizedBases')) $('#fiscalAuthorizedBases').textContent = '';
     if ($('#fiscalResultCount')) $('#fiscalResultCount').textContent = '';
     for (const selector of ['#baseChartPeriod', '#rateChartPeriod']) if ($(selector)) $(selector).value = 'month';
     if ($('#rateChartDimension')) $('#rateChartDimension').value = 'base';
+    for (const selector of ['#rateChartBase', '#rateChartLeader']) if ($(selector)) $(selector).innerHTML = '<option value="">Todos</option>';
+    for (const selector of ['#rateShowRejected', '#rateShowRequested']) if ($(selector)) $(selector).checked = false;
     for (const key of ['base', 'team', 'crewLeader', 'status', 'from', 'to', 'search']) if ($(`#fiscal-${key}`)) $(`#fiscal-${key}`).value = '';
     if ($('#fiscal-period')) $('#fiscal-period').value = 'month';
   }
   function enter() { reset(); entryRevision = getRevision(); if (getSession()?.role === 'fiscal') void refreshFiscal(); }
-  document.addEventListener('close', maybeShowNotice, true);
+  document.addEventListener('close', event => { if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
+  document.addEventListener('input', event => { if (event.target.id === 'excelSearch') { excelVisibleLimit = 100; renderExcelSelection(); } });
   document.addEventListener('change', event => {
-    if (['baseChartPeriod', 'rateChartPeriod', 'rateChartDimension'].includes(event.target.id)) renderCharts();
+    if (['baseChartPeriod', 'rateChartPeriod', 'rateChartDimension', 'rateChartBase', 'rateChartLeader', 'rateShowRejected', 'rateShowRequested'].includes(event.target.id)) renderCharts();
+    if (event.target.dataset.excelSelect && !excelRunning) { if (event.target.checked) excelSelected.add(event.target.dataset.excelSelect); else excelSelected.delete(event.target.dataset.excelSelect); renderExcelSelection(); }
+    if (event.target.id === 'excelSelectAll' && !excelRunning) { for (const record of excelMatches()) { if (event.target.checked) excelSelected.add(record.recordId); else excelSelected.delete(record.recordId); } renderExcelSelection(); }
     if (event.target.closest('#fiscalFilters') && event.target.type !== 'search' && getSession()?.role === 'fiscal') void refreshFiscal();
   });
   document.addEventListener('click', event => {
@@ -178,6 +273,10 @@ export function createOperationalFeatures({ getSession, getRevision, onNavigate,
     if (target.hasAttribute('data-entry-sync')) { $('#entryPendingDialog').close(); onNavigate('sync'); onSynchronize(); }
     if (target.dataset.entryCorrection) { const id = target.dataset.entryCorrection; if (pendingNotice?.corrections.some(record => record.recordId === id)) { $('#entryPendingDialog').close(); onCorrection(id); } }
     if (target.dataset.exportRecord) void exportDocument(target.dataset.exportRecord, target);
+    if (target.dataset.exportExcel) void openExcelSelection(target.dataset.exportExcel, target);
+    if (target.id === 'generateExcelButton') void generateExcel();
+    if (target.hasAttribute('data-excel-close')) $('#excelDialog').close();
+    if (target.hasAttribute('data-excel-more') && !excelRunning) { excelVisibleLimit += 100; renderExcelSelection(); }
     if (target.dataset.fiscalDetail) void openFiscalDetail(target.dataset.fiscalDetail, target);
     if (target.id === 'fiscalRefresh' || target.id === 'fiscalApplyFilters') void refreshFiscal();
     if (target.id === 'fiscalPrevious') void refreshFiscal(Math.max(0, fiscalOffset - 60));
