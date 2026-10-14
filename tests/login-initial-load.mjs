@@ -12,7 +12,7 @@ const core = await import(dataUrl(coreSource));
 const apiModule = await import(dataUrl(apiSource.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${dataUrl(coreSource)}'`).replace(/^import .*?from '\.\/config\.js[^']*';\n/m, "const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
 const { ApiError } = apiModule;
 const currentBaseline = process.argv.includes('--current-baseline');
-const baselineApp = process.argv[4] ? await readFile(process.argv[4], 'utf8') : null;
+const baselineApp = process.argv[4] && !currentBaseline ? await readFile(process.argv[4], 'utf8') : null;
 const tests = [];
 const test = (name, run) => tests.push({ name, run });
 const plain = value => JSON.parse(JSON.stringify(value));
