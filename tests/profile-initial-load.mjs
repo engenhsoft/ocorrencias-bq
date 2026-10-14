@@ -10,7 +10,10 @@ const [appSource,coreSource,apiSource,testSource]=await Promise.all([
 ]);
 const dataUrl=s=>'data:text/javascript;base64,'+Buffer.from(s).toString('base64');
 const core=await import(dataUrl(coreSource));
-const {ApiError}=await import(dataUrl(apiSource.replace(/^import .*?;\n/,"const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};\n")));
+const fixtureApi=apiSource
+ .replace(/^import \{ API_ENDPOINT, MATERIAL_CATALOG_SOURCE \} from .*?;$/m,"const API_ENDPOINT='https://script.google.com/macros/s/fixture/exec'; const MATERIAL_CATALOG_SOURCE={};")
+ .replace(/from '\.\/core\.js\?v=[^']+'/, 'from '+JSON.stringify(dataUrl(coreSource)));
+const {ApiError}=await import(dataUrl(fixtureApi));
 const extract=(source,name)=>{const match=source.match(new RegExp('(?:async )?function '+name+'\\([^]*?\\n\\}'));assert.ok(match,name);return match[0];};
 const harness=extract(testSource,'appHarness');
 const loadOccurrenceDataset=vm.runInNewContext(extract(apiSource,'loadOccurrenceDataset')+'\nloadOccurrenceDataset',{ApiError,setTimeout});

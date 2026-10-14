@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.14.1';
-export const APP_BUILD = '2026-10-14-identifier-readback';
+export const APP_VERSION = '2026.10.14.2';
+export const APP_BUILD = '2026-10-14-operational-features';
 
 export const TEAM_GOAL = 6000;
 

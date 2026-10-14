@@ -131,9 +131,18 @@ test('Campo não usa a nova consulta em lote e mantém payload byte a byte', () 
   assert.equal(JSON.stringify(b.c.listMine_({ token: 'fixture' })), JSON.stringify(a.c.listMine_({ token: 'fixture' })));
   assert.equal(calls.tokens, 0); assert.equal(b.calls.drive, a.calls.drive);
 });
-test('todas as funções preexistentes permanecem idênticas salvo lista/preload e funções de persistência dos hotfixes CREATE/PHOTO e delta de correção', () => {
+test('funções preexistentes preservadas, com extensões exatas de rotas e autenticação Fiscal e hotfixes autorizados', () => {
   for (const match of baseline.matchAll(/^function (\w+)\(/gm)) {
-    if (!['listPending_', 'cachedPublicPhotosForRows_', 'submitRecord_', 'uploadPhoto_', 'assertCorrectionRow_', 'writeAndReadCorrection_', 'writeCorrectionAudit_', 'quarantineCorrectionStatus_', 'prepareCorrectionReceipt_', 'finishCorrection_', 'ensureCorrectionHistory_', 'recoverCorrectionCases_', 'operationalStatusFromValues_'].includes(match[1])) assert.equal(extract(fixed, match[1]), extract(baseline, match[1]), match[1]);
+    const name = match[1];
+    if (['listPending_', 'cachedPublicPhotosForRows_', 'submitRecord_', 'uploadPhoto_', 'assertCorrectionRow_', 'writeAndReadCorrection_', 'writeCorrectionAudit_', 'quarantineCorrectionStatus_', 'prepareCorrectionReceipt_', 'finishCorrection_', 'ensureCorrectionHistory_', 'recoverCorrectionCases_', 'operationalStatusFromValues_'].includes(name)) continue;
+    let expected = extract(baseline, name);
+    if (name === 'doPost') expected = expected.replace('      health: health_,\n', '      health: health_,\n' + ['getOperationalSummary', 'listFiscalRecords', 'getOccurrenceDocument', 'getDocumentPhoto'].map(route => `      ${route}: function () { return ${route}_(payload); },\n`).join(''));
+    if (name === 'login_') expected = expected.replace('  const user = cleanText_(payload.user, 120);\n', "  const user = cleanText_(payload.user, 120);\n  if (payload.role === 'fiscal') return loginFiscal_(payload);\n");
+    if (name === 'requireSession_') expected = expected.replace('  return data;', "  return data.role === 'fiscal' ? fiscalSession_(data) : data;");
+    if (name === 'createToken_') expected = expected
+      .replace('user, role, expiresAt)', 'user, role, expiresAt, aclRevision)')
+      .replace("  const body = Utilities.base64EncodeWebSafe(JSON.stringify({ user: user, role: role, exp: expiresAt, nonce: Utilities.getUuid() })).replace(/=+$/, '');", "  const serialized = JSON.stringify(Object.assign({ user: user, role: role, exp: expiresAt, nonce: Utilities.getUuid() }, role === 'fiscal' ? { aclRevision: aclRevision } : {}));\n  const body = (role === 'fiscal' ? Utilities.base64EncodeWebSafe(serialized, Utilities.Charset.UTF_8) : Utilities.base64EncodeWebSafe(serialized)).replace(/=+$/, '');");
+    assert.equal(extract(fixed, name), expected, name);
   }
 });
 let passed = 0; const failures = [];

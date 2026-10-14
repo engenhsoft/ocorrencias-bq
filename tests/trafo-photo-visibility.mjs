@@ -332,6 +332,15 @@ test('HTML/CSS: slots 6/7 continuam incorporados à etapa de dados, botões pres
   assert.match(css, /\[hidden\] \{ display: none !important; \}/); assert.match(css, /@media \(max-width: 360px\)[^]*?\.photo-card__actions \{ grid-template-columns: 1fr; \}/);
 });
 test('isolamento: única mudança funcional em app.js é sincronizar a grade na mudança da presença de Trafo', () => {
+  const extensionHead = process.argv.find(arg => arg.startsWith('--extension-baseline='))?.split('=')[1];
+  if (extensionHead) {
+    const baseline = execFileSync('git', ['show', extensionHead + ':app.js'], { cwd: root, encoding: 'utf8' });
+    const extract = (source, name) => source.match(new RegExp('(?:async )?function ' + name + '\\([^]*?\\n\\}'))?.[0];
+    for (const name of ['storeSelectedPhoto', 'removePhoto', 'updatePhotoGrid', 'syncFormToRecord', 'submitOccurrence', 'performSyncSingleRecord', 'loadRecordIntoForm']) {
+      assert.ok(extract(appSource, name), name); assert.equal(extract(appSource, name), extract(baseline, name), name);
+    }
+    return;
+  }
   const baseline = execFileSync('git', ['show', baselineHead + ':app.js'], { cwd: root, encoding: 'utf8' });
   const clean = source => source.replace(/\d{4}\.\d{2}\.\d{2}\.\d+/g, 'RELEASE')
     .replace('  const previousHasTransformer = activeRecord.occurrenceTypes.includes(TYPE_TRAFO);\n', '')

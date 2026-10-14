@@ -305,9 +305,10 @@ test('sem etapa explícita: contrato anterior do Supervisor permanece idêntico'
 });
 
 const failures = []; let passed = 0;
-for (const item of tests) {
+const selectedTests = process.argv.includes('--behavior-only') ? tests.filter(item => !item.name.startsWith('isolamento')) : tests;
+for (const item of selectedTests) {
   try { await item.run(); passed++; }
   catch (error) { failures.push({ test: item.name, error: String(error.stack || error) }); }
 }
-console.log(JSON.stringify({ total: tests.length, passed, failed: failures.length, skipped: 0, productionWrites: 0, officialAppLogins: 0, initialHead, failures }, null, 2));
+console.log(JSON.stringify({ total: selectedTests.length, passed, failed: failures.length, skipped: tests.length - selectedTests.length, productionWrites: 0, officialAppLogins: 0, initialHead, failures }, null, 2));
 if (failures.length) process.exitCode = 1;

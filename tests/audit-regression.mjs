@@ -238,6 +238,8 @@ async function loadAppHarness() {
   `);
   let source = await read('app.js');
   source = source.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`).replace(/from '\.\/db\.js(?:\?v=[^']+)?'/g, `from '${dbStub}'`).replace(/from '\.\/api\.js(?:\?v=[^']+)?'/g, `from '${apiStub}'`);
+  // New dashboard/PDF UI is covered by features-ui; keep this suite's transport fixtures isolated.
+  source = source.replace(/from '\.\/operational-features\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const createOperationalFeatures=()=>({enter(){},reset(){},refreshSummary(){},acceptMine(){}});")}'`);
   source = source.replace(/\ninitialize\(\)\.catch\([\s\S]*?\);\s*$/, '\n');
   source += `
     export function __set(v={}){if('session'in v)session=v.session;if('activeRecord'in v)activeRecord=v.activeRecord;if('mineRecords'in v)mineRecords=v.mineRecords;if('supervisorRecords'in v)supervisorRecords=v.supervisorRecords;if('selectedIds'in v)selectedSupervisorIds=new Set(v.selectedIds);if('activeSupervisorRecord'in v)activeSupervisorRecord=v.activeSupervisorRecord;if('supervisorEditRecord'in v)supervisorEditRecord=v.supervisorEditRecord;supervisorPhotoFailures.clear()}
