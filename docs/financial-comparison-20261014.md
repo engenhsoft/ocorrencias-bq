@@ -1,6 +1,6 @@
 # Ocorrências B&Q — comparativo financeiro do Supervisor
 
-Patch preparado para frontend `2026.10.14.6`, build `2026-10-14-supervisor-finance`, sobre HEAD oficial `6606f143c9539c38390d3079d31dd833c4d295d3`. **Ainda não implantado em produção:** a autenticação Google foi bloqueada por falha da revisão automática por limite de uso. O backend oficial respondeu health `2026.10.14.3`, contrato v12, em 14/10/2026 às 23:35:56, America/Bahia. A versão de implantação 33 permanece a última documentada; o editor não pôde ser autenticado para confirmá-la novamente.
+Release frontend `2026.10.14.6`, build `2026-10-14-supervisor-finance`, implementação no commit `b401490b2fc10fd6c53aecf0a8d020154fa36d48`, sobre o HEAD anterior `6606f143c9539c38390d3079d31dd833c4d295d3`. O bloqueio anterior de autenticação foi resolvido pelo formulário seguro. **Backend `2026.10.14.4` publicado na implantação oficial 34**, confirmada em 15/10/2026 às 00:12, America/Bahia. O mesmo endpoint `/exec` respondeu health `2026.10.14.4`, contrato v12, às 00:14:27. A hospedagem frontend utiliza o workflow Pages acionado pela integração desta release na `main`; seu resultado e commit servido devem ser conferidos no GitHub Actions e nos assets oficiais.
 
 ## Comportamento
 
@@ -61,11 +61,16 @@ node tests/supervisor-navigation.mjs
 
 O snapshot privado tem formato `{ "records": [...] }` e contém as projeções das colunas oficiais necessárias. Sem esse arquivo, os três testes oficiais são marcados como não executados; os outros casos permanecem reproduzíveis com fixtures.
 
-## Publicação pendente
+## Registro de publicação
 
-1. Retomar a autenticação Google segura quando a revisão automática voltar a estar disponível. Nenhuma credencial deve ser enviada no chat.
-2. Conferir o fonte e a implantação atuais do projeto oficial `1S65w-vU8SNGI3XsrWjZl609yEu4uQRhRrnQrlnI1bSWg1Gyy_xvup94z`. Aplicar somente o patch financeiro, verificando contexto e diff. O espelho público não substitui o fonte privado completo.
-3. Salvar e atualizar **a implantação existente**, mantendo `/exec`, manifesto, propriedades e triggers. Conferir health e versão. Não fazer QA com credenciais operacionais nem modificar registros para testar.
-4. Conferir HEAD da `main`, preservar alterações concorrentes, publicar o commit financeiro e confirmar o workflow GitHub Pages e os assets da release.
+- Autenticação Google concluída pelo proprietário no fluxo seguro, sem credenciais no chat e sem login no aplicativo operacional.
+- Fonte oficial anterior: SHA-256 `7813617f5495c4b11743424c59b042ed21d13338a15fc518a3a09eea5737c499`, idêntico ao checkpoint documentado da versão 33.
+- Fonte aplicado, salvo e conferido após recarregar o editor: SHA-256 `732e0f8851632972d45ddaa101c4d3196bd4832f02e3ceac0e02d027a0c05756`.
+- Delta aplicado: somente a versão declarada, `getOperationalSummary_` e a função de projeção financeira já preparada. O cabeçalho do patch foi ajustado à linha 6 do fonte oficial; não houve alteração funcional no patch.
+- Implantação oficial atualizada de 33 para **34**, no mesmo projeto e com o mesmo código de implantação `AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f`.
+- Endpoint preservado: `https://script.google.com/macros/s/AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f/exec`.
+- Manifesto, propriedades, arquivo auxiliar, triggers, permissões, serviços e dados operacionais preservados. Sintaxe do fonte integral conferida sem executá-lo.
 
-O frontend preparado trata ausência da nova projeção como indisponibilidade de dados, sem inventar números. Isso permite compatibilidade durante a atualização, mas não significa que o comparativo já esteja disponível em produção.
+O frontend é integrado sem force push e sem modificar o código funcional do commit `b401490`. O workflow de publicação é `.github/workflows/pages.yml`; a confirmação final depende de conclusão `success` e comparação dos arquivos servidos no site oficial com a árvore publicada. Os identificadores do workflow e a verificação dos assets são informados no relatório final da publicação.
+
+Site oficial: https://engenhsoft.github.io/ocorrencias-bq/

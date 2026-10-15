@@ -2,9 +2,9 @@
   "sourceCommit": "6606f143c9539c38390d3079d31dd833c4d295d3",
   "preparedFrontendVersion": "2026.10.14.6",
   "backendHealthConfirmed": {
-    "version": "2026.10.14.3",
+    "version": "2026.10.14.4",
     "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
-    "timestamp": "2026-10-14T23:35:56-03:00"
+    "timestamp": "2026-10-15T00:14:27-03:00"
   },
   "source": {
     "spreadsheetId": "1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0",
@@ -110,7 +110,22 @@
   "operationalLogins": 0,
   "productionWrites": 0,
   "productionPublication": {
-    "completed": false,
-    "reason": "Secure Google sign-in request was not executed: automatic approval review failed due to usage limit. Official Apps Script update and production release remain pending."
+    "backend": {
+      "completed": true,
+      "version": "2026.10.14.4",
+      "deploymentVersion": 34,
+      "deploymentId": "AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f",
+      "endpointPreserved": true,
+      "previousSourceSha256": "7813617f5495c4b11743424c59b042ed21d13338a15fc518a3a09eea5737c499",
+      "savedSourceSha256": "732e0f8851632972d45ddaa101c4d3196bd4832f02e3ceac0e02d027a0c05756",
+      "savedReadbackMatchesPrepared": true
+    },
+    "frontend": {
+      "release": "2026.10.14.6",
+      "implementationCommit": "b401490b2fc10fd6c53aecf0a8d020154fa36d48",
+      "workflowFile": ".github/workflows/pages.yml",
+      "publicationMethod": "fast-forward main; verify workflow success and official assets",
+      "confirmation": "See final publication report and GitHub Actions for the commit containing this manifest."
+    }
   }
 }

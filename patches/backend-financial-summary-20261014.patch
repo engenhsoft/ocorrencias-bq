@@ -1,6 +1,6 @@
 --- a/ApprovalIntegrity20260911.gs
 +++ b/ApprovalIntegrity20260911.gs
-@@ -1,6 +1,6 @@
+@@ -6,6 +6,6 @@
  const APP = Object.freeze({
    name: 'OCORRÊNCIAS B&Q',
 -  version: '2026.10.14.3',
