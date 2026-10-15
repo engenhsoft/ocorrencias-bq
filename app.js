@@ -1,4 +1,4 @@
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.14.5';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.14.6';
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -8,13 +8,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.14.5';
+} from './core.js?v=2026.10.14.6';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.14.5';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.14.5';
+} from './db.js?v=2026.10.14.6';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.14.6';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';

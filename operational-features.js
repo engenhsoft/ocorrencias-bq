@@ -1,6 +1,7 @@
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid } from './core.js?v=2026.10.14.5';
-import { api, ApiError } from './api.js?v=2026.10.14.5';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.14.5';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.14.6';
+import { api, ApiError } from './api.js?v=2026.10.14.6';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.14.6';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.14.6';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -41,6 +42,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   let summary = null, summaryTask = null, fiscalTask = null, summaryRevision = -1, fiscalRevision = -1;
   let entryRevision = -1, noticeConsumed = false, pendingNotice = null, fiscalOffset = 0, fiscalNextOffset = null, fiscalSequence = 0;
   let excelCandidates = [], excelSelected = new Set(), excelOpening = false, excelRunning = false, excelAbort = null, excelSequence = 0, excelVisibleLimit = 100;
+  let financialView = 'current';
   const current = (revision, token) => getRevision() === revision && getSession()?.token === token;
   function message(host, error) { if (host) host.innerHTML = `<p class="insight-empty" role="status">${text(error?.message || 'Dados indisponíveis. Atualize para tentar novamente.')}</p>`; }
   function renderSummary() {
@@ -49,6 +51,32 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if (getSession()?.role !== 'supervisor') return;
     $('#supervisorRanking').innerHTML = topThreeMarkup(summary);
     renderCharts();
+    fillFinancialFilters(); renderFinancial();
+  }
+  function renderFinancial() {
+    const host = $('#financialChart');
+    if (!host || getSession()?.role !== 'supervisor' || $('#financialSection')?.hidden !== false) return;
+    if (!summary) { host.innerHTML = '<p class="insight-empty" role="status">Carregando valores confirmados…</p>'; return; }
+    if (!Array.isArray(summary.financialRecords)) { host.innerHTML = '<p class="insight-empty" role="status">Histórico financeiro confirmado indisponível. Atualize os indicadores para tentar novamente.</p>'; return; }
+    const period = $('#financialPeriod')?.value || 'month';
+    host.innerHTML = financialMarkup(buildFinancialComparison(summary.financialRecords, { period: period === 'all' ? 'all' : 'month', month: /^\d{4}-\d{2}$/.test(period) ? period : summary.month, base: $('#financialBase')?.value || '', crewLeader: $('#financialLeader')?.value || '' }), financialView);
+    for (const button of document.querySelectorAll('[data-financial-view]')) { const active = button.dataset.financialView === financialView; button.setAttribute('aria-selected', String(active)); button.classList.toggle('is-active', active); }
+  }
+  function fillFinancialFilters() {
+    if (!Array.isArray(summary?.financialRecords)) return;
+    const records = publishedFinancialRecords(summary.financialRecords);
+    for (const [selector, key] of [['#financialBase', 'base'], ['#financialLeader', 'crewLeader']]) {
+      const select = $(selector); if (!select) continue;
+      const selected = select.value, values = [...new Set(records.map(record => record[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      select.innerHTML = '<option value="">Todos</option>' + values.map(value => `<option value="${text(value)}">${text(value)}</option>`).join('');
+      if (selected && !values.includes(selected)) select.insertAdjacentHTML('beforeend', `<option value="${text(selected)}">${text(selected)}</option>`);
+      select.value = selected;
+    }
+    const period = $('#financialPeriod'); if (!period) return;
+    const selected = period.value || 'month', months = [...new Set(records.map(record => record.registeredAt ? operationalDate(record.registeredAt).slice(0, 7) : '').filter(value => /^\d{4}-\d{2}$/.test(value) && value !== summary.month))].sort().reverse();
+    period.innerHTML = '<option value="month">Mês atual</option><option value="all">Período completo</option>' + months.map(month => `<option value="${month}">${month.slice(5)}/${month.slice(0, 4)}</option>`).join('');
+    if (!['month', 'all', ...months].includes(selected)) period.insertAdjacentHTML('beforeend', `<option value="${text(selected)}">${text(selected)}</option>`);
+    period.value = selected;
   }
   function renderCharts() {
     if (!summary?.bases || getSession()?.role !== 'supervisor') return;
@@ -69,6 +97,8 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     }
   }
   function setView(view) {
+    const financial = $('#financialSection');
+    if (financial) { financial.hidden = getSession()?.role !== 'supervisor' || view !== 'supervisor'; if (financial.hidden) $('#financialChart').innerHTML = ''; else renderFinancial(); }
     const section = $('#nonconformitySection');
     if (!section) return;
     section.hidden = getSession()?.role !== 'supervisor' || view !== 'supervisor';
@@ -89,7 +119,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
         summary = result; fillConformityFilters(); renderSummary(); return result;
       } catch (error) {
         if (!current(revision, session.token)) return;
-        for (const selector of session.role === 'supervisor' ? ['#supervisorRanking', '#baseChart', '#rateChart'] : ['#fieldInsights', '#mineInsights']) message($(selector), error);
+        for (const selector of session.role === 'supervisor' ? ['#supervisorRanking', '#baseChart', '#rateChart', '#financialChart'] : ['#fieldInsights', '#mineInsights']) message($(selector), error);
         if (error.code === 'AUTH_REQUIRED') onLogout();
       }
     })();
@@ -165,7 +195,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.5');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.6');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -226,7 +256,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.14.5');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.14.6');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;
@@ -244,6 +274,12 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if ($('#excelStatus')) $('#excelStatus').textContent = '';
   }
   function reset() {
+    financialView = 'current';
+    if ($('#financialSection')) $('#financialSection').hidden = true;
+    if ($('#financialChart')) $('#financialChart').innerHTML = '';
+    if ($('#financialPeriod')) $('#financialPeriod').value = 'month';
+    for (const selector of ['#financialBase', '#financialLeader']) if ($(selector)) $(selector).innerHTML = '<option value="">Todos</option>';
+    for (const button of document.querySelectorAll('[data-financial-view]')) { const active = button.dataset.financialView === 'current'; button.setAttribute('aria-selected', String(active)); button.classList.toggle('is-active', active); }
     if ($('#nonconformitySection')) $('#nonconformitySection').hidden = true;
     entryRevision = -1; noticeConsumed = false; pendingNotice = null; summary = null; summaryTask = null; fiscalTask = null; summaryRevision = -1; fiscalRevision = -1; fiscalSequence++;
     if ($('#entryPendingDialog')?.open) $('#entryPendingDialog').close();
@@ -263,6 +299,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   document.addEventListener('close', event => { if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
   document.addEventListener('input', event => { if (event.target.id === 'excelSearch') { excelVisibleLimit = 100; renderExcelSelection(); } });
   document.addEventListener('change', event => {
+    if (['financialPeriod', 'financialBase', 'financialLeader'].includes(event.target.id)) renderFinancial();
     if (['baseChartPeriod', 'rateChartPeriod', 'rateChartDimension', 'rateChartBase', 'rateChartLeader', 'rateShowRejected', 'rateShowRequested'].includes(event.target.id)) renderCharts();
     if (event.target.dataset.excelSelect && !excelRunning) { if (event.target.checked) excelSelected.add(event.target.dataset.excelSelect); else excelSelected.delete(event.target.dataset.excelSelect); renderExcelSelection(); }
     if (event.target.id === 'excelSelectAll' && !excelRunning) { for (const record of excelMatches()) { if (event.target.checked) excelSelected.add(record.recordId); else excelSelected.delete(record.recordId); } renderExcelSelection(); }
@@ -270,6 +307,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   });
   document.addEventListener('click', event => {
     const target = event.target.closest('button'); if (!target) return;
+    if (target.dataset.financialView && getSession()?.role === 'supervisor') { financialView = target.dataset.financialView === 'comparison' ? 'comparison' : 'current'; renderFinancial(); }
     if (target.hasAttribute('data-entry-sync')) { $('#entryPendingDialog').close(); onNavigate('sync'); onSynchronize(); }
     if (target.dataset.entryCorrection) { const id = target.dataset.entryCorrection; if (pendingNotice?.corrections.some(record => record.recordId === id)) { $('#entryPendingDialog').close(); onCorrection(id); } }
     if (target.dataset.exportRecord) void exportDocument(target.dataset.exportRecord, target);

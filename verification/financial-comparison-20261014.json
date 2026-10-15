@@ -1,0 +1,116 @@
+{
+  "sourceCommit": "6606f143c9539c38390d3079d31dd833c4d295d3",
+  "preparedFrontendVersion": "2026.10.14.6",
+  "backendHealthConfirmed": {
+    "version": "2026.10.14.3",
+    "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+    "timestamp": "2026-10-14T23:35:56-03:00"
+  },
+  "source": {
+    "spreadsheetId": "1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0",
+    "sheet": "OCORRENCIAS",
+    "readOnly": true,
+    "columns": [
+      "ID",
+      "REGISTRADO EM",
+      "TOTAL DOS SERVIÇOS",
+      "STATUS",
+      "AUDITORIA",
+      "BASE",
+      "CHEFE DE TURMA"
+    ],
+    "snapshotReference": "2026-10-14 America/Bahia"
+  },
+  "results": [
+    {
+      "period": "all",
+      "count": 117,
+      "sent": 355835.31,
+      "corrected": 307528.34,
+      "difference": -48306.97,
+      "reduction": 48306.97,
+      "percentage": -13.575653860770585,
+      "pending": 0
+    },
+    {
+      "period": "2026-09",
+      "count": 103,
+      "sent": 329173.09,
+      "corrected": 276001.29,
+      "difference": -53171.8,
+      "reduction": 53171.8,
+      "percentage": -16.153143016642108,
+      "pending": 0
+    },
+    {
+      "period": "2026-10",
+      "count": 14,
+      "sent": 26662.22,
+      "corrected": 31527.05,
+      "difference": 4864.83,
+      "reduction": -4864.83,
+      "percentage": 18.24615504635397,
+      "pending": 0
+    }
+  ],
+  "uuidValuesSha256": "4ceef66dc8760da234368fcd98197206a1220a5d62893d37c03707bd9224ffcb",
+  "tests": {
+    "financialUnitAndOfficialSnapshot": {
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    "conformityAndExcel": {
+      "passed": 22,
+      "failed": 0
+    },
+    "pdfIndividual": {
+      "passed": 13,
+      "failed": 0
+    },
+    "staticAudit": {
+      "passed": 47,
+      "failed": 0
+    },
+    "pwaRelease": true,
+    "supervisorNavigation": true,
+    "ui": {
+      "checks": [
+        {
+          "viewport": "desktop",
+          "filters": true,
+          "sharedChart": true,
+          "stableChartHeight": true,
+          "togglePreservesFilters": true,
+          "refreshPreservesFilters": true,
+          "emptyHistoryDoesNotInventTotals": true,
+          "profilesIsolated": true,
+          "staleResponseIgnored": true,
+          "overflow": false
+        },
+        {
+          "viewport": "mobile",
+          "filters": true,
+          "sharedChart": true,
+          "stableChartHeight": true,
+          "togglePreservesFilters": true,
+          "refreshPreservesFilters": true,
+          "emptyHistoryDoesNotInventTotals": true,
+          "profilesIsolated": true,
+          "staleResponseIgnored": true,
+          "overflow": false
+        }
+      ],
+      "pageErrors": [],
+      "operationalLogins": 0,
+      "productionWrites": 0,
+      "calls": 32
+    }
+  },
+  "operationalLogins": 0,
+  "productionWrites": 0,
+  "productionPublication": {
+    "completed": false,
+    "reason": "Secure Google sign-in request was not executed: automatic approval review failed due to usage limit. Official Apps Script update and production release remain pending."
+  }
+}

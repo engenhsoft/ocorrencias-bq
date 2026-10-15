@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
     <title>Ocorrências B&Q</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.14.5" />
+    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.14.6" />
     <link rel="icon" href="./assets/icon-192.png" sizes="192x192" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=2026.10.14.5" />
+    <link rel="stylesheet" href="./styles.css?v=2026.10.14.6" />
   </head>
   <body>
     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
@@ -206,6 +206,12 @@
                 <div class="comparison-options" role="group" aria-label="Categorias adicionais"><label class="checkbox-label"><input id="rateShowRejected" type="checkbox"/><span>Rejeitadas</span></label><label class="checkbox-label"><input id="rateShowRequested" type="checkbox"/><span>Correção solicitada à equipe</span></label></div>
                 <div id="rateChart" aria-live="polite"></div><p class="insight-note">Aprovadas sem edição direta × corrigidas diretamente pelo Supervisor. Cada UUID conta uma vez por categoria e pela data do evento no fuso Bahia. Uma aprovação após edição direta continua no grupo Corrigidas. Rejeições e pedidos à equipe são eventos adicionais, podem se sobrepor e não compõem um total exclusivo.</p>
               </section>
+              <section id="financialSection" class="insight-card" hidden aria-labelledby="financialTitle">
+                <header class="insight-heading"><div><p class="eyebrow">Ocorrências publicadas</p><h3 id="financialTitle">Financeiro</h3></div><div class="insight-filters"><label class="field"><span>Período</span><select id="financialPeriod"><option value="month">Mês atual</option><option value="all">Período completo</option></select></label><label class="field"><span>Base</span><select id="financialBase"><option value="">Todos</option></select></label><label class="field"><span>Chefe de turma</span><select id="financialLeader"><option value="">Todos</option></select></label></div></header>
+                <div class="financial-tabs" role="tablist" aria-label="Visualização financeira"><button type="button" role="tab" data-financial-view="current" class="is-active" aria-selected="true" aria-controls="financialChart">VALOR ATUAL</button><button type="button" role="tab" data-financial-view="comparison" aria-selected="false" aria-controls="financialChart">ENVIADO × CORRIGIDO</button></div>
+                <div id="financialChart" role="tabpanel" aria-live="polite"><p class="insight-empty">Carregando valores confirmados…</p></div>
+                <p class="insight-note">Enviado: valor anterior à primeira intervenção financeira comprovada. Corrigido: total final dos serviços. Sem intervenção, os dois valores são iguais. Um UUID por indicador, pela data de registro no fuso Bahia.</p>
+              </section>
               <button class="button button--ghost button--small" type="button" data-refresh-insights>Atualizar indicadores</button>
             </div>
             <section id="supervisorKpis" class="supervisor-kpis" aria-label="Indicadores do Supervisor" aria-busy="true"><article class="supervisor-kpi"><span>Publicadas</span><strong id="supervisorKpiTotal">—</strong></article><article class="supervisor-kpi"><span>Aguardando conferência</span><strong id="supervisorKpiWaiting">—</strong></article><article class="supervisor-kpi"><span>Aguardando correção</span><strong id="supervisorKpiCorrection">—</strong></article><article class="supervisor-kpi"><span>Reprovadas</span><strong id="supervisorKpiRejected">—</strong></article><article class="supervisor-kpi"><span>Pendentes de sincronização</span><strong id="supervisorKpiSync">—</strong></article></section>
@@ -265,6 +271,6 @@
     <dialog id="releaseNoticeDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Novidades desta versão</p><h2>OCORRÊNCIAS B&amp;Q ATUALIZADO</h2></div></header><div class="modal__body"><p>O Supervisor compara aprovadas sem edição direta e corrigidas diretamente, com filtros e eventos opcionais. GERAR EXCEL permite selecionar várias ocorrências e baixar um arquivo com serviços, materiais e fotos incorporadas. O PDF continua individual. O Fiscal exporta somente registros das Bases autorizadas.</p></div><footer class="modal__footer"><button id="releaseNoticeAcknowledge" class="button button--primary" value="acknowledged">Entendi</button></footer></form></dialog>
     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
     <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
-    <script type="module" src="./app.js?v=2026.10.14.5"></script>
+    <script type="module" src="./app.js?v=2026.10.14.6"></script>
   </body>
 </html>

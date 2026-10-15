@@ -778,6 +778,24 @@ a.programacao-access { text-decoration: none; }
 .comparison-bars { display: flex; justify-content: center; gap: .25rem; }
 .comparison-bars .bar-chart__column { min-width: 25px; }
 .comparison-bars .bar-chart__track > span { min-width: 18px; }
+
+.financial-tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
+.financial-tabs button { border: 1px solid #c8dce8; border-radius: 9px; background: #f4f8fb; color: #173e60; padding: .65rem .8rem; font: inherit; font-size: .78rem; font-weight: 750; cursor: pointer; }
+.financial-tabs button.is-active { background: #173e60; color: #fff; border-color: #173e60; }
+.financial-tabs button:focus-visible { outline: 3px solid #159898; outline-offset: 2px; }
+#financialChart { min-height: 260px; }
+.financial-count { margin: .7rem 0 1rem; color: #526c80; font-size: .85rem; }
+.financial-bars { min-height: 142px; display: grid; align-content: start; gap: 1.1rem; }
+.financial-bar > div:first-child { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .35rem .7rem; font-size: .88rem; }
+.financial-bar strong { font-variant-numeric: tabular-nums; color: #173e60; }
+.financial-track { height: 14px; background: #edf3f7; margin-top: .5rem; border-radius: 5px; overflow: hidden; }
+.financial-track > span { display: block; height: 100%; border-radius: 5px; }
+.financial-fill--sent { background: #557bb2; }
+.financial-fill--corrected { background: #159898; }
+.financial-delta { display: flex; flex-wrap: wrap; gap: .65rem 2rem; margin-top: 1rem; color: #526c80; font-size: .8rem; }
+.financial-delta strong { display: block; font-size: 1rem; color: #173e60; margin-top: .2rem; }
+.financial-pending { font-size: .85rem; color: #8b5d20; overflow-wrap: anywhere; }
+.financial-pending li { margin: .6rem 0; }
 .excel-modal { width: min(94vw, 620px); }
 .excel-select-all { margin: 1rem 0; font-size: .85rem; }
 .excel-record-list { max-height: min(38vh, 340px); overflow-y: auto; margin: .8rem 0; }

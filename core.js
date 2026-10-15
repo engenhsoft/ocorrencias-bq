@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.14.5';
-export const APP_BUILD = '2026-10-14-conformity-excel';
+export const APP_VERSION = '2026.10.14.6';
+export const APP_BUILD = '2026-10-14-supervisor-finance';
 
 export const TEAM_GOAL = 6000;
 

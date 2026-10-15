@@ -147,7 +147,45 @@ function buildConformityRecords_(rows, history) {
 function getOperationalSummary_(payload) {
   const auth = requireSession_(payload.token, ['field', 'supervisor']);
   const spreadsheet = spreadsheet_();
-  return Object.assign({ ok: true, success: true }, buildOperationalSummary_(featureRows_(spreadsheet), dataRows_(sheet_(APP.historySheet, spreadsheet), HISTORY_HEADERS.length), todayOperational_().slice(0, 7), auth.role === 'supervisor'));
+  const result = Object.assign({ ok: true, success: true }, buildOperationalSummary_(featureRows_(spreadsheet), dataRows_(sheet_(APP.historySheet, spreadsheet), HISTORY_HEADERS.length), todayOperational_().slice(0, 7), auth.role === 'supervisor'));
+  if (auth.role === 'supervisor') result.financialRecords = buildFinancialRecords_(dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH));
+  return result;
+}
+
+// Read only, from OCORRENCIAS exclusively. No catalog, photos or write helpers.
+function buildFinancialRecords_(rows) {
+  function financeField(field) { return normalize_(field) === 'TOTAL DA OCORRENCIA'; }
+  return rows.filter(function (row) {
+    const audit = safeJson_(row[COL.AUDIT - 1], {}) || {};
+    return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(String(row[COL.ID - 1] || ''))
+      && String(row[COL.STATUS - 1]) === STATUS.PUBLISHED && operationalStatusFromValues_(row) === STATUS.PUBLISHED
+      && !audit.testOnly && !audit.harness && !audit.syntheticFixture && audit.publicationState !== 'RECONCILIACAO_NECESSARIA';
+  }).map(function (row) {
+    const audit = safeJson_(row[COL.AUDIT - 1], null);
+    let invalid = !audit || typeof audit !== 'object' || Array.isArray(audit);
+    const saved = invalid ? {} : audit;
+    function list(key) { if (saved[key] != null && !Array.isArray(saved[key])) invalid = true; return Array.isArray(saved[key]) ? saved[key] : []; }
+    function contract(event) {
+      if (!event || typeof event !== 'object' || Array.isArray(event)) { invalid = true; return {}; }
+      return { recalculatedAt: event.recalculatedAt, previousTotal: event.previousTotal, newTotal: event.newTotal };
+    }
+    function correction(event) {
+      if (!event || !Array.isArray(event.changes)) { invalid = true; return null; }
+      const changes = event.changes.filter(function (change) { return change && financeField(change.field); }).map(function (change) {
+        return { field: 'Total da ocorrência', previousValue: change.previousValue, newValue: change.newValue };
+      });
+      return changes.length ? { correctedAt: event.correctedAt, changes: changes } : null;
+    }
+    const contracts = list('contractRecalculations'), corrections = list('supervisorCorrections');
+    const financialAudit = { contractRecalculations: contracts.map(contract), supervisorCorrections: corrections.map(correction).filter(Boolean) };
+    if (saved.lastContractRecalculation) financialAudit.lastContractRecalculation = contract(saved.lastContractRecalculation);
+    if (saved.lastSupervisorCorrection) financialAudit.lastSupervisorCorrection = correction(saved.lastSupervisorCorrection);
+    if (contracts.length >= 30 || corrections.length >= 30) financialAudit.financialHistoryTruncated = true;
+    if (invalid) financialAudit.financialHistoryInvalid = true;
+    return { recordId: String(row[COL.ID - 1]), status: STATUS.PUBLISHED, registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]),
+      base: String(row[COL.BASE - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''),
+      totalServices: row[COL.TOTAL - 1] == null || row[COL.TOTAL - 1] === '' ? null : row[COL.TOTAL - 1], audit: financialAudit };
+  });
 }
 
 function fiscalAccountKey_(user) { return sha256_(normalize_(cleanText_(user, 120))); }
