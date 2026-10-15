@@ -68,7 +68,7 @@ function formHarness() {
     clearPreviewUrls() {}, renderServices() {}, renderMaterials() {}, renderFieldCorrectionBanner() {}, updateContractOutput() {},
     renderAssignmentControls(edit, record) { controls.team.value = record.team || ''; controls.crewLeader.value = record.crewLeader || ''; },
     showDraftId() {}, navigate() {}, assignmentError: () => '', localStorage: { setItem() {} },
-    getPhotosForRecord: async () => [], loadDailyProduction: async () => {}, updateGoal() {},
+    getPhotosForRecord: async () => [], getPhoto: async () => null, putPhotoAndRecord() {}, deletePhoto: async () => {}, loadDailyProduction: async () => {}, updateGoal() {},
     saveActiveDraft: async () => { c.activeRecord.step = c.currentStep; drafts.push(plain(c.activeRecord)); },
     toast: message => messages.push(message), photoIndexLabel: index => 'Foto ' + index,
     renderReview() {}, setBusy() {}, confirmAction: async () => true,
@@ -76,7 +76,7 @@ function formHarness() {
     syncSingleRecord: async id => { syncIds.push(id); return { status: core.RECORD_STATUS.WAITING_SUPERVISOR }; },
     resetForm() {}
   });
-  for (const name of ['syncFormToRecord', 'validateStepOne', 'validatePhotoStep', 'updatePhotoGrid', 'goToStep', 'loadRecordIntoForm', 'submitOccurrence']) {
+  for (const name of ['editingStorage', 'syncFormToRecord', 'validateStepOne', 'validatePhotoStep', 'updatePhotoGrid', 'goToStep', 'loadRecordIntoForm', 'submitOccurrence']) {
     vm.runInContext(extract(appSource, name), c);
   }
   for (const name of ['continueToPhotosButton', 'continueToReviewButton']) {

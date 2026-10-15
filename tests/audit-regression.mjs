@@ -207,7 +207,7 @@ test('IndexedDB fecha conexão tardia de uma abertura já bloqueada', async () =
 function fakeElement() {
   const listeners = new Map();
   const element = {
-    hidden: false, disabled: false, checked: false, indeterminate: false, value: '', returnValue: '', textContent: '', innerHTML: '', dataset: {}, style: {}, open: false, className: '',
+    options: [], hidden: false, disabled: false, checked: false, indeterminate: false, value: '', returnValue: '', textContent: '', innerHTML: '', dataset: {}, style: {}, open: false, className: '',
     classList: { add() {}, remove() {}, toggle() {} }, append() {}, remove() {}, focus() {}, scrollIntoView() {}, querySelector() { return null; }, querySelectorAll() { return this.queryResults || []; },
     attributes: {}, setAttribute(key, value) { this.attributes[key] = String(value); }, getAttribute(key) { return this.attributes[key] ?? null; },
     addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); },
@@ -238,6 +238,8 @@ async function loadAppHarness() {
   `);
   let source = await read('app.js');
   source = source.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`).replace(/from '\.\/db\.js(?:\?v=[^']+)?'/g, `from '${dbStub}'`).replace(/from '\.\/api\.js(?:\?v=[^']+)?'/g, `from '${apiStub}'`);
+  const cardsSource = (await read('occurrence-card.js')).replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`);
+  source = source.replace(/from '\.\/occurrence-card\.js(?:\?v=[^']+)?'/g, `from '${dataUrl(cardsSource)}'`).replace(/from '\.\/fiscal-drafts\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const fiscalDraftKey=()=>{throw Error('Fiscal tested separately')};export const fiscalDraftStorage=fiscalDraftKey;")}'`);
   // New dashboard/PDF UI is covered by features-ui; keep this suite's transport fixtures isolated.
   source = source.replace(/from '\.\/operational-features\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const createOperationalFeatures=()=>({enter(){},reset(){},setView(){},refreshSummary(){},acceptMine(){}});")}'`);
   source = source.replace(/\ninitialize\(\)\.catch\([\s\S]*?\);\s*$/, '\n');

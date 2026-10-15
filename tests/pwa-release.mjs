@@ -8,8 +8,8 @@ const [core, html, app, api, db, worker] = await Promise.all([
 ]);
 
 const version = core.match(/APP_VERSION = '([^']+)'/)?.[1];
-assert.equal(version, '2026.10.15.2');
-assert.match(core, /APP_BUILD = '2026-10-15-fiscal-cards'/);
+assert.equal(version, '2026.10.15.3');
+assert.match(core, /APP_BUILD = '2026-10-15-fiscal-corrections'/);
 assert.ok(worker.includes(`WORKER_VERSION = '${version}'`));
 assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}\$\{WORKER_VERSION\}`/);
 assert.match(worker, /new Request\(asset, \{ cache: 'reload' \}\)/);
@@ -23,7 +23,7 @@ for (const asset of ['core.js', 'db.js', 'api.js']) {
 }
 assert.ok(api.includes(`./config.js?v=${version}`));
 assert.ok(db.includes(`./core.js?v=${version}`));
-for (const asset of ['styles.css', 'config.js', 'core.js', 'db.js', 'api.js', 'app.js', 'operational-features.js', 'occurrence-card.js', 'fiscal-admin.js', 'supervisor-conformity.js', 'supervisor-financial.js', 'occurrence-excel.js', 'occurrence-excel-worker.js', 'manifest.webmanifest']) {
+for (const asset of ['styles.css', 'config.js', 'core.js', 'db.js', 'api.js', 'app.js', 'operational-features.js', 'occurrence-card.js', 'fiscal-admin.js', 'fiscal-workspace.js', 'fiscal-drafts.js', 'supervisor-conformity.js', 'supervisor-financial.js', 'occurrence-excel.js', 'occurrence-excel-worker.js', 'manifest.webmanifest']) {
   assert.ok(worker.includes(`versioned('./${asset}')`), `${asset} ausente do cache versionado`);
 }
 assert.ok(worker.includes("'./vendor/exceljs-4.4.0.min.js'"));

@@ -33,6 +33,7 @@ try {
       else if (payload.action === 'listMine') result = { records: [] };
       else if (payload.action === 'getDailyTeamProduction') result = { totalSent: 0, goal: 6000, count: 0 };
       else if (payload.action === 'getOperationalSummary') { result = structuredClone(summary); if (payload.token !== 'fixture-supervisor' || omitFinancial) delete result.financialRecords; if (delayedSummary) await delayedSummary; }
+      else if (payload.action === 'listFiscalCorrections') result = { records: [], bases: ['CAICÓ'] };
       else if (payload.action === 'listFiscalRecords') result = { records: [], bases: ['CAICÓ'], nextOffset: null, summary: { total: 0, waiting: 0, published: 0, correction: 0, rejected: 0, photoPending: 0, eligibleValue: 0 }, calculatedAt: at };
       else throw Error('Unmocked action: ' + payload.action);
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: true, success: true, ...result }) });

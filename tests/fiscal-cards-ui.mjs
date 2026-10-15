@@ -27,9 +27,10 @@ async function session(variant,viewport){
   else if(!auth)result={ok:false,error:'AUTH_REQUIRED',message:'Sessão fixture ausente'};
   else if(p.action==='listFiscalRecords'){const all=records.filter(r=>auth.bases.includes(r.base)&&(!p.filters?.base||r.base===p.filters.base)&&(!p.filters?.search||[r.recordId,r.occurrenceNumber].some(v=>v.includes(p.filters.search))));const offset=p.offset||0;result={records:all.slice(offset,offset+60).map(r=>project(r,variant)),bases:auth.bases,summary:{total:all.length,waiting:all.filter(r=>r.status==='AGUARDANDO_SUPERVISOR').length,photoPending:1,published:1,correction:1,rejected:1,eligibleValue:500},nextOffset:offset+60<all.length?offset+60:null,calculatedAt:at};}
   else if(['getOccurrenceDocument','getDocumentPhoto'].includes(p.action)){const r=records.find(r=>r.recordId===p.recordId);if(!r||(auth.role==='fiscal'&&!auth.bases.includes(r.base)))result={ok:false,error:'FORBIDDEN',message:'Base não autorizada'};else if(p.action==='getOccurrenceDocument'){if(holdDetail)await holdDetail;result={record:r};}else result={recordId:wrongPhoto?id(901):r.recordId,photoIndex:p.photoIndex,available:true,dataUrl};}
+  else if(p.action==='listFiscalCorrections')result={records:[],bases:auth.bases,aclRevision:'fixture'};
   else if(p.action==='getTeamDirectory')result={entries:[{base:'CAICÓ',team:records[0].team,crewLeader:records[0].crewLeader}],revision:'fixture',fetchedAt:at};
   else if(p.action==='listPending')result={records:[records[0]],pendingRecords:[],metricRecords:[{recordId:id(1),status:'AGUARDANDO_SUPERVISOR'}]};
-  else if(p.action==='getOperationalSummary')result={top3:[],month:'2026-10',bases:{month:[],all:[]},nonconformity:{month:{},all:{}},conformityRecords:[],financialRecords:[],calculatedAt:at};
+  else if(p.action==='getOperationalSummary')result={authorizedBases:auth.bases,aclRevision:'fixture',top3:[],month:'2026-10',bases:{month:[],all:[]},nonconformity:{month:{},all:{}},conformityRecords:[],financialRecords:[],calculatedAt:at};
   else throw Error('Unexpected mocked action '+p.action);
   await route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify({ok:true,success:true,...result})});
  });

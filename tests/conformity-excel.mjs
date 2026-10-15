@@ -82,9 +82,9 @@ test('novo resumo preserva TOP 3, distribuição e não conformidade existentes;
   assert.equal(current.conformityRecords.length, 2); delete current.conformityRecords; assert.deepEqual(current, old);
   assert.deepEqual(plain(after.buildOperationalSummary_(rows, [], '2026-10', false)), plain(before.buildOperationalSummary_(rows, [], '2026-10', false)));
 });
-test('backend exige sessão Supervisor ou Campo no resumo e exclui fixtures da nova projeção', () => {
+test('backend exige sessão autorizada no resumo e exclui fixtures da nova projeção', () => {
   const c = backendContext(backend); c.requireSession_ = (token, roles) => { if (!roles.includes(token)) throw Object.assign(new Error('Sessão inválida'), { code: 'AUTH_REQUIRED' }); return { role: token }; };
-  assert.throws(() => c.getOperationalSummary_({ token: 'fiscal' }), error => error.code === 'AUTH_REQUIRED');
+  assert.throws(() => c.getOperationalSummary_({ token: 'unknown' }), error => error.code === 'AUTH_REQUIRED');
   const r = row(1); r[COL.AUDIT - 1] = JSON.stringify({ testOnly: true }); assert.equal(c.buildConformityRecords_([r], []).length, 0);
 });
 

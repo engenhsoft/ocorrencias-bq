@@ -1,4 +1,4 @@
-import { escapeHtml, formatNumber, normalizeText, operationalDate, isUuid } from './core.js?v=2026.10.15.2';
+import { escapeHtml, formatNumber, normalizeText, operationalDate, isUuid } from './core.js?v=2026.10.15.3';
 
 export const CONFORMITY_CATEGORIES = Object.freeze({ approved: 'Aprovadas sem edição direta', corrected: 'Corrigidas pelo Supervisor', rejected: 'Rejeitadas', requested: 'Correção solicitada à equipe' });
 const list = value => Array.isArray(value) ? value : [];

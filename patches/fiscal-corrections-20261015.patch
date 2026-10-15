@@ -1,0 +1,291 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -8 +8 @@
+-  version: '2026.10.15.2',
++  version: '2026.10.15.3',
+@@ -83,0 +84,3 @@
++      listFiscalCorrections: function () { return listFiscalCorrections_(payload); },
++      openFiscalCorrection: function () { return openFiscalCorrection_(payload); },
++      reassignFiscalCorrection: function () { return reassignFiscalCorrection_(payload); },
+@@ -134 +137 @@
+-  requireSession_(payload.token, ['field', 'supervisor']);
++  requireSession_(payload.token, ['field', 'supervisor', 'fiscal']);
+@@ -191,2 +194,2 @@
+-  requireSession_(payload.token, ['field', 'supervisor']);
+-  const entries = readTeamDirectory_();
++  const auth = requireSession_(payload.token, ['field', 'supervisor', 'fiscal']);
++  const entries = readTeamDirectory_().filter(function (entry) { return auth.role !== 'fiscal' || auth.bases.indexOf(entry.base) >= 0; });
+@@ -203 +206,2 @@
+-  const auth = requireSession_(payload.token, ['field']);
++  let auth = requireSession_(payload.token, ['field', 'fiscal']);
++  if (auth.canManageFiscals) throw apiError_('FORBIDDEN', 'A conta mestra gerencia atribuições; a edição requer o Fiscal responsável.');
+@@ -207 +211 @@
+-  lock.waitLock(30000);
++  lock.waitLock(30000); let authorizedWrite = false;
+@@ -208,0 +213 @@
++    auth = requireSession_(payload.token, ['field', 'fiscal']);
+@@ -216 +221 @@
+-      assertOwner_(auth, officialRecord.user);
++      authorizeCorrectionWrite_(auth, officialFound.values, submitted.fiscalCorrection, true);
+@@ -220 +225,2 @@
+-    if (found) assertOwner_(auth, found.values[COL.USER - 1]);
++    authorizeCorrectionWrite_(auth, found && found.values, submitted.fiscalCorrection, true);
++
+@@ -223,0 +230 @@
++    if (auth.role === 'fiscal' && auth.bases.indexOf(model.base) < 0) throw apiError_('FORBIDDEN', 'A Base corrigida não está autorizada para este Fiscal.');
+@@ -230,0 +238 @@
++    if (receipt && receipt.beforeTotal == null) receipt.beforeTotal = Number(existing[COL.TOTAL - 1]);
+@@ -234 +242 @@
+-      return stateResponse_(recordFromValuesAt_(existing), false, true);
++      return stateResponse_(recordFromValuesAt_(existing), false, auth.role !== 'fiscal');
+@@ -235,0 +244 @@
++    authorizedWrite = true;
+@@ -257,0 +267 @@
++      if (auth.role === 'fiscal') Object.assign(receipt, { routingRequestId: submitted.fiscalCorrection.routingRequestId, assignmentRevision: submitted.fiscalCorrection.assignmentRevision, actorRole: 'fiscal' });
+@@ -277,0 +288 @@
++      if (auth.role === 'fiscal') fiscalCorrectionVerified_(confirmedAudit, confirmedAudit.lastCorrectionSubmission, receipt.beforeTotal == null ? existing[COL.TOTAL - 1] : receipt.beforeTotal, model.totalServices);
+@@ -281,2 +292,2 @@
+-    return stateResponse_(recordFromValuesAt_(persisted.values), !found, true);
+-  } catch (error) { quarantineCorrectionStatus_(recordId); throw error; }
++    return stateResponse_(recordFromValuesAt_(persisted.values), !found, auth.role !== 'fiscal');
++  } catch (error) { if (authorizedWrite) quarantineCorrectionStatus_(recordId); throw error; }
+@@ -486,0 +498,2 @@
++  const fiscalRoute = fiscalCorrectionRoute_(audit);
++  if (fiscalRoute && receipt.routingRequestId === fiscalRoute.routingRequestId) { fiscalRoute.assignmentStatus = 'COMPLETE'; fiscalRoute.completedAt = receipt.completedAt; fiscalRoute.completedBy = actor; }
+@@ -551 +564,2 @@
+-  const auth = requireSession_(payload.token, ['field']);
++  let auth = requireSession_(payload.token, ['field', 'fiscal']);
++  if (auth.canManageFiscals) throw apiError_('FORBIDDEN', 'A conta mestra gerencia atribuições; a edição requer o Fiscal responsável.');
+@@ -557 +571 @@
+-  let responseValues;
++  let responseValues; let authorizedWrite = false;
+@@ -558,0 +573 @@
++    auth = requireSession_(payload.token, ['field', 'fiscal']);
+@@ -562 +577,2 @@
+-    assertOwner_(auth, found.values[COL.USER - 1]);
++    authorizeCorrectionPhoto_(auth, found.values, payload); authorizedWrite = true;
++    const originalPhotoOnly = auth.role === 'field' && Boolean(fiscalCorrectionRoute_(safeJson_(found.values[COL.AUDIT - 1], {})));
+@@ -579 +595 @@
+-      if (currentAudit.lastCorrectionSubmission && currentAudit.lastCorrectionSubmission.phase !== 'COMPLETE') responseValues = finishCorrection_(sheet, verifiedFound, auth.user).values;
++      if (!originalPhotoOnly && currentAudit.lastCorrectionSubmission && currentAudit.lastCorrectionSubmission.phase !== 'COMPLETE') responseValues = finishCorrection_(sheet, verifiedFound, auth.user).values;
+@@ -606 +622 @@
+-      audit.photoSubmissions[photoIndex] = { photoIndex: photoIndex, uploadKey: uploadKey, requestedAt: correctionRequestedAt_(audit), expectedUrl: photoUrl, previousUrl: storedPhotoReceipt && storedPhotoReceipt.uploadKey === uploadKey ? storedPhotoReceipt.previousUrl : oldUrl, receivedAt: confirmedAt, phase: 'STAGED' };
++      audit.photoSubmissions[photoIndex] = { photoIndex: photoIndex, uploadKey: uploadKey, requestedAt: correctionRequestedAt_(audit), expectedUrl: photoUrl, previousUrl: storedPhotoReceipt && storedPhotoReceipt.uploadKey === uploadKey ? storedPhotoReceipt.previousUrl : oldUrl, receivedAt: confirmedAt, phase: 'STAGED', ...(originalPhotoOnly ? { originalFieldSync: true } : {}) };
+@@ -610 +626 @@
+-      if (previousStatus === STATUS.CORRECTION_REQUESTED && (!receipt || receipt.requestedAt !== correctionRequestedAt_(audit))) {
++      if (!originalPhotoOnly && previousStatus === STATUS.CORRECTION_REQUESTED && (!receipt || receipt.requestedAt !== correctionRequestedAt_(audit))) {
+@@ -615 +631 @@
+-      const activeCorrection = receipt && receipt.requestedAt === correctionRequestedAt_(audit) && receipt.phase !== 'COMPLETE';
++      const activeCorrection = !originalPhotoOnly && receipt && receipt.requestedAt === correctionRequestedAt_(audit) && receipt.phase !== 'COMPLETE';
+@@ -627 +643 @@
+-        const nextStatus = requested.length ? STATUS.CORRECTION_REQUESTED : (recordReadyForSupervisorValues_(persisted.values) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS);
++        const nextStatus = originalPhotoOnly ? STATUS.CORRECTION_REQUESTED : requested.length ? STATUS.CORRECTION_REQUESTED : (recordReadyForSupervisorValues_(persisted.values) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS);
+@@ -638 +654 @@
+-  } catch (error) { quarantineCorrectionStatus_(recordId); throw error; }
++  } catch (error) { if (authorizedWrite) quarantineCorrectionStatus_(recordId); throw error; }
+@@ -663 +679 @@
+-  const auth = requireSession_(payload.token, ['field', 'supervisor']);
++  const auth = requireSession_(payload.token, ['field', 'supervisor', 'fiscal']);
+@@ -668,2 +684,3 @@
+-  if (auth.role !== 'supervisor') assertOwner_(auth, record.user);
+-  return stateResponse_(record, false, true);
++  if (auth.role === 'fiscal') authorizeFiscalCorrection_(auth, found.values, payload.fiscalCorrection, true);
++  else if (auth.role !== 'supervisor') assertOwner_(auth, record.user);
++  return stateResponse_(record, false, auth.role !== 'fiscal');
+@@ -922 +939 @@
+-    const request = { photoIndexes: photoIssues, reason: reason, note: note || reason, supervisor: auth.user, requestedAt: reviewedAt };
++    const request = newFiscalCorrectionRoute_({ photoIndexes: photoIssues, reason: reason, note: note || reason, supervisor: auth.user, requestedAt: reviewedAt }, featureBase_(found.values[COL.BASE - 1]));
+@@ -2072,2 +2089,2 @@
+-function buildOperationalSummary_(rows, history, month, supervisor) {
+-  const originals = {}, byId = {}, ranking = {}, bases = ['ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'];
++function buildOperationalSummary_(rows, history, month, supervisor, authorizedBases) {
++  const originals = {}, byId = {}, ranking = {}, bases = authorizedBases || ['ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'];
+@@ -2081 +2098 @@
+-    const row = byId[id]; if (!featureEligible_(row)) return;
++    const row = byId[id]; if (!featureEligible_(row) || (authorizedBases && [STATUS.WAITING_SUPERVISOR, STATUS.PUBLISHED].indexOf(operationalStatusFromValues_(row)) < 0)) return;
+@@ -2135,0 +2153,2 @@
++// Read projection only: retain confirmed decisions from the complete history,
++// plus persisted audit events when an old history entry is unavailable.
+@@ -2137,4 +2156,12 @@
+-  const auth = requireSession_(payload.token, ['field', 'supervisor']);
+-  const spreadsheet = spreadsheet_();
+-  const result = Object.assign({ ok: true, success: true }, buildOperationalSummary_(featureRows_(spreadsheet), dataRows_(sheet_(APP.historySheet, spreadsheet), HISTORY_HEADERS.length), todayOperational_().slice(0, 7), auth.role === 'supervisor'));
+-  if (auth.role === 'supervisor') result.financialRecords = buildFinancialRecords_(dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH));
++  const auth = requireSession_(payload.token, ['field', 'supervisor', 'fiscal']);
++  const spreadsheet = spreadsheet_(), rows = featureRows_(spreadsheet), history = dataRows_(sheet_(APP.historySheet, spreadsheet), HISTORY_HEADERS.length);
++  const scoped = auth.role === 'fiscal' ? fiscalSummaryScope_(auth, rows, history) : { rows: rows, history: history };
++  const result = Object.assign({ ok: true, success: true }, buildOperationalSummary_(scoped.rows, scoped.history, todayOperational_().slice(0, 7), auth.role !== 'field', auth.role === 'fiscal' ? auth.bases : null));
++  if (auth.role !== 'field') {
++    const official = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH);
++    result.financialRecords = buildFinancialRecords_(auth.role === 'fiscal' ? fiscalSummaryScope_(auth, official, history).rows : official);
++  }
++  if (auth.role === 'fiscal') {
++    const current = requireSession_(payload.token, ['fiscal']);
++    result.authorizedBases = current.bases; result.aclRevision = current.aclRevision;
++  }
+@@ -2168,2 +2195,3 @@
+-    const contracts = list('contractRecalculations'), corrections = list('supervisorCorrections');
+-    const financialAudit = { contractRecalculations: contracts.map(contract), supervisorCorrections: corrections.map(correction).filter(Boolean) };
++    const contracts = list('contractRecalculations'), corrections = list('supervisorCorrections'), fiscalCorrections = list('fiscalCorrections');
++    const financialAudit = { contractRecalculations: contracts.map(contract), supervisorCorrections: corrections.map(correction).filter(Boolean), fiscalCorrections: fiscalCorrections.map(correction).filter(Boolean) };
++    if (saved.firstFiscalFinancialIntervention) financialAudit.firstFiscalFinancialIntervention = correction(saved.firstFiscalFinancialIntervention);
+@@ -2172 +2200 @@
+-    if (contracts.length >= 30 || corrections.length >= 30) financialAudit.financialHistoryTruncated = true;
++    if (contracts.length >= 30 || corrections.length >= 30 || fiscalCorrections.length >= 30) financialAudit.financialHistoryTruncated = true;
+@@ -2175 +2203 @@
+-      base: String(row[COL.BASE - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''),
++      base: String(row[COL.BASE - 1] || ''), team: String(row[COL.TEAM - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''),
+@@ -2368 +2396 @@
+-  return { user: account.user, bases: account.bases.slice(), active: account.active === true,
++  return { user: account.user, bases: account.bases.slice(), correctionBases: (account.correctionBases || []).slice(), active: account.active === true,
+@@ -2406,0 +2435,2 @@
++  const correctionBases = payload.correctionBases == null ? null : payload.correctionBases;
++  if (correctionBases !== null && (!Array.isArray(correctionBases) || correctionBases.some(function (base) { return bases.indexOf(base) < 0; }))) throw apiError_('INVALID_FISCAL_CONFIG', 'A responsabilidade por correções requer uma Base autorizada.');
+@@ -2416,0 +2447,2 @@
++    const principals = correctionBases === null ? (existing && existing.correctionBases || []).filter(function (base) { return bases.indexOf(base) >= 0; }) : correctionBases;
++    if (payload.active && principals.some(function (base) { return Object.keys(accounts).some(function (id) { const other = accounts[id]; return id !== key && other && other.active && (other.correctionBases || []).indexOf(base) >= 0; }); })) throw apiError_('FISCAL_PRINCIPAL_CONFLICT', 'Esta Base já possui Fiscal principal. Retire a responsabilidade do cadastro atual antes de escolher outro.');
+@@ -2419 +2451 @@
+-      kind: 'fiscal', bases: bases.filter(function (base, index, all) { return all.indexOf(base) === index; }),
++      kind: 'fiscal', correctionBases: principals.filter(function (base, index, all) { return all.indexOf(base) === index; }), bases: bases.filter(function (base, index, all) { return all.indexOf(base) === index; }),
+@@ -2456,0 +2489,141 @@
++
++// Incremental addition to the existing official backend. No migration or bootstrap.
++function fiscalCorrectionRoute_(audit) {
++  const request = audit && audit.lastCorrectionRequest || {};
++  return request.routingVersion === 'FISCAL_ASSIGNED' ? request : null;
++}
++function fiscalCorrectionCandidates_(base) {
++  const accounts = fiscalAccounts_();
++  return Object.keys(accounts).map(function (key) { return accounts[key]; }).filter(function (account) {
++    return account && account.active === true && account.kind !== 'master' && Array.isArray(account.bases) && account.bases.indexOf(base) >= 0;
++  });
++}
++function newFiscalCorrectionRoute_(request, base) {
++  const candidates = fiscalCorrectionCandidates_(base);
++  const principals = candidates.filter(function (account) { return (account.correctionBases || []).indexOf(base) >= 0; });
++  const selected = candidates.length === 1 ? candidates[0] : principals.length === 1 ? principals[0] : null;
++  return Object.assign(request, { routingVersion: 'FISCAL_ASSIGNED', routingRequestId: Utilities.getUuid(), assignmentRevision: Utilities.getUuid(),
++    base: base, assignedFiscal: selected ? selected.user : '', assignmentStatus: selected ? 'ASSIGNED' : 'WAITING_ASSIGNMENT',
++    assignmentReason: selected ? '' : candidates.length ? 'MULTIPLE_FISCALS_WITHOUT_PRINCIPAL' : 'NO_ACTIVE_FISCAL' });
++}
++function fiscalCorrectionRecipientValid_(request) {
++  if (!request || !request.assignedFiscal) return false;
++  return fiscalCorrectionCandidates_(request.base).some(function (account) { return normalize_(account.user) === normalize_(request.assignedFiscal); });
++}
++function fiscalCorrectionProjection_(audit) {
++  const request = fiscalCorrectionRoute_(audit);
++  if (!request) return { routingVersion: 'LEGACY_FIELD' };
++  const complete = request.assignmentStatus === 'COMPLETE';
++  return { routingVersion: request.routingVersion, routingRequestId: request.routingRequestId, assignmentRevision: request.assignmentRevision,
++    base: request.base, assignedFiscal: request.assignedFiscal || '', assignmentStatus: complete ? 'COMPLETE' : fiscalCorrectionRecipientValid_(request) ? 'ASSIGNED' : 'WAITING_ASSIGNMENT',
++    assignmentReason: !complete && !fiscalCorrectionRecipientValid_(request) ? request.assignmentReason || 'RECIPIENT_UNAVAILABLE' : '', requestedAt: request.requestedAt };
++}
++function authorizeFiscalCorrection_(auth, values, context, allowComplete) {
++  const current = fiscalSession_(auth), audit = safeJson_(values[COL.AUDIT - 1], {}), request = fiscalCorrectionRoute_(audit);
++  authorizeDocumentRow_(current, values);
++  if (!request || normalize_(request.assignedFiscal) !== normalize_(current.user) || current.bases.indexOf(request.base) < 0 || !fiscalCorrectionRecipientValid_(request)) throw apiError_('FORBIDDEN', 'A correção não está atribuída a este Fiscal. Atualize a lista.');
++  if (context && (context.routingRequestId !== request.routingRequestId || context.assignmentRevision !== request.assignmentRevision)) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Seu rascunho foi preservado; atualize a solicitação.');
++  const status = operationalStatusFromValues_(values);
++  if (status !== STATUS.CORRECTION_REQUESTED && !(allowComplete && status === STATUS.WAITING_SUPERVISOR && request.assignmentStatus === 'COMPLETE')) throw apiError_('CORRECTION_CLOSED', 'A solicitação já foi concluída ou recebeu uma decisão.');
++  return request;
++}
++function authorizeCorrectionWrite_(auth, values, context, allowComplete) {
++  if (auth.role === 'fiscal') {
++    if (!values || !context) throw apiError_('FORBIDDEN', 'O Fiscal só pode editar uma solicitação atribuída e aberta pelo formulário de correção.');
++    return authorizeFiscalCorrection_(auth, values, context, allowComplete);
++  }
++  if (values) {
++    assertOwner_(auth, values[COL.USER - 1]);
++    if (fiscalCorrectionRoute_(safeJson_(values[COL.AUDIT - 1], {}))) throw apiError_('FISCAL_CORRECTION_REQUIRED', 'Esta solicitação deve ser corrigida pelo Fiscal responsável.');
++  }
++  return null;
++}
++function authorizeCorrectionPhoto_(auth, values, payload) {
++  const audit = safeJson_(values[COL.AUDIT - 1], {}), route = fiscalCorrectionRoute_(audit);
++  if (auth.role === 'fiscal') {
++    authorizeCorrectionWrite_(auth, values, payload.fiscalCorrection, true);
++    const receipt = audit.lastCorrectionSubmission;
++    const slot = receipt && Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {})[payload.photoIndex];
++    if (!receipt || receipt.routingRequestId !== route.routingRequestId || receipt.assignmentRevision !== route.assignmentRevision || !receipt.dataVerifiedAt || !slot || slot.uploadKey !== payload.uploadKey) throw apiError_('CORRECTION_DATA_UNCONFIRMED', 'Confirme primeiro o envio dos campos e das fotos declaradas nesta correção.');
++  } else {
++    assertOwner_(auth, values[COL.USER - 1]);
++    if (!route) return;
++    const sync = audit.photoSyncRequest || {}, index = Number(payload.photoIndex);
++    const declared = Object.assign({}, audit.lastCorrectionSubmission && audit.lastCorrectionSubmission.photoPatch || {}, audit.lastCorrectionSubmission && audit.lastCorrectionSubmission.evidencePatch || {})[index];
++    const previous = (audit.photoSubmissions || {})[index];
++    if (!declared && !payload.replace && previous && previous.originalFieldSync === true && previous.uploadKey === payload.uploadKey && values[photoUploadKeyColumn_(index) - 1] === payload.uploadKey && values[photoUrlColumn_(index) - 1] === previous.expectedUrl) return;
++    if (declared || payload.replace || values[photoUrlColumn_(index) - 1] || sync.status !== 'OPEN') throw apiError_('FISCAL_CORRECTION_REQUIRED', 'A correção pertence ao Fiscal. O Campo pode apenas sincronizar fotos originais ainda ausentes quando solicitado.');
++  }
++}
++function fiscalCorrectionVerified_(audit, receipt, previousTotal, total) {
++  const route = fiscalCorrectionRoute_(audit);
++  if (!route || !receipt || receipt.routingRequestId !== route.routingRequestId) return;
++  const events = Array.isArray(audit.fiscalCorrections) ? audit.fiscalCorrections.slice() : [];
++  if (Number(previousTotal) !== Number(total) && !events.some(function (event) { return event.requestId === receipt.requestId; })) {
++    if (!audit.firstFiscalFinancialIntervention) audit.firstFiscalFinancialIntervention = { correctedAt: receipt.dataVerifiedAt, changes: [{ field: 'Total da ocorrência', previousValue: Number(previousTotal), newValue: Number(total) }] };
++    events.push({ requestId: receipt.requestId, routingRequestId: route.routingRequestId, fiscal: receipt.actor, correctedAt: receipt.dataVerifiedAt,
++      changes: [{ field: 'Total da ocorrência', previousValue: Number(previousTotal), newValue: Number(total) }] });
++    audit.fiscalCorrections = events.slice(-30);
++  }
++}
++function listFiscalCorrections_(payload) {
++  const auth = requireSession_(payload.token, ['fiscal']);
++  const records = dataRows_(sheet_(APP.pendingSheet), COL.WIDTH).filter(function (values) {
++    return auth.bases.indexOf(featureBase_(values[COL.BASE - 1])) >= 0 && operationalStatusFromValues_(values) === STATUS.CORRECTION_REQUESTED;
++  }).map(function (values) {
++    const audit = safeJson_(values[COL.AUDIT - 1], {}), route = fiscalCorrectionProjection_(audit);
++    return Object.assign(fiscalRecordSummary_(values), { reason: String(values[COL.REASON - 1] || ''), supervisorNote: String(values[COL.SUPERVISOR_NOTE - 1] || ''),
++      fiscalCorrection: route, canCorrect: route.routingVersion === 'FISCAL_ASSIGNED' && route.assignmentStatus === 'ASSIGNED' && normalize_(route.assignedFiscal) === normalize_(auth.user) });
++  });
++  return { ok: true, success: true, records: records, bases: auth.bases, aclRevision: auth.aclRevision, calculatedAt: nowIso_() };
++}
++function openFiscalCorrection_(payload) {
++  const auth = requireSession_(payload.token, ['fiscal']), id = requireUuid_(payload.recordId);
++  const found = uniqueCorrectionRow_(sheet_(APP.pendingSheet), id);
++  if (!found) throw apiError_('RECORD_NOT_FOUND', 'Solicitação não encontrada.');
++  authorizeFiscalCorrection_(auth, found.values, payload.fiscalCorrection, false);
++  const record = recordFromValuesAt_(found.values);
++  record.fiscalCorrection = fiscalCorrectionProjection_(record.audit);
++  return { ok: true, success: true, record: record, aclRevision: auth.aclRevision };
++}
++function reassignFiscalCorrection_(payload) {
++  requireFiscalMaster_(payload.token);
++  const id = requireUuid_(payload.recordId), lock = LockService.getScriptLock(); lock.waitLock(30000);
++  try {
++    const auth = requireFiscalMaster_(payload.token), pending = sheet_(APP.pendingSheet), found = uniqueCorrectionRow_(pending, id);
++    if (!found) throw apiError_('RECORD_NOT_FOUND', 'Solicitação não encontrada.');
++    const audit = safeJson_(found.values[COL.AUDIT - 1], {}), route = fiscalCorrectionRoute_(audit);
++    if (!route || operationalStatusFromValues_(found.values) !== STATUS.CORRECTION_REQUESTED || route.assignmentStatus === 'COMPLETE') throw apiError_('CORRECTION_CLOSED', 'Somente solicitações novas e abertas podem ser atribuídas.');
++    if (route.routingRequestId !== payload.routingRequestId || route.assignmentRevision !== payload.expectedRevision) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Atualize a lista.');
++    const selected = fiscalCorrectionCandidates_(route.base).filter(function (account) { return normalize_(account.user) === normalize_(payload.assignedFiscal); })[0];
++    if (!selected) throw apiError_('INVALID_FISCAL_ASSIGNMENT', 'Selecione um Fiscal ativo e autorizado para esta Base.');
++    if (route.assignedFiscal === selected.user && route.assignmentStatus === 'ASSIGNED') return { ok: true, success: true, recordId: id, idempotent: true, fiscalCorrection: fiscalCorrectionProjection_(audit) };
++    const previous = route.assignedFiscal || '', receipt = audit.lastCorrectionSubmission;
++    // Confirmed fields/photos remain in the row. Preserve unfinished intent and
++    // require remaining declared evidence again under the new assignment.
++    if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && receipt.phase !== 'COMPLETE') {
++      const remaining = Object.keys(Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {})).map(Number).filter(function (index) {
++        const slot = Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {})[index];
++        return !found.values[photoUrlColumn_(index) - 1] || found.values[photoUploadKeyColumn_(index) - 1] !== slot.uploadKey;
++      });
++      audit.requestedPhotoIndexes = normalizePhotoIndexes_((audit.requestedPhotoIndexes || []).concat(remaining));
++      audit.transferredCorrectionSubmissions = (audit.transferredCorrectionSubmissions || []).concat([receipt]).slice(-10);
++      delete audit.lastCorrectionSubmission;
++    }
++    route.assignedFiscal = selected.user; route.assignmentRevision = Utilities.getUuid(); route.assignmentStatus = 'ASSIGNED'; route.assignmentReason = '';
++    route.reassignedAt = nowIso_(); route.reassignedBy = auth.user;
++    appendAuditTimeline_(audit, 'CORRECAO_FISCAL_ATRIBUIDA', auth.user, route.reassignedAt, (previous || 'Sem responsável') + ' → ' + selected.user);
++    const confirmed = writeCorrectionAudit_(pending, found, audit);
++    appendHistory_(recordFromValuesAt_(confirmed.values), auth.user, 'CORRECAO_FISCAL_ATRIBUIDA', STATUS.CORRECTION_REQUESTED, STATUS.CORRECTION_REQUESTED, '', (previous || 'Sem responsável') + ' → ' + selected.user);
++    return { ok: true, success: true, recordId: id, fiscalCorrection: fiscalCorrectionProjection_(audit) };
++  } finally { lock.releaseLock(); }
++}
++function fiscalSummaryScope_(auth, rows, history) {
++  const originals = {};
++  history.forEach(function (event) { if (String(event[3]) === 'CRIADA' && !originals[String(event[0])]) originals[String(event[0])] = { base: event[11], team: event[9], crewLeader: event[12] }; });
++  const allowed = rows.filter(function (row) {
++    return auth.bases.indexOf(featureBase_(row[COL.BASE - 1])) >= 0 && auth.bases.indexOf(featureIdentity_(row, originals[String(row[COL.ID - 1])]).base) >= 0;
++  });
++  const ids = {}; allowed.forEach(function (row) { ids[String(row[COL.ID - 1])] = true; });
++  return { rows: allowed, history: history.filter(function (event) { return ids[String(event[0])]; }) };
++}

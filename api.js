@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.10.15.2';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.2';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.15.3';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.3';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -176,6 +176,9 @@ export function loadMaterialCatalog(options = {}) {
 export const api = Object.freeze({
   login: (user, password, role) => apiRequest('login', { user, password, role }),
   getOperationalSummary: (token) => apiRequest('getOperationalSummary', { token }, { timeoutMs: 60000 }),
+  listFiscalCorrections: token => apiRequest('listFiscalCorrections', { token }, { timeoutMs: 60000 }),
+  openFiscalCorrection: (token, recordId, fiscalCorrection) => apiRequest('openFiscalCorrection', { token, recordId, fiscalCorrection }),
+  reassignFiscalCorrection: (token, assignment) => apiRequest('reassignFiscalCorrection', { token, ...assignment }),
   listFiscalAccounts: token => apiRequest('listFiscalAccounts', { token }),
   saveFiscalAccount: (token, account) => apiRequest('saveFiscalAccount', { ...account, token }),
   changeFiscalMasterPassword: (token, currentPassword, newPassword) => apiRequest('changeFiscalMasterPassword', { token, currentPassword, newPassword }),
@@ -193,9 +196,10 @@ export const api = Object.freeze({
     mimeType: photo.mimeType,
     fileName: photo.fileName,
     dataUrl: photo.dataUrl,
-    replace: Boolean(options.replace)
+    replace: Boolean(options.replace),
+    ...(options.fiscalCorrection ? { fiscalCorrection: options.fiscalCorrection } : {})
   }, { timeoutMs: 60000 }),
-  getRecordState: (token, recordId) => apiRequest('getRecordState', { token, recordId }),
+  getRecordState: (token, recordId, fiscalCorrection) => apiRequest('getRecordState', { token, recordId, ...(fiscalCorrection ? { fiscalCorrection } : {}) }),
   getDailyTeamProduction: (token, team, date, recordId = '') => apiRequest('getDailyTeamProduction', { token, team, date, recordId }),
   listMine: (token) => apiRequest('listMine', { token }, { timeoutMs: 60000 }),
   listPending: (token) => apiRequest('listPending', { token }, { timeoutMs: 60000, enforceDeadline: true }),

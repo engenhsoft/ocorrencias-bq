@@ -1,9 +1,10 @@
-import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.15.2';
-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.2';
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.2';
-import { api, ApiError } from './api.js?v=2026.10.15.2';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.2';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.2';
+import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.15.3';
+import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.15.3';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.3';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.3';
+import { api, ApiError } from './api.js?v=2026.10.15.3';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.3';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.3';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -13,7 +14,7 @@ export function entryPendingRecords(records, user) {
   const owned = [...byId.values()];
   return {
     photos: owned.filter(record => record.status !== RECORD_STATUS.DRAFT && (record.status === RECORD_STATUS.SYNCING_PHOTOS || normalizePhotoStates(record.photoStates).some(photo => photo.localReady && (!photo.confirmed || photo.replacePending)))),
-    corrections: owned.filter(record => record.status === RECORD_STATUS.CORRECTION_REQUESTED || (record.status === RECORD_STATUS.DRAFT && record.correctionMode && record.serverStatus === RECORD_STATUS.CORRECTION_REQUESTED))
+    corrections: owned.filter(record => record.audit?.lastCorrectionRequest?.routingVersion !== 'FISCAL_ASSIGNED').filter(record => record.status === RECORD_STATUS.CORRECTION_REQUESTED || (record.status === RECORD_STATUS.DRAFT && record.correctionMode && record.serverStatus === RECORD_STATUS.CORRECTION_REQUESTED))
   };
 }
 
@@ -39,9 +40,10 @@ export function excelSelectableRecords(records, session) {
     && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId, record])).values()];
 }
 
-export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
+export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onFiscalCorrection, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
   const $ = selector => document.querySelector(selector);
   const fiscalAdmin = createFiscalAdmin({ getSession, getRevision, onLogout });
+  const fiscalWorkspace = createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection: onFiscalCorrection, topThreeMarkup, barsMarkup });
   let summary = null, summaryTask = null, fiscalTask = null, summaryRevision = -1, fiscalRevision = -1;
   let entryRevision = -1, noticeConsumed = false, pendingNotice = null, fiscalOffset = 0, fiscalNextOffset = null, fiscalSequence = 0;
   let excelCandidates = [], excelSelected = new Set(), excelOpening = false, excelRunning = false, excelAbort = null, excelSequence = 0, excelVisibleLimit = 100;
@@ -240,7 +242,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.2');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.3');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -301,7 +303,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.2');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.3');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;
@@ -319,7 +321,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if ($('#excelStatus')) $('#excelStatus').textContent = '';
   }
   function reset() {
-    fiscalAdmin.reset();
+    fiscalAdmin.reset(); fiscalWorkspace.reset();
     fiscalRecords.clear(); fiscalDetails.clear(); fiscalDetailTasks.clear(); fiscalPhotoTasks.clear(); fiscalRendered = ''; fiscalRequestKey = ''; fiscalDetailSequence++; fiscalPhotoSequence++;
     financialView = 'current';
     if ($('#financialSection')) $('#financialSection').hidden = true;
@@ -342,7 +344,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     for (const key of ['base', 'team', 'crewLeader', 'status', 'from', 'to', 'search']) if ($(`#fiscal-${key}`)) $(`#fiscal-${key}`).value = '';
     if ($('#fiscal-period')) $('#fiscal-period').value = 'month';
   }
-  function enter() { reset(); fiscalAdmin.enter(); entryRevision = getRevision(); if (getSession()?.role === 'fiscal') void refreshFiscal(); }
+  function enter() { reset(); fiscalAdmin.enter(); entryRevision = getRevision(); if (getSession()?.role === 'fiscal') { void refreshFiscal(); fiscalWorkspace.enter(); } }
   document.addEventListener('close', event => { if (event.target.id === 'mineDetailDialog') { fiscalDetailSequence++; fiscalPhotoSequence++; } if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
   document.addEventListener('input', event => { if (event.target.id === 'excelSearch') { excelVisibleLimit = 100; renderExcelSelection(); } });
   document.addEventListener('change', event => {
@@ -369,5 +371,5 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if (target.id === 'fiscalNext' && fiscalNextOffset != null) void refreshFiscal(fiscalNextOffset);
     if (target.hasAttribute('data-refresh-insights')) void refreshSummary(true);
   });
-  return { enter, reset, setView, refreshSummary, acceptMine, refreshFiscal, openFiscalPhoto };
+  return { enter, reset, setView, fiscalConfirmed: () => { fiscalWorkspace.confirmed(); void refreshFiscal(); }, fiscalCorrections: () => fiscalWorkspace.setPanel('corrections'), refreshSummary, acceptMine, refreshFiscal, openFiscalPhoto };
 }

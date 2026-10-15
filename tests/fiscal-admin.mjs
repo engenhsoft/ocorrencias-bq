@@ -95,7 +95,7 @@ test('alteração de senha mestra exige senha atual e invalida as sessões', () 
   assert.equal(h.c.loginFiscal_({ user: 'Fiscal Mestre', password: 'fixture-replaced-password' }).canManageFiscals, true);
 });
 test('master continua sem acesso aos endpoints de modificação operacional', () => {
-  const h = harness(); for (const method of ['submitRecord_', 'uploadPhoto_', 'supervisorAction_', 'approveBatch_', 'supervisorCorrectRecord_']) assert.throws(() => h.c[method]({ token: h.token }), e => e.code === 'AUTH_REQUIRED');
+  const h = harness(); for (const method of ['submitRecord_', 'uploadPhoto_', 'supervisorAction_', 'approveBatch_', 'supervisorCorrectRecord_']) assert.throws(() => h.c[method]({ token: h.token }), e => ['AUTH_REQUIRED', 'FORBIDDEN'].includes(e.code));
 });
 test('limite das propriedades é verificado antes de qualquer alteração', () => {
   const h = harness(), accounts = h.raw(); accounts[h.c.fiscalAccountKey_('Fiscal Mestre')].legacyNote = 'x'.repeat(8100); h.props.set('FISCAL_ACCOUNTS_V1', JSON.stringify(accounts));

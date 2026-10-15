@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
     <title>Ocorrências B&Q</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.15.2" />
+    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.15.3" />
     <link rel="icon" href="./assets/icon-192.png" sizes="192x192" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=2026.10.15.2" />
+    <link rel="stylesheet" href="./styles.css?v=2026.10.15.3" />
   </head>
   <body>
     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
@@ -81,6 +81,7 @@
           <section id="view-new" class="view is-active" aria-labelledby="newTitle">
             <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Registro operacional</p><h2 id="newTitle">Nova ocorrência</h2><p>Informe os dados operacionais, os serviços, os materiais e pelo menos três evidências gerais.</p></div><div class="heading-actions"><span id="draftIdBadge" class="id-badge" hidden></span><button id="modeSupervisorButton" class="button button--ghost button--small" type="button">Modo supervisor</button></div></div>
             <div id="fieldInsights" class="operational-insights" aria-live="polite"></div>
+            <button id="fiscalCorrectionBack" class="button button--ghost" type="button" hidden>← Voltar às correções (rascunho salvo)</button>
             <section id="fieldCorrectionBanner" class="correction-request-callout" aria-live="polite" hidden><strong>CORREÇÃO SOLICITADA PELO SUPERVISOR</strong><p id="fieldCorrectionObservation"></p><small id="fieldCorrectionMeta"></small></section>
             <ol class="stepper" aria-label="Etapas da ocorrência"><li class="is-active" data-step-indicator="1"><span>1</span><b>Dados</b></li><li data-step-indicator="2"><span>2</span><b>Evidências</b></li><li data-step-indicator="3"><span>3</span><b>Revisão</b></li></ol>
 
@@ -234,12 +235,22 @@
                 <h4 id="fiscalAccountTitle">Novo fiscal</h4>
                 <div class="fiscal-admin-fields"><label class="field"><span>Usuário fiscal</span><input id="fiscalAccountUser" type="text" maxlength="120" autocomplete="off" required/></label><label class="checkbox-label"><input id="fiscalAccountActive" type="checkbox" checked/><span>Acesso ativo</span></label></div>
                 <fieldset><legend>Bases autorizadas</legend><div id="fiscalAccountBases" class="fiscal-base-choices"></div></fieldset>
+                <fieldset><legend>Fiscal principal para novas correções</legend><p>Com vários fiscais na mesma Base, indique um único principal. Sem principal definido, a solicitação aguardará atribuição da conta mestra.</p><div id="fiscalCorrectionBases" class="fiscal-base-choices"></div></fieldset>
                 <div class="fiscal-admin-fields"><label class="field"><span>Senha do fiscal</span><input id="fiscalAccountPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label><label class="field"><span>Confirmar senha do fiscal</span><input id="fiscalAccountPasswordConfirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label></div>
                 <p id="fiscalAccountPasswordHint">Defina uma senha com pelo menos 12 caracteres.</p>
                 <div class="button-row"><button id="fiscalAccountSave" class="button button--primary" type="submit">Salvar fiscal</button><button id="fiscalAccountCancel" class="button button--ghost" type="button">Novo / cancelar edição</button></div>
               </form>
               <details class="fiscal-master-password"><summary>Alterar senha da conta mestra</summary><form id="fiscalMasterPasswordForm" autocomplete="off"><div class="fiscal-admin-fields"><label class="field"><span>Senha atual da conta mestra</span><input id="fiscalMasterCurrentPassword" type="password" maxlength="128" autocomplete="current-password" required/></label><label class="field"><span>Nova senha da conta mestra</span><input id="fiscalMasterNewPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label><label class="field"><span>Confirmar nova senha</span><input id="fiscalMasterPasswordConfirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label></div><button class="button button--primary" type="submit">Alterar senha e sair</button></form></details>
             </section>
+            <div class="fiscal-workspace-tabs" role="tablist" aria-label="Área do Fiscal"><button class="button button--ghost is-active" type="button" role="tab" data-fiscal-panel="consult" aria-selected="true">Consulta</button><button class="button button--ghost" type="button" role="tab" data-fiscal-panel="corrections" aria-selected="false">Correções <span id="fiscalCorrectionCount">0</span></button><button class="button button--ghost" type="button" role="tab" data-fiscal-panel="indicators" aria-selected="false">Indicadores</button></div>
+            <section id="fiscalCorrectionsPanel" hidden><header class="page-heading page-heading--with-actions"><h3>Correções solicitadas</h3><button id="fiscalCorrectionsRefresh" class="button button--ghost" type="button">Atualizar correções</button></header><p id="fiscalCorrectionsStatus" role="status" aria-live="polite"></p><div id="fiscalCorrectionsList" class="record-list"></div></section>
+            <section id="fiscalIndicatorsPanel" hidden><header class="page-heading page-heading--with-actions"><h3>Indicadores das Bases autorizadas</h3><button id="fiscalIndicatorsRefresh" class="button button--ghost" type="button">Atualizar indicadores</button></header><p id="fiscalIndicatorsStatus" role="status"></p><div id="fiscalRanking"></div>
+              <div class="card fiscal-indicator-filters"><label class="field"><span>Período</span><select id="fiscalIndicatorPeriod"><option value="month">Mês atual</option><option value="all">Todo o histórico</option></select></label><label class="field"><span>Base</span><select id="fiscalIndicatorBase"><option value="">Todas as autorizadas</option></select></label><label class="field"><span>Chefe de turma (conformidade)</span><select id="fiscalIndicatorLeader"><option value="">Todos</option></select></label></div>
+              <section class="insight-card"><h3>Ocorrências por Base</h3><p class="insight-note">Aguardando conferência e publicadas, por UUID e data original de registro.</p><div id="fiscalBaseChart"></div></section>
+              <section class="insight-card"><h3>Conformidade das ocorrências</h3><label class="field"><span>Agrupar por</span><select id="fiscalConformityDimension"><option value="base">Base</option><option value="crewLeader">Chefe de turma</option></select></label><div class="button-row"><label class="checkbox-label"><input id="fiscalShowRejected" type="checkbox"/><span>Incluir reprovadas</span></label><label class="checkbox-label"><input id="fiscalShowRequested" type="checkbox"/><span>Incluir correções solicitadas</span></label></div><div id="fiscalConformityChart"></div></section>
+              <section class="insight-card"><h3>Financeiro das ocorrências publicadas</h3><div class="button-row" role="tablist" aria-label="Visão financeira Fiscal"><button class="button button--ghost is-active" type="button" data-fiscal-financial-view="current" role="tab" aria-selected="true">Valor atual</button><button class="button button--ghost" type="button" data-fiscal-financial-view="comparison" role="tab" aria-selected="false">Enviado × Corrigido</button></div><div class="fiscal-indicator-filters"><label class="field"><span>Período financeiro</span><select id="fiscalFinancialPeriod"><option value="month">Mês atual</option><option value="all">Todo o histórico</option></select></label><label class="field"><span>Base financeira</span><select id="fiscalFinancialBase"><option value="">Todas as autorizadas</option></select></label><label class="field"><span>Chefe de turma</span><select id="fiscalFinancialLeader"><option value="">Todos</option></select></label><label class="field"><span>Equipe</span><select id="fiscalFinancialTeam"><option value="">Todas</option></select></label></div><div id="fiscalFinancialChart"></div></section>
+            </section>
+            <div id="fiscalConsultPanel">
             <div id="fiscalKpis" class="supervisor-kpis fiscal-kpis"></div>
             <section id="fiscalFilters" class="card fiscal-filters" aria-label="Filtros do Fiscal">
               <label class="field"><span>Base</span><select id="fiscal-base"><option value="">Todas as autorizadas</option></select></label>
@@ -250,7 +261,7 @@
               <label class="field"><span>Data inicial</span><input id="fiscal-from" type="date" /></label><label class="field"><span>Data final</span><input id="fiscal-to" type="date" /></label>
               <label class="field field--wide"><span>Número ou UUID</span><input id="fiscal-search" type="search" maxlength="120" placeholder="Buscar ocorrência" /></label><button id="fiscalApplyFilters" class="button button--primary" type="button">Aplicar filtros</button>
             </section>
-            <p id="fiscalResultCount" role="status"></p><div id="fiscalList" class="record-list" aria-live="polite"></div><div class="button-row fiscal-pagination"><button id="fiscalPrevious" class="button button--ghost" type="button" disabled>Anterior</button><button id="fiscalNext" class="button button--ghost" type="button" disabled>Próxima</button></div>
+            <p id="fiscalResultCount" role="status"></p><div id="fiscalList" class="record-list" aria-live="polite"></div><div class="button-row fiscal-pagination"><button id="fiscalPrevious" class="button button--ghost" type="button" disabled>Anterior</button><button id="fiscalNext" class="button button--ghost" type="button" disabled>Próxima</button></div></div>
           </section>
         </main>
       </div>
@@ -285,6 +296,6 @@
     <dialog id="releaseNoticeDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Novidades desta versão</p><h2>OCORRÊNCIAS B&amp;Q ATUALIZADO</h2></div></header><div class="modal__body"><p>O Supervisor compara aprovadas sem edição direta e corrigidas diretamente, com filtros e eventos opcionais. GERAR EXCEL permite selecionar várias ocorrências e baixar um arquivo com serviços, materiais e fotos incorporadas. O PDF continua individual. O Fiscal exporta somente registros das Bases autorizadas.</p></div><footer class="modal__footer"><button id="releaseNoticeAcknowledge" class="button button--primary" value="acknowledged">Entendi</button></footer></form></dialog>
     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
     <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
-    <script type="module" src="./app.js?v=2026.10.15.2"></script>
+    <script type="module" src="./app.js?v=2026.10.15.3"></script>
   </body>
 </html>

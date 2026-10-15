@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.10.15.2';
+import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.10.15.3';
 
 const list = value => Array.isArray(value) ? value : [];
 const text = value => escapeHtml(String(value ?? ''));
@@ -43,14 +43,18 @@ export function initialFinancialValue(record) {
   if (!audit || typeof audit !== 'object' || Array.isArray(audit) || audit.financialHistoryInvalid) return pending('Histórico financeiro ausente ou inválido.');
   const events = [];
   const add = (at, previous, next, source) => events.push({ at: String(at || ''), time: Date.parse(at), previous: financialNumber(previous), next: financialNumber(next), source });
-  for (const key of ['contractRecalculations', 'supervisorCorrections']) if (audit[key] != null && !Array.isArray(audit[key])) return pending('Formato do histórico financeiro inválido.');
-  const contracts = list(audit.contractRecalculations), corrections = list(audit.supervisorCorrections);
-  if (audit.financialHistoryTruncated || contracts.length >= 30 || corrections.length >= 30) return pending('Histórico no limite de retenção; a primeira intervenção precisa ser comprovada.');
+  for (const key of ['contractRecalculations', 'supervisorCorrections', 'fiscalCorrections']) if (audit[key] != null && !Array.isArray(audit[key])) return pending('Formato do histórico financeiro inválido.');
+  const contracts = list(audit.contractRecalculations), corrections = list(audit.supervisorCorrections), fiscalCorrections = list(audit.fiscalCorrections);
+  if (audit.financialHistoryTruncated || contracts.length >= 30 || corrections.length >= 30 || fiscalCorrections.length >= 30) return pending('Histórico no limite de retenção; a primeira intervenção precisa ser comprovada.');
   for (const event of [...contracts, audit.lastContractRecalculation].filter(Boolean)) add(event.recalculatedAt, event.previousTotal, event.newTotal, 'contractRecalculations.previousTotal');
   for (const event of [...corrections, audit.lastSupervisorCorrection].filter(Boolean)) {
     if (!Array.isArray(event.changes)) return pending('Correção sem detalhamento que permita verificar o valor anterior.');
     const changes = event.changes.filter(change => change && totalField(change.field));
     if (changes.length) for (const change of changes) add(event.correctedAt, change.previousValue, change.newValue, 'supervisorCorrections.Total da ocorrência.previousValue');
+  }
+  for (const event of [...fiscalCorrections, audit.firstFiscalFinancialIntervention].filter(Boolean)) {
+    if (!Array.isArray(event.changes)) return pending('Correção fiscal sem detalhamento financeiro.');
+    for (const change of event.changes.filter(change => change && totalField(change.field))) add(event.correctedAt, change.previousValue, change.newValue, 'fiscalCorrections.Total da ocorrência.previousValue');
   }
   if (!events.length) return { sent: financialNumber(record.totalServices), source: 'TOTAL DOS SERVIÇOS (sem intervenção financeira)', firstAt: '', pending: '' };
   if (events.some(event => !Number.isFinite(event.time))) return pending('Intervenção financeira sem data válida; ordem cronológica não comprovada.');
@@ -73,7 +77,7 @@ export function publishedFinancialRecords(records) {
     && record.audit?.publicationState !== 'RECONCILIACAO_NECESSARIA');
 }
 
-export function buildFinancialComparison(records, { period = 'month', month = operationalDate().slice(0, 7), base = '', crewLeader = '' } = {}) {
+export function buildFinancialComparison(records, { period = 'month', month = operationalDate().slice(0, 7), base = '', crewLeader = '', team = '' } = {}) {
   const byId = new Map(), conflicts = new Set();
   for (const record of publishedFinancialRecords(records)) {
     const key = record.recordId.toLowerCase(), previous = byId.get(key);
@@ -83,7 +87,7 @@ export function buildFinancialComparison(records, { period = 'month', month = op
   const items = [], pending = [];
   let count = 0;
   for (const [recordId, record] of byId) {
-    if ((base && normalizeText(record.base) !== normalizeText(base)) || (crewLeader && normalizeText(record.crewLeader) !== normalizeText(crewLeader))) continue;
+    if ((team && normalizeText(record.team) !== normalizeText(team)) || (base && normalizeText(record.base) !== normalizeText(base)) || (crewLeader && normalizeText(record.crewLeader) !== normalizeText(crewLeader))) continue;
     const date = record.registeredAt ? operationalDate(record.registeredAt) : '';
     if (period !== 'all' && date && date.slice(0, 7) !== month) continue;
     count++;

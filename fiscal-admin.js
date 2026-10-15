@@ -1,5 +1,5 @@
-import { escapeHtml, formatDateTime } from './core.js?v=2026.10.15.2';
-import { api } from './api.js?v=2026.10.15.2';
+import { escapeHtml, formatDateTime } from './core.js?v=2026.10.15.3';
+import { api } from './api.js?v=2026.10.15.3';
 
 export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
   const $ = selector => document.querySelector(selector);
@@ -18,7 +18,8 @@ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
   }
   function render() {
     $('#fiscalAccountBases').innerHTML = bases.map(base => `<label class="checkbox-label"><input type="checkbox" name="fiscalBase" value="${escapeHtml(base)}"/><span>${escapeHtml(base)}</span></label>`).join('');
-    $('#fiscalAccountsList').innerHTML = accounts.length ? accounts.map(account => `<article class="fiscal-account-card"><div><strong>${escapeHtml(account.user)}</strong><span class="status-chip">${account.active ? 'Ativo' : 'Desativado'}</span><p>${account.bases.map(escapeHtml).join(' · ')}</p>${account.updatedAt ? `<small>Atualizado em ${escapeHtml(formatDateTime(account.updatedAt))}</small>` : ''}</div><button type="button" class="button button--ghost" data-fiscal-edit="${escapeHtml(account.user)}">Editar</button></article>`).join('') : '<p>Nenhum fiscal cadastrado. Crie o primeiro acesso abaixo.</p>';
+    $('#fiscalCorrectionBases').innerHTML = bases.map(base => `<label class="checkbox-label"><input type="checkbox" name="fiscalCorrectionBase" value="${escapeHtml(base)}"/><span>${escapeHtml(base)}</span></label>`).join('');
+    $('#fiscalAccountsList').innerHTML = accounts.length ? accounts.map(account => `<article class="fiscal-account-card"><div><strong>${escapeHtml(account.user)}</strong><span class="status-chip">${account.active ? 'Ativo' : 'Desativado'}</span><p>${account.bases.map(escapeHtml).join(' · ')}</p><small>Principal: ${(account.correctionBases || []).map(escapeHtml).join(' · ') || 'não definido'}</small>${account.updatedAt ? `<small>Atualizado em ${escapeHtml(formatDateTime(account.updatedAt))}</small>` : ''}</div><button type="button" class="button button--ghost" data-fiscal-edit="${escapeHtml(account.user)}">Editar</button></article>`).join('') : '<p>Nenhum fiscal cadastrado. Crie o primeiro acesso abaixo.</p>';
     newAccount();
   }
   async function refresh() {
@@ -42,6 +43,7 @@ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
     $('#fiscalAccountPassword').required = false; $('#fiscalAccountPasswordConfirm').required = false;
     $('#fiscalAccountPasswordHint').textContent = 'Deixe a senha vazia para manter a atual. Preencha para redefinir.';
     for (const input of form.querySelectorAll('[name="fiscalBase"]')) input.checked = account.bases.includes(input.value);
+    for (const input of form.querySelectorAll('[name="fiscalCorrectionBase"]')) input.checked = (account.correctionBases || []).includes(input.value);
     status('Altere as Bases, a situação ou a senha e salve o cadastro.'); form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   form.addEventListener('submit', async event => {
@@ -50,7 +52,9 @@ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
     if (password !== confirmation) { status('As senhas não correspondem.', 'error'); return; }
     const selected = [...form.querySelectorAll('[name="fiscalBase"]:checked')].map(input => input.value);
     if (!selected.length) { status('Selecione pelo menos uma Base.', 'error'); return; }
-    const payload = { mode: editing ? 'update' : 'create', user: $('#fiscalAccountUser').value.trim(), bases: selected, active: $('#fiscalAccountActive').checked, expectedRevision: editing?.revision || '' };
+    const correctionBases = [...form.querySelectorAll('[name="fiscalCorrectionBase"]:checked')].map(input => input.value);
+    if (correctionBases.some(base => !selected.includes(base))) { status('O Fiscal principal deve ter acesso à mesma Base.', 'error'); return; }
+    const payload = { correctionBases, mode: editing ? 'update' : 'create', user: $('#fiscalAccountUser').value.trim(), bases: selected, active: $('#fiscalAccountActive').checked, expectedRevision: editing?.revision || '' };
     if (password) payload.password = password;
     const { token } = getSession(), revision = getRevision(), run = generation;
     busy(true); status('Salvando cadastro…');
@@ -86,7 +90,8 @@ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
   function reset() {
     generation++; accounts = []; bases = []; editing = null; loading = false; saving = false;
     panel.hidden = true; $('#fiscalAdminToggle').hidden = true; $('#fiscalAdminToggle').setAttribute('aria-expanded', 'false');
-    $('#fiscalAccountsList').innerHTML = ''; $('#fiscalAccountBases').innerHTML = ''; status('');
+    $('#fiscalCorrectionBases').innerHTML = bases.map(base => `<label class="checkbox-label"><input type="checkbox" name="fiscalCorrectionBase" value="${escapeHtml(base)}"/><span>${escapeHtml(base)}</span></label>`).join('');
+    $('#fiscalAccountsList').innerHTML = ''; $('#fiscalAccountBases').innerHTML = ''; $('#fiscalCorrectionBases').innerHTML = ''; status('');
     form.reset(); passwordForm.reset(); for (const control of [...form.elements, ...passwordForm.elements]) control.disabled = false;
     $('#fiscalAdminRefresh').disabled = false;
   }

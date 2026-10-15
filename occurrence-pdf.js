@@ -1,4 +1,4 @@
-import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.15.2';
+import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.15.3';
 
 function documentDateTime(value) {
   if (!value) return 'Não informada';

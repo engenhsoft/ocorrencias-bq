@@ -40,8 +40,8 @@ function featureIdentity_(row, original) {
   return { base: featureBase_(saved.base || row[COL.BASE - 1]), team: String(saved.team || row[COL.TEAM - 1] || '').trim(), crewLeader: String(saved.crewLeader || row[COL.CREW_LEADER - 1] || '').trim() };
 }
 
-function buildOperationalSummary_(rows, history, month, supervisor) {
-  const originals = {}, byId = {}, ranking = {}, bases = ['ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'];
+function buildOperationalSummary_(rows, history, month, supervisor, authorizedBases) {
+  const originals = {}, byId = {}, ranking = {}, bases = authorizedBases || ['ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'];
   history.forEach(function (event) {
     if (String(event[3]) === 'CRIADA' && !originals[String(event[0])]) originals[String(event[0])] = { base: event[11], team: event[9], crewLeader: event[12] };
   });
@@ -49,7 +49,7 @@ function buildOperationalSummary_(rows, history, month, supervisor) {
   const distribution = { month: {}, all: {} };
   ['month', 'all'].forEach(function (period) { bases.forEach(function (base) { distribution[period][base] = 0; }); });
   Object.keys(byId).forEach(function (id) {
-    const row = byId[id]; if (!featureEligible_(row)) return;
+    const row = byId[id]; if (!featureEligible_(row) || (authorizedBases && [STATUS.WAITING_SUPERVISOR, STATUS.PUBLISHED].indexOf(operationalStatusFromValues_(row)) < 0)) return;
     const date = featureDate_(row[COL.REGISTERED_AT - 1]);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
     const identity = featureIdentity_(row, originals[id]);
@@ -145,10 +145,18 @@ function buildConformityRecords_(rows, history) {
 }
 
 function getOperationalSummary_(payload) {
-  const auth = requireSession_(payload.token, ['field', 'supervisor']);
-  const spreadsheet = spreadsheet_();
-  const result = Object.assign({ ok: true, success: true }, buildOperationalSummary_(featureRows_(spreadsheet), dataRows_(sheet_(APP.historySheet, spreadsheet), HISTORY_HEADERS.length), todayOperational_().slice(0, 7), auth.role === 'supervisor'));
-  if (auth.role === 'supervisor') result.financialRecords = buildFinancialRecords_(dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH));
+  const auth = requireSession_(payload.token, ['field', 'supervisor', 'fiscal']);
+  const spreadsheet = spreadsheet_(), rows = featureRows_(spreadsheet), history = dataRows_(sheet_(APP.historySheet, spreadsheet), HISTORY_HEADERS.length);
+  const scoped = auth.role === 'fiscal' ? fiscalSummaryScope_(auth, rows, history) : { rows: rows, history: history };
+  const result = Object.assign({ ok: true, success: true }, buildOperationalSummary_(scoped.rows, scoped.history, todayOperational_().slice(0, 7), auth.role !== 'field', auth.role === 'fiscal' ? auth.bases : null));
+  if (auth.role !== 'field') {
+    const official = dataRows_(sheet_(APP.officialSheet, spreadsheet), COL.WIDTH);
+    result.financialRecords = buildFinancialRecords_(auth.role === 'fiscal' ? fiscalSummaryScope_(auth, official, history).rows : official);
+  }
+  if (auth.role === 'fiscal') {
+    const current = requireSession_(payload.token, ['fiscal']);
+    result.authorizedBases = current.bases; result.aclRevision = current.aclRevision;
+  }
   return result;
 }
 
@@ -176,14 +184,15 @@ function buildFinancialRecords_(rows) {
       });
       return changes.length ? { correctedAt: event.correctedAt, changes: changes } : null;
     }
-    const contracts = list('contractRecalculations'), corrections = list('supervisorCorrections');
-    const financialAudit = { contractRecalculations: contracts.map(contract), supervisorCorrections: corrections.map(correction).filter(Boolean) };
+    const contracts = list('contractRecalculations'), corrections = list('supervisorCorrections'), fiscalCorrections = list('fiscalCorrections');
+    const financialAudit = { contractRecalculations: contracts.map(contract), supervisorCorrections: corrections.map(correction).filter(Boolean), fiscalCorrections: fiscalCorrections.map(correction).filter(Boolean) };
+    if (saved.firstFiscalFinancialIntervention) financialAudit.firstFiscalFinancialIntervention = correction(saved.firstFiscalFinancialIntervention);
     if (saved.lastContractRecalculation) financialAudit.lastContractRecalculation = contract(saved.lastContractRecalculation);
     if (saved.lastSupervisorCorrection) financialAudit.lastSupervisorCorrection = correction(saved.lastSupervisorCorrection);
-    if (contracts.length >= 30 || corrections.length >= 30) financialAudit.financialHistoryTruncated = true;
+    if (contracts.length >= 30 || corrections.length >= 30 || fiscalCorrections.length >= 30) financialAudit.financialHistoryTruncated = true;
     if (invalid) financialAudit.financialHistoryInvalid = true;
     return { recordId: String(row[COL.ID - 1]), status: STATUS.PUBLISHED, registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]),
-      base: String(row[COL.BASE - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''),
+      base: String(row[COL.BASE - 1] || ''), team: String(row[COL.TEAM - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''),
       totalServices: row[COL.TOTAL - 1] == null || row[COL.TOTAL - 1] === '' ? null : row[COL.TOTAL - 1], audit: financialAudit };
   });
 }

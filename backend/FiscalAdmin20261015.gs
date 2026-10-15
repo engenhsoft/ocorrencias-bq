@@ -4,7 +4,7 @@ function fiscalOfficialBases_() {
 }
 
 function fiscalPublicAccount_(account) {
-  return { user: account.user, bases: account.bases.slice(), active: account.active === true,
+  return { user: account.user, bases: account.bases.slice(), correctionBases: (account.correctionBases || []).slice(), active: account.active === true,
     revision: account.revision, updatedAt: account.updatedAt || '', updatedBy: account.updatedBy || '' };
 }
 
@@ -43,6 +43,8 @@ function saveFiscalAccount_(payload) {
   if (!Array.isArray(requested) || !requested.length || requested.length > 6) throw apiError_('INVALID_FISCAL_CONFIG', 'Selecione pelo menos uma Base oficial.');
   const bases = requested.map(featureBase_);
   if (bases.some(function (base) { return !base; })) throw apiError_('INVALID_FISCAL_CONFIG', 'Selecione somente Bases oficiais.');
+  const correctionBases = payload.correctionBases == null ? null : payload.correctionBases;
+  if (correctionBases !== null && (!Array.isArray(correctionBases) || correctionBases.some(function (base) { return bases.indexOf(base) < 0; }))) throw apiError_('INVALID_FISCAL_CONFIG', 'A responsabilidade por correções requer uma Base autorizada.');
   const password = payload.password;
   if (password != null && typeof password !== 'string') throw apiError_('INVALID_FISCAL_PASSWORD', 'Senha inválida.');
   const credential = mode === 'create' || password ? fiscalPasswordConfiguration_(password) : null;
@@ -53,9 +55,11 @@ function saveFiscalAccount_(payload) {
     if (existing && existing.kind === 'master') throw apiError_('FORBIDDEN', 'O cadastro da conta mestra não pode ser alterado por esta operação.');
     if (mode === 'create' && existing) throw apiError_('FISCAL_EXISTS', 'Este usuário já está cadastrado. Use Editar.');
     if (mode === 'update' && (!existing || !payload.expectedRevision || existing.revision !== payload.expectedRevision)) throw apiError_('FISCAL_CONFLICT', 'O cadastro mudou. Atualize a lista antes de editar novamente.');
+    const principals = correctionBases === null ? (existing && existing.correctionBases || []).filter(function (base) { return bases.indexOf(base) >= 0; }) : correctionBases;
+    if (payload.active && principals.some(function (base) { return Object.keys(accounts).some(function (id) { const other = accounts[id]; return id !== key && other && other.active && (other.correctionBases || []).indexOf(base) >= 0; }); })) throw apiError_('FISCAL_PRINCIPAL_CONFLICT', 'Esta Base já possui Fiscal principal. Retire a responsabilidade do cadastro atual antes de escolher outro.');
     const now = nowIso_();
     const account = Object.assign({}, existing || {}, credential || {}, { user: existing ? existing.user : user,
-      kind: 'fiscal', bases: bases.filter(function (base, index, all) { return all.indexOf(base) === index; }),
+      kind: 'fiscal', correctionBases: principals.filter(function (base, index, all) { return all.indexOf(base) === index; }), bases: bases.filter(function (base, index, all) { return all.indexOf(base) === index; }),
       active: payload.active, revision: Utilities.getUuid(), createdAt: existing && existing.createdAt || now, updatedAt: now, updatedBy: auth.user });
     accounts[key] = account; writeFiscalAccounts_(accounts);
     return { ok: true, success: true, account: fiscalPublicAccount_(account) };

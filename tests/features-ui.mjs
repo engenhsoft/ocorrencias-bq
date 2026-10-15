@@ -47,7 +47,7 @@ try {
       calls.push({ viewport: name, action: payload.action, recordId: payload.recordId });
       let result;
       try {
-        const routes = { listFiscalAccounts: 'listFiscalAccounts_', saveFiscalAccount: 'saveFiscalAccount_', changeFiscalMasterPassword: 'changeFiscalMasterPassword_', health: 'health_', login: 'login_', getTeamDirectory: 'getTeamDirectory_', listMine: 'listMine_', listPending: 'listPending_', getRecordState: 'getRecordState_', getOperationalSummary: 'getOperationalSummary_', listFiscalRecords: 'listFiscalRecords_', getOccurrenceDocument: 'getOccurrenceDocument_', getDocumentPhoto: 'getDocumentPhoto_', getDailyTeamProduction: 'getDailyTeamProduction_', listPublishedRecords: 'listPublishedRecords_' };
+        const routes = { listFiscalCorrections: 'listFiscalCorrections_', openFiscalCorrection: 'openFiscalCorrection_', reassignFiscalCorrection: 'reassignFiscalCorrection_', listFiscalAccounts: 'listFiscalAccounts_', saveFiscalAccount: 'saveFiscalAccount_', changeFiscalMasterPassword: 'changeFiscalMasterPassword_', health: 'health_', login: 'login_', getTeamDirectory: 'getTeamDirectory_', listMine: 'listMine_', listPending: 'listPending_', getRecordState: 'getRecordState_', getOperationalSummary: 'getOperationalSummary_', listFiscalRecords: 'listFiscalRecords_', getOccurrenceDocument: 'getOccurrenceDocument_', getDocumentPhoto: 'getDocumentPhoto_', getDailyTeamProduction: 'getDailyTeamProduction_', listPublishedRecords: 'listPublishedRecords_' };
         if (!routes[payload.action]) throw Error('Unmocked action: ' + payload.action);
         result = h.c[routes[payload.action]](payload);
       } catch (error) { result = { ok: false, success: false, error: error.code || 'FIXTURE_ERROR', message: error.message }; }

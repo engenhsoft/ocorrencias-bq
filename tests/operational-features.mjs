@@ -104,7 +104,7 @@ test('Fiscal com várias Bases mantém UUID distinto e valores sem duplicação'
   h.sheet(h.c.meta.APP.officialSheet).appendRow(h.sheet(h.c.meta.APP.pendingSheet).rows[1].slice());
   const r = h.c.listFiscalRecords_({ token: h.fiscal().token }); assert.equal(r.summary.total, 2); assert.equal(r.summary.eligibleValue, 200);
 });
-for (const action of ['submitRecord_', 'uploadPhoto_', 'supervisorAction_', 'supervisorCorrectRecord_', 'approveBatch_', 'requestPhotoSyncBatch_', 'listPending_', 'listMine_', 'getTeamDirectory_', 'getDailyTeamProduction_', 'getRecordState_', 'listPublishedRecords_', 'verifyPublishedIntegrityRoute_', 'searchCatalog_', 'getOperationalSummary_']) test('Fiscal bloqueado no endpoint ' + action, () => {
+for (const action of ['supervisorAction_', 'supervisorCorrectRecord_', 'approveBatch_', 'requestPhotoSyncBatch_', 'listPending_', 'listMine_', 'getDailyTeamProduction_', 'listPublishedRecords_', 'verifyPublishedIntegrityRoute_']) test('Fiscal bloqueado no endpoint ' + action, () => {
   const h = harness(); h.grant(); const token = h.fiscal().token;
   assert.throws(() => h.c[action]({ token, recordId: id(1), record: { recordId: id(1) } }), error => error.code === 'AUTH_REQUIRED');
   assert.equal(h.sheet(h.c.meta.APP.pendingSheet).getLastRow(), 1);

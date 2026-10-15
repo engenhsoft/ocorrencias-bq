@@ -39,7 +39,7 @@ test('uma Base não recebe UUID nem miniaturas de outra; pesquisa e rotas proteg
  assert.equal(h.c.listFiscalRecords_({token, filters:{search:id(2)}}).records.length,0);
  assert.throws(()=>h.c.listFiscalRecords_({token,filters:{base:'MOSSORÓ'}}),e=>e.code==='FORBIDDEN');
  for(const method of ['getOccurrenceDocument_','getDocumentPhoto_']) assert.throws(()=>h.c[method]({token,recordId:id(2),photoIndex:1,detail:true}),e=>e.code==='FORBIDDEN');
- for(const method of ['submitRecord_','supervisorAction_','approveBatch_','requestPhotoSyncBatch_','supervisorCorrectRecord_']) assert.throws(()=>h.c[method]({token,recordId:id(1)}),e=>e.code==='AUTH_REQUIRED');
+ for(const method of ['supervisorAction_','approveBatch_','requestPhotoSyncBatch_','supervisorCorrectRecord_']) assert.throws(()=>h.c[method]({token,recordId:id(1)}),e=>e.code==='AUTH_REQUIRED');
 });
 test('várias Bases mantêm as vinculações e retornam somente as autorizadas', () => {
  const {h}=fixture();h.grant('Fiscal B',['CAICÓ','MOSSORÓ']);h.add(3,{base:'ASSÚ'});const token=h.c.loginFiscal_({user:'Fiscal B',password:'fixture-password'}).token;
@@ -65,7 +65,7 @@ function controller() {
  const {h,token}=fixture();let records=plain(h.c.listFiscalRecords_({token}).records),document=plain(h.c.getOccurrenceDocument_({token,recordId:id(1),detail:true}));
  const host=selector=>{if(!hosts.has(selector))hosts.set(selector,{innerHTML:'',value:'',textContent:'',hidden:true,setAttribute(){},removeAttribute(){}});return hosts.get(selector);};
  const api={listFiscalRecords:async()=>{calls.push('list');if(delay)await delay;return{records,bases:session.bases,summary:{total:records.length},nextOffset:null};},getOccurrenceDocument:async()=>{calls.push('detail');if(delay)await delay;return document;},getDocumentPhoto:async(t,recordId,photoIndex)=>{calls.push('photo');if(delay)await delay;return{recordId,photoIndex,available:true,dataUrl:'data:image/png;base64,aA=='};}};
- const c=vm.createContext({...core,...cards,api,createFiscalAdmin:()=>({reset(){},enter(){}}),ApiError:class extends Error{constructor(message,code){super(message);this.code=code;}},document:{querySelector:host,querySelectorAll:()=>[],addEventListener:(type,fn)=>{events[type]=fn;}},navigator:{onLine:true},console});
+ const c=vm.createContext({...core,...cards,api,createFiscalWorkspace:()=>({reset(){},enter(){}}),createFiscalAdmin:()=>({reset(){},enter(){}}),ApiError:class extends Error{constructor(message,code){super(message);this.code=code;}},document:{querySelector:host,querySelectorAll:()=>[],addEventListener:(type,fn)=>{events[type]=fn;}},navigator:{onLine:true},console});
  vm.runInContext(features.replace(/^import .*?;\n/gm,'').replace(/^export /gm,''),c);
  const ctl=c.createOperationalFeatures({getSession:()=>session,getRevision:()=>revision,onOpenRecord:(r,options)=>opened.push({r,options}),onOpenPhoto:(...args)=>photos.push(args),onLogout(){session=null;revision++;},onNavigate(){}});
  const button={textContent:'VISUALIZAR',dataset:{fiscalDetail:id(1)},hasAttribute:()=>false,setAttribute(){},removeAttribute(){}};

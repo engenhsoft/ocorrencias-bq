@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.15.2';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.15.3';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;
@@ -10,6 +10,25 @@ const STORE = Object.freeze({
 });
 
 let connectionPromise;
+
+// Reuse the existing meta store without changing the IndexedDB schema. Fiscal
+// drafts must never overwrite a Campo record or its UUID/slot photo keys.
+export async function updateFiscalCorrectionDraft(key, mutate) {
+  if (!String(key).startsWith('fiscalCorrection:')) throw new Error('Identificador de rascunho fiscal inválido.');
+  const database = await openDatabase();
+  const transaction = database.transaction(STORE.meta, 'readwrite');
+  const done = transactionDone(transaction), store = transaction.objectStore(STORE.meta);
+  let result;
+  const request = store.get(key);
+  request.onsuccess = () => {
+    try {
+      result = mutate(request.result?.value || { record: null, photos: {} });
+      store.put({ key, value: result, updatedAt: new Date().toISOString() });
+    } catch (error) { transaction.abort(); result = error; }
+  };
+  try { await done; } catch (error) { throw result instanceof Error ? result : error; }
+  return result;
+}
 
 function requestResult(request, transaction) {
   return new Promise((resolve, reject) => {
