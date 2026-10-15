@@ -1,4 +1,5 @@
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.1';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.2';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.2';
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -8,13 +9,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.15.1';
+} from './core.js?v=2026.10.15.2';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.15.1';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.1';
+} from './db.js?v=2026.10.15.2';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.2';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -1322,12 +1323,12 @@ function recordPhotoUrl(record, index) {
     && local?.recordId === record.recordId && local.photoIndex === index && state.localReady
     && state.uploadKey && local.uploadKey === state.uploadKey ? previewUrls.get(index) : '';
   const remote = index <= 5 ? record.photos?.[index - 1] : record.transformerPhotos?.[index === 6 ? 'removed' : 'installed'];
-  return normalizePhotoUrl(ownPreview || state.serverUrl || state.url || remote || '');
+  return normalizePhotoUrl(ownPreview || state.serverUrl || state.url || remote || '', record.fiscalView ? 320 : 1600);
 }
 
 function photoMarkup(record) {
   return `<div class="review-photos">${photoUrlsForRecord(record).map((url, index) => url
-    ? `<figure class="review-photo" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>Foto ${index + 1}</span></figure>`
+    ? `<figure class="review-photo" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}" data-fallback-src="${record.fiscalView ? '' : escapeHtml(photoFallbackUrl(url))}"${record.fiscalView ? ' loading="lazy" decoding="async"' : ''} /><span>Foto ${index + 1}</span></figure>`
     : `<figure class="review-photo review-photo--empty"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Foto ${index + 1} indisponível</span></div><span>Foto ${index + 1}</span></figure>`).join('')}</div>`;
 }
 
@@ -1337,7 +1338,7 @@ function transformerPhotoMarkup(record, kind) {
   const url = recordPhotoUrl(record, index);
   if (!url && !normalizeOccurrenceTypes(record.occurrenceTypes).includes(TYPE_TRAFO)) return '';
   return url
-    ? `<figure class="review-photo transformer-review-photo" data-photo-index="${index}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="${escapeHtml(label)}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /><span>${escapeHtml(label)}</span></figure>`
+    ? `<figure class="review-photo transformer-review-photo" data-photo-index="${index}" data-record-photo-id="${escapeHtml(record.recordId || '')}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="${escapeHtml(label)}" data-fallback-src="${record.fiscalView ? '' : escapeHtml(photoFallbackUrl(url))}"${record.fiscalView ? ' loading="lazy" decoding="async"' : ''} /><span>${escapeHtml(label)}</span></figure>`
     : `<figure class="review-photo review-photo--empty transformer-review-photo"><div class="photo-card__placeholder"><span aria-hidden="true">▧</span><span>Indisponível</span></div><span>${escapeHtml(label)}</span></figure>`;
 }
 
@@ -2330,10 +2331,10 @@ function renderSupervisorList(error = null) {
   elements.supervisorList.innerHTML = renderSupervisorCards(visibleRecords, (record) => {
     const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const pricingIssues = supervisorPricingIssues(record); const eligible = !issues.length && !pricingIssues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
-    const thumbs = urls.map((url, index) => url ? `<button type="button" data-photo-index="${index + 1}" data-record-photo-id="${escapeHtml(record.recordId)}" data-zoom-src="${escapeHtml(url)}" data-zoom-label="Foto ${index + 1}"><img src="${escapeHtml(url)}" alt="Foto ${index + 1}" data-fallback-src="${escapeHtml(photoFallbackUrl(url))}" /></button>` : `<button type="button" disabled aria-label="Foto ${index + 1} indisponível"><span>${index + 1}</span></button>`).join('');
+    const thumbs = cardThumbnailsMarkup(record, urls.map((url, index) => ({ url, photoIndex: index + 1 })));
     const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
-    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><div class="supervisor-title-line"><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3>${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}</div><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team)}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Produção da equipe hoje</span><strong>${escapeHtml(formatCurrency(dailyProgress.total))}</strong></div><div class="record-meta"><span>Meta diária · Ao vivo</span><strong>${escapeHtml(formatNumber(dailyProgress.percentage))}%</strong></div></div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><div class="button-row"><button class="button button--ghost button--small" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></div></footer></div></article>`;
+    return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><div class="supervisor-title-line"><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3>${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}</div><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body">${cardMetadataMarkup([['Sub-base', record.base || '—'], ['Contrato', record.contract || '—'], ['Equipe', record.team], ['Chefe de turma', record.crewLeader || '—'], ['Valor desta ocorrência', formatCurrency(total)], ['Produção da equipe hoje', formatCurrency(dailyProgress.total)], ['Meta diária · Ao vivo', `${formatNumber(dailyProgress.percentage)}%`]])}</div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><div class="button-row"><button class="button button--ghost button--small" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></div></footer></div></article>`;
   }); updateSupervisorSelectionUi();
 }
 
@@ -2803,7 +2804,15 @@ function galleryFromElement(target) {
   return container ? $$('[data-zoom-src]', container).map((item) => ({ src: item.dataset.zoomSrc, label: item.dataset.zoomLabel || 'Evidência' })).filter((item) => item.src) : [];
 }
 function openPhotoFromElement(target) { openPhoto(target.dataset.zoomSrc, target.dataset.zoomLabel, galleryFromElement(target)); }
-function handleZoomClick(event) { const target = event.target.closest('[data-zoom-src]'); if (target) openPhotoFromElement(target); }
+function handleZoomClick(event) {
+  const target = event.target.closest('[data-zoom-src]'); if (!target) return;
+  if (session?.role === 'fiscal') {
+    const holder = target.closest('[data-record-photo-id]');
+    if (holder) void featuresController()?.openFiscalPhoto(holder.dataset.recordPhotoId, Number(holder.dataset.photoIndex), target);
+    return;
+  }
+  openPhotoFromElement(target);
+}
 function openPhoto(src, label = 'Evidência', gallery = []) {
   if (!src) return; photoGallery = gallery.length ? gallery : [{ src, label }]; photoGalleryIndex = Math.max(0, photoGallery.findIndex((item) => item.src === src));
   renderPhotoDialog(); elements.photoDialog.showModal();
@@ -2844,7 +2853,8 @@ function featuresController() {
       return mineRecords.filter(record => ids.has(record.recordId));
     },
     onCorrection: recordId => { const button = document.createElement('button'); button.dataset.mineAction = 'correct'; button.dataset.recordId = recordId; return handleMineAction({ target: button }); },
-    onOpenRecord: record => { elements.mineDetailTitle.textContent = `Ocorrência ${record.occurrenceNumber || 'sem número'}`; elements.mineDetailContent.innerHTML = occurrenceDetails(record); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); }
+    onOpenPhoto: (src, label) => openPhoto(src, label),
+    onOpenRecord: (record, { loading = false } = {}) => { elements.mineDetailTitle.textContent = `Ocorrência ${record.occurrenceNumber || 'sem número'}`; elements.mineDetailContent.innerHTML = loading ? '<p class="insight-empty" role="status">Carregando dados confirmados…</p>' : occurrenceDetails(record); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); }
   });
   return operationalFeatures;
 }

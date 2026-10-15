@@ -754,6 +754,19 @@ a.programacao-access { text-decoration: none; }
 .fiscal-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .fiscal-value { grid-column: 1 / -1; }
 .fiscal-pagination { justify-content: flex-end; margin-top: 1rem; }
+.fiscal-card .record-card__header { flex-wrap: wrap; }
+.fiscal-card .record-meta strong { overflow: visible; overflow-wrap: anywhere; }
+.fiscal-card .supervisor-thumbs { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.fiscal-card .supervisor-thumbs button { position: relative; aspect-ratio: 4/3; }
+.fiscal-card .supervisor-thumbs img { object-fit: contain; }
+.fiscal-card .supervisor-thumbs button > span { position: absolute; inset: auto 0 0; padding: .2rem; font-size: .6rem; color: var(--navy-900); background: #e7eef3e8; }
+.fiscal-card .record-card__footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fiscal-card .record-card__footer .button { min-width: 0; padding-inline: .5rem; }
+@media (max-width: 640px) {
+  .fiscal-card .supervisor-thumbs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fiscal-card .record-card__footer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fiscal-card .record-card__footer .button:first-child { grid-column: 1 / -1; }
+}
 @media (max-width: 640px) {
   .insight-card { padding: .9rem; border-radius: 15px; }
   .top-three { gap: .4rem; }

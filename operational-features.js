@@ -1,8 +1,9 @@
-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.1';
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.1';
-import { api, ApiError } from './api.js?v=2026.10.15.1';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.1';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.1';
+import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.15.2';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.2';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.2';
+import { api, ApiError } from './api.js?v=2026.10.15.2';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.2';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.2';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -38,13 +39,18 @@ export function excelSelectableRecords(records, session) {
     && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId, record])).values()];
 }
 
-export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onSynchronize, onOpenRecord, onLogout }) {
+export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
   const $ = selector => document.querySelector(selector);
   const fiscalAdmin = createFiscalAdmin({ getSession, getRevision, onLogout });
   let summary = null, summaryTask = null, fiscalTask = null, summaryRevision = -1, fiscalRevision = -1;
   let entryRevision = -1, noticeConsumed = false, pendingNotice = null, fiscalOffset = 0, fiscalNextOffset = null, fiscalSequence = 0;
   let excelCandidates = [], excelSelected = new Set(), excelOpening = false, excelRunning = false, excelAbort = null, excelSequence = 0, excelVisibleLimit = 100;
   let financialView = 'current';
+  let fiscalRecords = new Map(), fiscalRendered = '', fiscalRequestKey = '', fiscalDetailSequence = 0, fiscalPhotoSequence = 0;
+  const fiscalDetails = new Map(), fiscalDetailTasks = new Map(), fiscalPhotoTasks = new Map();
+  const fiscalScope = () => JSON.stringify([getRevision(), getSession()?.token, getSession()?.user, (getSession()?.bases || []).map(normalizeText).sort()]);
+  const fiscalVersion = record => JSON.stringify([record.updatedAt, record.status, normalizeText(record.base), record.photoSlots]);
+  const fiscalCurrent = (revision, token, scope) => current(revision, token) && fiscalScope() === scope;
   const current = (revision, token) => getRevision() === revision && getSession()?.token === token;
   function message(host, error) { if (host) host.innerHTML = `<p class="insight-empty" role="status">${text(error?.message || 'Dados indisponíveis. Atualize para tentar novamente.')}</p>`; }
   function renderSummary() {
@@ -145,50 +151,87 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     return Object.fromEntries(['base', 'team', 'crewLeader', 'status', 'period', 'from', 'to', 'search'].map(key => [key, $(`#fiscal-${key}`)?.value || '']));
   }
   async function refreshFiscal(offset = 0) {
-    const session = getSession(), revision = getRevision();
+    const session = getSession(), revision = getRevision(), scope = fiscalScope();
     if (session?.role !== 'fiscal') return;
-    const sequence = ++fiscalSequence; fiscalOffset = offset; fiscalRevision = revision;
+    const filters = fiscalFilters(), requestKey = JSON.stringify([scope, filters, offset]);
+    if (fiscalTask && fiscalRequestKey === requestKey) return fiscalTask;
+    const sequence = ++fiscalSequence; fiscalOffset = offset; fiscalRevision = revision; fiscalRequestKey = requestKey;
+    const valid = () => fiscalCurrent(revision, session.token, scope) && sequence === fiscalSequence;
     const host = $('#fiscalList'); host.setAttribute('aria-busy', 'true');
     const request = (async () => {
       try {
-        const result = await api.listFiscalRecords(session.token, fiscalFilters(), offset);
-        if (!current(revision, session.token) || sequence !== fiscalSequence) return;
-        if (!Array.isArray(result.records) || !Array.isArray(result.bases) || !result.summary) throw new ApiError('A consulta fiscal retornou dados incompletos.', 'INVALID_FISCAL_LIST');
+        const result = await api.listFiscalRecords(session.token, filters, offset);
+        if (!valid()) return;
+        const bases = new Set((session.bases || []).map(normalizeText));
+        if (!Array.isArray(result.records) || !Array.isArray(result.bases) || !result.summary
+          || result.bases.some(base => !bases.has(normalizeText(base)))
+          || result.records.some(record => !isUuid(record?.recordId) || !bases.has(normalizeText(record.base)) || !result.bases.some(base => normalizeText(base) === normalizeText(record.base)))) throw new ApiError('A consulta fiscal retornou dados fora das Bases autorizadas.', 'INVALID_FISCAL_LIST');
+        fiscalRecords = new Map(result.records.map(record => [record.recordId, record]));
+        for (const [id, entry] of fiscalDetails) if (fiscalRecords.has(id) && entry.version !== fiscalVersion(fiscalRecords.get(id))) fiscalDetails.delete(id);
         $('#fiscalAuthorizedBases').textContent = `Bases autorizadas: ${result.bases.join(' · ')}`;
         const select = $('#fiscal-base'), selectedBase = select.value;
         select.innerHTML = `<option value="">Todas as autorizadas</option>${result.bases.map(base => `<option value="${text(base)}">${text(base)}</option>`).join('')}`; select.value = selectedBase;
         const labels = [['total', 'Total de ocorrências'], ['waiting', 'Aguardando conferência'], ['published', 'Publicadas / aprovadas'], ['correction', 'Aguardando correção'], ['rejected', 'Reprovadas'], ['photoPending', 'Fotos pendentes']];
         $('#fiscalKpis').innerHTML = labels.map(([key, label]) => `<article class="supervisor-kpi"><span>${text(label)}</span><strong>${text(formatNumber(result.summary[key]))}</strong></article>`).join('') + `<article class="supervisor-kpi fiscal-value"><span>Valor das aguardando e aprovadas/publicadas elegíveis</span><strong>${text(formatCurrency(result.summary.eligibleValue))}</strong></article>`;
-        host.innerHTML = result.records.length ? result.records.map(record => `<article class="record-card"><header class="record-card__header"><div><h3>Ocorrência ${text(record.occurrenceNumber)}</h3><small>${text(record.recordId)}</small></div><span class="status-chip">${text(statusLabel(record.status))}</span></header><p>${text(record.base)} · ${text(record.team)} · ${text(record.crewLeader)}</p><p>${text(formatDateTime(record.registeredAt))} · ${text(formatCurrency(record.totalServices))}</p><footer class="record-card__footer"><button class="button button--ghost" type="button" data-fiscal-detail="${text(record.recordId)}">Visualizar</button><button class="button button--primary" type="button" data-export-record="${text(record.recordId)}">Gerar PDF</button><button class="button button--ghost" type="button" data-export-excel="${text(record.recordId)}">GERAR EXCEL</button></footer></article>`).join('') : '<p class="insight-empty">Nenhuma ocorrência neste filtro.</p>';
+        const rendered = JSON.stringify([scope, result.records]);
+        if (fiscalRendered !== rendered) {
+          host.innerHTML = result.records.length ? result.records.map(fiscalCardMarkup).join('') : '<p class="insight-empty">Nenhuma ocorrência neste filtro.</p>';
+          fiscalRendered = rendered;
+        }
         fiscalNextOffset = result.nextOffset;
         $('#fiscalPrevious').disabled = !offset; $('#fiscalNext').disabled = fiscalNextOffset == null;
         $('#fiscalResultCount').textContent = `${result.summary.total} ocorrências · atualizado em ${formatDateTime(result.calculatedAt)}`;
-      } catch (error) { if (current(revision, session.token) && sequence === fiscalSequence) { message(host, error); $('#fiscalKpis').innerHTML = ''; if (error.code === 'AUTH_REQUIRED') onLogout(); } }
-      finally { if (current(revision, session.token) && sequence === fiscalSequence) host.setAttribute('aria-busy', 'false'); }
+      } catch (error) { if (valid()) { fiscalRecords.clear(); fiscalDetails.clear(); fiscalRendered = ''; message(host, error); $('#fiscalKpis').innerHTML = ''; if (error.code === 'AUTH_REQUIRED') onLogout(); } }
+      finally { if (valid()) host.setAttribute('aria-busy', 'false'); }
     })();
     fiscalTask = request; try { await request; } finally { if (fiscalTask === request) fiscalTask = null; }
   }
-  async function openFiscalDetail(recordId, button) {
-    const session = getSession(), revision = getRevision(); if (session?.role !== 'fiscal') return;
-    const original = button.textContent; button.disabled = true; button.textContent = 'Carregando…';
-    try {
+  async function fiscalDetail(recordId, session, revision, scope) {
+    const listed = fiscalRecords.get(recordId); if (!listed) throw new ApiError('Ocorrência fora da consulta autorizada.', 'FORBIDDEN');
+    const version = fiscalVersion(listed), key = JSON.stringify([scope, recordId, version]), cached = fiscalDetails.get(recordId);
+    if (cached?.scope === scope && cached.version === version && Date.now() - cached.at < 30000) return cached.record;
+    if (fiscalDetailTasks.has(key)) return fiscalDetailTasks.get(key);
+    const task = (async () => {
       const result = await api.getOccurrenceDocument(session.token, recordId, true);
-      if (!current(revision, session.token)) return;
-      const record = result.record; if (record?.recordId !== recordId) throw new ApiError('Detalhe de outra ocorrência foi recusado.', 'INVALID_RECORD_STATE');
-      record.fiscalView = true;
-      record.photos = Array(5).fill(''); record.transformerPhotos = { removed: '', installed: '' };
-      for (const slot of record.photoSlots || []) {
-        if (!slot.confirmed) continue;
-        const photo = await api.getDocumentPhoto(session.token, recordId, slot.photoIndex);
-        if (!current(revision, session.token)) return;
-        if (!photo.available || photo.recordId !== recordId || photo.photoIndex !== slot.photoIndex || !/^data:image\//.test(photo.dataUrl || '')) continue;
-        if (slot.photoIndex <= 5) record.photos[slot.photoIndex - 1] = photo.dataUrl;
-        else record.transformerPhotos[slot.photoIndex === 6 ? 'removed' : 'installed'] = photo.dataUrl;
+      if (!fiscalCurrent(revision, session.token, scope)) return null;
+      const record = result.record;
+      if (record?.recordId !== recordId || normalizeText(record.base) !== normalizeText(listed.base) || !(session.bases || []).some(base => normalizeText(base) === normalizeText(record.base))) throw new ApiError('Detalhe fora da ocorrência ou Base autorizada.', 'FORBIDDEN');
+      const safe = fiscalReadOnlyRecord(record);
+      if (record.updatedAt === listed.updatedAt) {
+        if (fiscalDetails.size >= 12) fiscalDetails.delete(fiscalDetails.keys().next().value);
+        fiscalDetails.set(recordId, { record: safe, scope, version, at: Date.now() });
       }
-      record.photoStates = (record.photoSlots || []).map(slot => ({ photoIndex: slot.photoIndex, confirmed: slot.confirmed, serverUrl: slot.photoIndex <= 5 ? record.photos[slot.photoIndex - 1] : record.transformerPhotos[slot.photoIndex === 6 ? 'removed' : 'installed'] }));
-      onOpenRecord(record);
-    } catch (error) { if (current(revision, session.token)) { $('#fiscalResultCount').textContent = error.message; if (error.code === 'AUTH_REQUIRED') onLogout(); } }
-    finally { if (current(revision, session.token)) { button.disabled = false; button.textContent = original; } }
+      return safe;
+    })();
+    fiscalDetailTasks.set(key, task);
+    try { return await task; } finally { if (fiscalDetailTasks.get(key) === task) fiscalDetailTasks.delete(key); }
+  }
+  async function openFiscalDetail(recordId, button) {
+    const session = getSession(), revision = getRevision(), scope = fiscalScope(), listed = fiscalRecords.get(recordId);
+    if (session?.role !== 'fiscal' || !listed) return;
+    const sequence = ++fiscalDetailSequence, original = button.textContent;
+    const valid = () => fiscalCurrent(revision, session.token, scope) && sequence === fiscalDetailSequence;
+    button.disabled = true; button.textContent = 'Carregando…';
+    onOpenRecord({ ...listed, fiscalView: true }, { loading: true });
+    try {
+      const record = await fiscalDetail(recordId, session, revision, scope);
+      if (valid() && record) onOpenRecord(record);
+    } catch (error) { if (valid()) { message($('#mineDetailContent'), error); $('#fiscalResultCount').textContent = error.message; if (error.code === 'AUTH_REQUIRED') onLogout(); } }
+    finally { if (fiscalCurrent(revision, session.token, scope)) { button.disabled = false; button.textContent = original; } }
+  }
+  async function openFiscalPhoto(recordId, photoIndex, button) {
+    const session = getSession(), revision = getRevision(), scope = fiscalScope(), listed = fiscalRecords.get(recordId);
+    if (session?.role !== 'fiscal' || !listed || !fiscalPreviewSlots(listed).some(slot => slot.photoIndex === photoIndex && slot.confirmed)) return;
+    const sequence = ++fiscalPhotoSequence, key = JSON.stringify([scope, recordId, photoIndex]);
+    if (button) button.setAttribute('aria-busy', 'true');
+    try {
+      if (!fiscalPhotoTasks.has(key)) fiscalPhotoTasks.set(key, api.getDocumentPhoto(session.token, recordId, photoIndex));
+      const photo = await fiscalPhotoTasks.get(key);
+      if (!fiscalCurrent(revision, session.token, scope) || sequence !== fiscalPhotoSequence) return;
+      if (!photo.available || photo.recordId !== recordId || photo.photoIndex !== photoIndex || !/^data:image\/(jpeg|png|webp|gif);base64,/.test(photo.dataUrl || '')) throw new ApiError('Foto indisponível para esta ocorrência.', 'INVALID_DOCUMENT_PHOTO');
+      onOpenPhoto(photo.dataUrl, photoIndex === 6 ? 'Trafo retirado' : photoIndex === 7 ? 'Trafo instalado' : `Foto ${photoIndex}`);
+    } catch (error) { if (fiscalCurrent(revision, session.token, scope) && sequence === fiscalPhotoSequence) { $('#fiscalResultCount').textContent = error.message; if (error.code === 'AUTH_REQUIRED') onLogout(); } }
+    finally { fiscalPhotoTasks.delete(key); if (button) button.removeAttribute('aria-busy'); }
   }
   async function exportDocument(recordId, button) {
     const session = getSession(), revision = getRevision(); if (!session) return;
@@ -197,7 +240,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.1');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.2');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -258,7 +301,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.1');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.2');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;
@@ -277,6 +320,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   }
   function reset() {
     fiscalAdmin.reset();
+    fiscalRecords.clear(); fiscalDetails.clear(); fiscalDetailTasks.clear(); fiscalPhotoTasks.clear(); fiscalRendered = ''; fiscalRequestKey = ''; fiscalDetailSequence++; fiscalPhotoSequence++;
     financialView = 'current';
     if ($('#financialSection')) $('#financialSection').hidden = true;
     if ($('#financialChart')) $('#financialChart').innerHTML = '';
@@ -299,7 +343,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if ($('#fiscal-period')) $('#fiscal-period').value = 'month';
   }
   function enter() { reset(); fiscalAdmin.enter(); entryRevision = getRevision(); if (getSession()?.role === 'fiscal') void refreshFiscal(); }
-  document.addEventListener('close', event => { if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
+  document.addEventListener('close', event => { if (event.target.id === 'mineDetailDialog') { fiscalDetailSequence++; fiscalPhotoSequence++; } if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
   document.addEventListener('input', event => { if (event.target.id === 'excelSearch') { excelVisibleLimit = 100; renderExcelSelection(); } });
   document.addEventListener('change', event => {
     if (['financialPeriod', 'financialBase', 'financialLeader'].includes(event.target.id)) renderFinancial();
@@ -318,11 +362,12 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if (target.id === 'generateExcelButton') void generateExcel();
     if (target.hasAttribute('data-excel-close')) $('#excelDialog').close();
     if (target.hasAttribute('data-excel-more') && !excelRunning) { excelVisibleLimit += 100; renderExcelSelection(); }
+    if (target.dataset.fiscalPhoto) void openFiscalPhoto(target.dataset.fiscalRecord, Number(target.dataset.fiscalPhoto), target);
     if (target.dataset.fiscalDetail) void openFiscalDetail(target.dataset.fiscalDetail, target);
     if (target.id === 'fiscalRefresh' || target.id === 'fiscalApplyFilters') void refreshFiscal();
     if (target.id === 'fiscalPrevious') void refreshFiscal(Math.max(0, fiscalOffset - 60));
     if (target.id === 'fiscalNext' && fiscalNextOffset != null) void refreshFiscal(fiscalNextOffset);
     if (target.hasAttribute('data-refresh-insights')) void refreshSummary(true);
   });
-  return { enter, reset, setView, refreshSummary, acceptMine, refreshFiscal };
+  return { enter, reset, setView, refreshSummary, acceptMine, refreshFiscal, openFiscalPhoto };
 }

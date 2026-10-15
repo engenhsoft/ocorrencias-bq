@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.15.1';
-export const APP_BUILD = '2026-10-15-fiscal-admin';
+export const APP_VERSION = '2026.10.15.2';
+export const APP_BUILD = '2026-10-15-fiscal-cards';
 
 export const TEAM_GOAL = 6000;
 
