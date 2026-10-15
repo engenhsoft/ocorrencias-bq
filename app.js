@@ -1,4 +1,4 @@
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.14.6';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.1';
 import {
   APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -8,13 +8,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.14.6';
+} from './core.js?v=2026.10.15.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.14.6';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.14.6';
+} from './db.js?v=2026.10.15.1';
+import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -675,7 +675,7 @@ async function handleLogin(event) {
   try {
     const result = await api.login(user, password, role);
     clearSessionUiState();
-    persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
+    persistSession({ token: result.token, user: result.user, role: result.role, bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
     localStorage.setItem(LAST_USER_KEY, result.user);
     elements.loginPassword.value = '';
     await enterApplication();
@@ -686,7 +686,7 @@ async function handleLogin(event) {
 async function enterApplication() {
   if (typeof featuresController === 'function') featuresController()?.enter();
   elements.loginView.hidden = true; elements.appShell.hidden = false;
-  elements.sessionRoleLabel.textContent = session.role === 'fiscal' ? `Fiscal · ${session.user}` : session.role === 'supervisor' ? `Supervisor · ${session.user}` : `Campo · ${session.user}`;
+  elements.sessionRoleLabel.textContent = session.role === 'fiscal' ? `${session.canManageFiscals ? 'Conta mestra Fiscal' : 'Fiscal'} · ${session.user}` : session.role === 'supervisor' ? `Supervisor · ${session.user}` : `Campo · ${session.user}`;
   $$('[data-nav="new"], [data-nav="mine"]', elements.mainNav).forEach((item) => { item.hidden = session.role !== 'field'; });
   elements.supervisorNav.hidden = session.role !== 'supervisor';
   const fiscal = session.role === 'fiscal';
@@ -732,7 +732,7 @@ async function handleProfileSwitch(event) {
   try {
     const result = await api.login(user, password, profileSwitchTarget);
     clearSessionUiState();
-    persistSession({ token: result.token, user: result.user, role: result.role, expiresAt: tokenExpiry(result.token) });
+    persistSession({ token: result.token, user: result.user, role: result.role, bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
     localStorage.setItem(LAST_USER_KEY, result.user); elements.profileSwitchPassword.value = '';
     clearInterval(supervisorRefreshTimer); await enterApplication();
     toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');

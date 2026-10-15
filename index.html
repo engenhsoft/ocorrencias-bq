@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
     <title>Ocorrências B&Q</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.14.6" />
+    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.15.1" />
     <link rel="icon" href="./assets/icon-192.png" sizes="192x192" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=2026.10.14.6" />
+    <link rel="stylesheet" href="./styles.css?v=2026.10.15.1" />
   </head>
   <body>
     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
@@ -225,7 +225,21 @@
             <div id="approveAllFooter" class="approve-all-footer" hidden><button id="approveAllButton" class="button button--primary" type="button">Aprovar todas as aptas</button></div>
           </section>
           <section id="view-fiscal" class="view" aria-labelledby="fiscalTitle" hidden>
-            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo Fiscal — Ocorrências B&amp;Q</p><h2 id="fiscalTitle">Consulta das Bases autorizadas</h2><p id="fiscalAuthorizedBases"></p></div><button id="fiscalRefresh" class="button button--ghost" type="button">Atualizar</button></div>
+            <div class="page-heading page-heading--with-actions"><div><p class="eyebrow">Modo Fiscal — Ocorrências B&amp;Q</p><h2 id="fiscalTitle">Consulta das Bases autorizadas</h2><p id="fiscalAuthorizedBases"></p></div><div class="button-row"><button id="fiscalAdminToggle" class="button button--primary" type="button" aria-expanded="false" aria-controls="fiscalAdminPanel" hidden>Gerenciar fiscais</button><button id="fiscalRefresh" class="button button--ghost" type="button">Atualizar</button></div></div>
+            <section id="fiscalAdminPanel" class="card fiscal-admin" aria-labelledby="fiscalAdminTitle" hidden>
+              <header class="page-heading page-heading--with-actions"><div><p class="eyebrow">Conta mestra</p><h3 id="fiscalAdminTitle">Gestão de usuários fiscais</h3><p>Cadastre acessos individuais e selecione as Bases de cada fiscal.</p></div><button id="fiscalAdminRefresh" class="button button--ghost" type="button">Atualizar usuários</button></header>
+              <p id="fiscalAdminStatus" class="form-message" role="status" aria-live="polite"></p>
+              <div id="fiscalAccountsList" class="fiscal-accounts-list"></div>
+              <form id="fiscalAccountForm" class="fiscal-account-form" autocomplete="off">
+                <h4 id="fiscalAccountTitle">Novo fiscal</h4>
+                <div class="fiscal-admin-fields"><label class="field"><span>Usuário fiscal</span><input id="fiscalAccountUser" type="text" maxlength="120" autocomplete="off" required/></label><label class="checkbox-label"><input id="fiscalAccountActive" type="checkbox" checked/><span>Acesso ativo</span></label></div>
+                <fieldset><legend>Bases autorizadas</legend><div id="fiscalAccountBases" class="fiscal-base-choices"></div></fieldset>
+                <div class="fiscal-admin-fields"><label class="field"><span>Senha do fiscal</span><input id="fiscalAccountPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label><label class="field"><span>Confirmar senha do fiscal</span><input id="fiscalAccountPasswordConfirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label></div>
+                <p id="fiscalAccountPasswordHint">Defina uma senha com pelo menos 12 caracteres.</p>
+                <div class="button-row"><button id="fiscalAccountSave" class="button button--primary" type="submit">Salvar fiscal</button><button id="fiscalAccountCancel" class="button button--ghost" type="button">Novo / cancelar edição</button></div>
+              </form>
+              <details class="fiscal-master-password"><summary>Alterar senha da conta mestra</summary><form id="fiscalMasterPasswordForm" autocomplete="off"><div class="fiscal-admin-fields"><label class="field"><span>Senha atual da conta mestra</span><input id="fiscalMasterCurrentPassword" type="password" maxlength="128" autocomplete="current-password" required/></label><label class="field"><span>Nova senha da conta mestra</span><input id="fiscalMasterNewPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label><label class="field"><span>Confirmar nova senha</span><input id="fiscalMasterPasswordConfirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required/></label></div><button class="button button--primary" type="submit">Alterar senha e sair</button></form></details>
+            </section>
             <div id="fiscalKpis" class="supervisor-kpis fiscal-kpis"></div>
             <section id="fiscalFilters" class="card fiscal-filters" aria-label="Filtros do Fiscal">
               <label class="field"><span>Base</span><select id="fiscal-base"><option value="">Todas as autorizadas</option></select></label>
@@ -271,6 +285,6 @@
     <dialog id="releaseNoticeDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Novidades desta versão</p><h2>OCORRÊNCIAS B&amp;Q ATUALIZADO</h2></div></header><div class="modal__body"><p>O Supervisor compara aprovadas sem edição direta e corrigidas diretamente, com filtros e eventos opcionais. GERAR EXCEL permite selecionar várias ocorrências e baixar um arquivo com serviços, materiais e fotos incorporadas. O PDF continua individual. O Fiscal exporta somente registros das Bases autorizadas.</p></div><footer class="modal__footer"><button id="releaseNoticeAcknowledge" class="button button--primary" value="acknowledged">Entendi</button></footer></form></dialog>
     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
     <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
-    <script type="module" src="./app.js?v=2026.10.14.6"></script>
+    <script type="module" src="./app.js?v=2026.10.15.1"></script>
   </body>
 </html>

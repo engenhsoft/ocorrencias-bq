@@ -203,14 +203,14 @@ function fiscalAccount_(user) {
 function fiscalSession_(auth) {
   const account = fiscalAccount_(auth.user);
   if (auth.aclRevision !== account.revision) throw apiError_('AUTH_REQUIRED', 'A autorização fiscal mudou. Entre novamente.');
-  return Object.assign({}, auth, { user: account.user, bases: account.bases });
+  return Object.assign({}, auth, { user: account.user, bases: account.bases, canManageFiscals: account.kind === 'master' });
 }
 function loginFiscal_(payload) {
   let account;
   try { account = fiscalAccount_(payload.user); } catch (error) { throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.'); }
   if (!payload.password || !constantTimeEquals_(sha256_(account.salt + '\n' + String(payload.password)), account.passwordHash)) throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.');
   const expiresAt = Date.now() + APP.sessionHours * 60 * 60 * 1000;
-  return { ok: true, success: true, user: account.user, role: 'fiscal', bases: account.bases, token: createToken_(account.user, 'fiscal', expiresAt, account.revision), expiresAt: new Date(expiresAt).toISOString() };
+  return { ok: true, success: true, user: account.user, role: 'fiscal', bases: account.bases, canManageFiscals: account.kind === 'master', token: createToken_(account.user, 'fiscal', expiresAt, account.revision), expiresAt: new Date(expiresAt).toISOString() };
 }
 
 // Owner-only provisioning: not present in doPost routes and never reachable by an app session.
@@ -223,6 +223,7 @@ function configureFiscalAccount_(configuration) {
   const lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     const accounts = fiscalAccounts_();
+    if (accounts[fiscalAccountKey_(user)] && accounts[fiscalAccountKey_(user)].kind === 'master') throw apiError_('FORBIDDEN', 'Use a administração da conta mestra.');
     accounts[fiscalAccountKey_(user)] = { user: user, salt: salt, passwordHash: hash, bases: bases.filter(function (base, index, all) { return all.indexOf(base) === index; }), active: configuration.active !== false, revision: Utilities.getUuid() };
     PropertiesService.getScriptProperties().setProperty('FISCAL_ACCOUNTS_V1', JSON.stringify(accounts));
     return { user: user, bases: bases, active: configuration.active !== false };

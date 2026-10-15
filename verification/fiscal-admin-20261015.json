@@ -1,0 +1,19 @@
+{
+  "release": "2026.10.15.1",
+  "baselineCommit": "4493d38eb00cd4c96d8dc001919c384686439b75",
+  "baselineBackendSha256": "732e0f8851632972d45ddaa101c4d3196bd4832f02e3ceac0e02d027a0c05756",
+  "candidateBackendSha256": "d60675e4e272cd2d808387e1cae22df8af7b8e7fdccdef91e5722725214c2802",
+  "tests": {
+    "fiscalAdmin": 17,
+    "operationalFeatures": 42,
+    "loginSupervisorDecimal": 17,
+    "supervisorLoadCompletion": 26,
+    "correctionPersistence": 53,
+    "featuresUi": 24
+  },
+  "totalCounted": 179,
+  "failed": 0,
+  "productionTestRequests": 0,
+  "masterProvisioning": "pending",
+  "publication": "pending"
+}

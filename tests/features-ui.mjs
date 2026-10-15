@@ -16,6 +16,8 @@ const factory = vm.runInNewContext(persistenceTests.match(/class MemorySheet \{[
 const uuid = n => `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
 const harness = vm.runInNewContext(extract(featureTests, 'harness') + '\nharness', { factory, vm, extract, backend, createHash, createHmac, randomUUID, Buffer, Map, Date, id: uuid });
 const h = harness(); h.grant();
+h.c.Utilities.newBlob = value => ({ getBytes: () => [...Buffer.from(value)], getDataAsString: () => Buffer.from(value).toString('utf8') });
+h.c.configureFiscalMaster_({ user: 'Conta Mestra', salt: 'b'.repeat(64), passwordHash: createHash('sha256').update('b'.repeat(64) + '\nfixture-password').digest('hex') });
 h.c.credentialHash_ = () => createHash('sha256').update('fixture-password').digest('hex');
 h.c.readTeamDirectory_ = () => [{ base: 'CAICÓ', team: 'LM A', crewLeader: 'Chefe A' }];
 h.add(1); h.add(2, { status: 'CORRECAO_SOLICITADA' }); h.add(3, { status: 'FOTOS_SENDO_SINCRONIZADAS' }); h.add(4, { base: 'MOSSORÓ', leader: 'Chefe B' });
@@ -45,7 +47,7 @@ try {
       calls.push({ viewport: name, action: payload.action, recordId: payload.recordId });
       let result;
       try {
-        const routes = { health: 'health_', login: 'login_', getTeamDirectory: 'getTeamDirectory_', listMine: 'listMine_', listPending: 'listPending_', getRecordState: 'getRecordState_', getOperationalSummary: 'getOperationalSummary_', listFiscalRecords: 'listFiscalRecords_', getOccurrenceDocument: 'getOccurrenceDocument_', getDocumentPhoto: 'getDocumentPhoto_', getDailyTeamProduction: 'getDailyTeamProduction_', listPublishedRecords: 'listPublishedRecords_' };
+        const routes = { listFiscalAccounts: 'listFiscalAccounts_', saveFiscalAccount: 'saveFiscalAccount_', changeFiscalMasterPassword: 'changeFiscalMasterPassword_', health: 'health_', login: 'login_', getTeamDirectory: 'getTeamDirectory_', listMine: 'listMine_', listPending: 'listPending_', getRecordState: 'getRecordState_', getOperationalSummary: 'getOperationalSummary_', listFiscalRecords: 'listFiscalRecords_', getOccurrenceDocument: 'getOccurrenceDocument_', getDocumentPhoto: 'getDocumentPhoto_', getDailyTeamProduction: 'getDailyTeamProduction_', listPublishedRecords: 'listPublishedRecords_' };
         if (!routes[payload.action]) throw Error('Unmocked action: ' + payload.action);
         result = h.c[routes[payload.action]](payload);
       } catch (error) { result = { ok: false, success: false, error: error.code || 'FIXTURE_ERROR', message: error.message }; }
@@ -53,8 +55,8 @@ try {
     });
     const page = await context.newPage(); page.on('pageerror', error => allErrors.push({ viewport: name, message: error.message }));
     await page.goto(origin);
-    const login = async role => {
-      await page.locator(`input[name="role"][value="${role}"]`).check(); await page.locator('#loginUser').fill(role === 'fiscal' ? 'Fiscal A' : role === 'field' ? 'Campo A' : 'Supervisor A'); await page.locator('#loginPassword').fill('fixture-password'); await page.locator('#loginButton').click();
+    const login = async (role, user) => {
+      await page.locator(`input[name="role"][value="${role}"]`).check(); await page.locator('#loginUser').fill(user || (role === 'fiscal' ? 'Fiscal A' : role === 'field' ? 'Campo A' : 'Supervisor A')); await page.locator('#loginPassword').fill('fixture-password'); await page.locator('#loginButton').click();
       await page.locator('#appShell').waitFor({ state: 'visible' });
     };
     await login('field');
@@ -87,6 +89,7 @@ try {
     assert.equal(await page.locator('#rateChart').innerText(), '');
     assert.equal(await page.locator('#mainNav [data-nav="sync"]').isVisible(), false); assert.equal(await page.locator('#mainNav [data-nav="new"]').isVisible(), false);
     assert.equal((await page.locator('#fiscalList').innerText()).includes('MOSSORÓ'), false);
+    assert.equal(await page.locator('#fiscalAdminToggle').isVisible(), false);
     const directoryCalls = calls.filter(call => call.viewport === name && call.action === 'getTeamDirectory').length;
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await page.waitForFunction(() => document.querySelector('#fiscalList').getAttribute('aria-busy') === 'false');
@@ -101,10 +104,39 @@ try {
     await page.locator('#logoutButton').click(); assert.equal(await page.locator('#fiscalList').innerText(), ''); assert.equal(await page.locator('#mineDetailContent').innerText(), '');
     assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
     assert.equal(await page.locator('#rateChart').innerText(), '');
-    results.push({ viewport: name, pendingEntry: true, noRerenderRepeat: true, newLoginNotice: true, correctUuid: true, supervisorCharts: true, fiscalScope: true, pdfDownloaded: true, logoutCleared: true });
+    await login('fiscal', 'Conta Mestra');
+    await page.locator('#fiscalAdminToggle').waitFor({ state: 'visible' });
+    await page.locator('#fiscalAdminToggle').click();
+    await page.locator('[data-fiscal-edit="Fiscal A"]').waitFor();
+    const uiUser = 'Fiscal UI ' + name;
+    await page.locator('#fiscalAccountUser').fill(uiUser);
+    await page.locator('#fiscalAccountBases input[value="MOSSORÓ"]').check();
+    await page.locator('#fiscalAccountPassword').fill('fixture-ui-password');
+    await page.locator('#fiscalAccountPasswordConfirm').fill('fixture-ui-password');
+    await page.locator('#fiscalAccountSave').click();
+    await page.locator(`[data-fiscal-edit="${uiUser}"]`).waitFor();
+    assert.equal(await page.locator('#fiscalAccountPassword').inputValue(), '');
+    await page.locator(`[data-fiscal-edit="${uiUser}"]`).click();
+    assert.equal(await page.locator('#fiscalAccountUser').getAttribute('readonly'), '');
+    await page.locator('#fiscalAccountBases input[value="ASSÚ"]').check();
+    await page.locator('#fiscalAccountActive').uncheck();
+    await page.locator('#fiscalAccountSave').click();
+    await page.waitForFunction(user => [...document.querySelectorAll('.fiscal-account-card')].some(card => card.textContent.includes(user) && card.textContent.includes('Desativado') && card.textContent.includes('ASSÚ')), uiUser);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, name + ' admin horizontal overflow');
+    await page.locator('#fiscalAdminPanel').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(evidence, name + '-fiscal-master.png'), fullPage: true });
+    await page.reload();
+    await page.locator('#fiscalAdminToggle').waitFor({ state: 'visible' });
+    await page.locator('#fiscalAdminToggle').click();
+    await page.locator(`[data-fiscal-edit="${uiUser}"]`).waitFor();
+    await page.locator('#logoutButton').click();
+    assert.equal(await page.locator('#fiscalAdminToggle').isVisible(), false);
+    assert.equal(await page.locator('#fiscalAccountsList').innerText(), '');
+    assert.equal(await page.locator('#fiscalAccountPassword').inputValue(), '');
+    results.push({ viewport: name, pendingEntry: true, noRerenderRepeat: true, newLoginNotice: true, correctUuid: true, supervisorCharts: true, fiscalScope: true, pdfDownloaded: true, logoutCleared: true, fiscalMasterCreate: true, fiscalMasterEdit: true, fiscalMasterReload: true, fiscalMasterLogout: true });
     await context.close();
   }
   assert.deepEqual(allErrors, []);
 } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); }
-await writeFile(path.join(evidence, 'results.json'), JSON.stringify({ passed: results.length * 8, failed: 0, results, calls, allErrors, productionRequests: 0 }, null, 2));
-console.log(JSON.stringify({ passed: results.length * 8, failed: 0, results, allErrors, productionRequests: 0 }, null, 2));
+await writeFile(path.join(evidence, 'results.json'), JSON.stringify({ passed: results.length * 12, failed: 0, results, calls, allErrors, productionRequests: 0 }, null, 2));
+console.log(JSON.stringify({ passed: results.length * 12, failed: 0, results, allErrors, productionRequests: 0 }, null, 2));

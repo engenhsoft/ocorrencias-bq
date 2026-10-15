@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.10.14.6';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.14.6';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.15.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.1';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -176,6 +176,9 @@ export function loadMaterialCatalog(options = {}) {
 export const api = Object.freeze({
   login: (user, password, role) => apiRequest('login', { user, password, role }),
   getOperationalSummary: (token) => apiRequest('getOperationalSummary', { token }, { timeoutMs: 60000 }),
+  listFiscalAccounts: token => apiRequest('listFiscalAccounts', { token }),
+  saveFiscalAccount: (token, account) => apiRequest('saveFiscalAccount', { ...account, token }),
+  changeFiscalMasterPassword: (token, currentPassword, newPassword) => apiRequest('changeFiscalMasterPassword', { token, currentPassword, newPassword }),
   listFiscalRecords: (token, filters = {}, offset = 0) => apiRequest('listFiscalRecords', { token, filters, offset }, { timeoutMs: 60000 }),
   getOccurrenceDocument: (token, recordId, detail = false) => apiRequest('getOccurrenceDocument', { token, recordId, detail }, { timeoutMs: 60000 }),
   getDocumentPhoto: (token, recordId, photoIndex) => apiRequest('getDocumentPhoto', { token, recordId, photoIndex }, { timeoutMs: 60000 }),
