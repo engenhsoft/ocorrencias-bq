@@ -237,8 +237,16 @@ function authorizeDocumentRow_(auth, row) {
   } else if (auth.role !== 'supervisor') assertOwner_(auth, row[COL.USER - 1]);
 }
 
+function documentPhotoSlots_(row, audit) {
+  const id = String(row[COL.ID - 1]), transformer = String(row[COL.TYPES - 1] || '').split(' | ').indexOf(TYPES[0]) >= 0;
+  return Array.from({ length: transformer ? 7 : 5 }, function (_, index) {
+    const photoIndex = index + 1, confirmed = photoSlotConfirmed_(row, audit, photoIndex);
+    const fileId = confirmed ? extractDriveFileId_(row[photoUrlColumn_(photoIndex) - 1]) : '';
+    return { recordId: id, photoIndex: photoIndex, confirmed: confirmed, previewUrl: fileId ? publicPhotoUrl_(fileId).replace('&sz=w1600', '&sz=w320') : '' };
+  });
+}
 function fiscalRecordSummary_(row) {
-  return { recordId: String(row[COL.ID - 1]), occurrenceNumber: String(row[COL.OCCURRENCE_NUMBER - 1] || ''), registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]), updatedAt: isoValue_(row[COL.UPDATED_AT - 1]), base: featureBase_(row[COL.BASE - 1]), team: String(row[COL.TEAM - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''), user: String(row[COL.USER - 1] || ''), status: operationalStatusFromValues_(row), totalServices: Number(row[COL.TOTAL - 1]) || 0, occurrenceTypes: String(row[COL.TYPES - 1] || '').split(' | ').filter(Boolean) };
+  return { recordId: String(row[COL.ID - 1]), occurrenceNumber: String(row[COL.OCCURRENCE_NUMBER - 1] || ''), registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]), updatedAt: isoValue_(row[COL.UPDATED_AT - 1]), base: featureBase_(row[COL.BASE - 1]), contract: String(row[COL.CONTRACT - 1] || contractForBase_(row[COL.BASE - 1])), team: String(row[COL.TEAM - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''), user: String(row[COL.USER - 1] || ''), status: operationalStatusFromValues_(row), totalServices: Number(row[COL.TOTAL - 1]) || 0, occurrenceTypes: String(row[COL.TYPES - 1] || '').split(' | ').filter(Boolean), otherOccurrenceType: String(row[COL.OTHER_TYPE - 1] || ''), photoSlots: documentPhotoSlots_(row, safeJson_(row[COL.AUDIT - 1], {})) };
 }
 function listFiscalRecords_(payload) {
   const auth = requireSession_(payload.token, ['fiscal']); const bases = auth.bases;
@@ -281,10 +289,9 @@ function occurrenceDocumentData_(row, spreadsheet) {
   }
   model.services = model.services.map(function (item) { return { code: String(item.code || ''), catalogText: String(item.catalogText || item.description || ''), unit: String(item.unit || ''), contract: String(item.contract || model.contract), quantity: Number(item.quantity), referenceValue: Number(item.referenceValue), totalValue: Number(item.totalValue) }; });
   model.materials = model.materials.map(function (item) { return { code: String(item.code || ''), description: String(item.description || ''), unit: String(item.unit || ''), quantity: Number(item.quantity) }; });
-  const transformer = model.occurrenceTypes.indexOf(TYPES[0]) >= 0;
   return Object.assign({}, model, { user: String(row[COL.USER - 1] || ''), registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]), updatedAt: isoValue_(row[COL.UPDATED_AT - 1]), reviewedAt: isoValue_(row[COL.REVIEWED_AT - 1]), publishedAt: published ? String(audit.publishedAt || row[COL.REVIEWED_AT - 1] || '') : '', status: operationalStatusFromValues_(row), reason: String(row[COL.REASON - 1] || ''), supervisorNote: String(row[COL.SUPERVISOR_NOTE - 1] || ''), supervisor: String(row[COL.SUPERVISOR - 1] || ''),
     audit: { lastCorrectionRequest: { reason: String(row[COL.REASON - 1] || ''), note: String(row[COL.SUPERVISOR_NOTE - 1] || ''), supervisor: String(row[COL.SUPERVISOR - 1] || ''), requestedAt: isoValue_(row[COL.REVIEWED_AT - 1]) }, timeline: (Array.isArray(audit.timeline) ? audit.timeline : []).map(function (event) { return { action: String(event.action || ''), actor: String(event.actor || ''), at: String(event.at || ''), detail: String(event.detail || '') }; }) },
-    photoSlots: Array.from({ length: transformer ? 7 : 5 }, function (_, index) { const slot = index + 1; return { photoIndex: slot, confirmed: photoSlotConfirmed_(row, audit, slot) }; }) });
+    photoSlots: documentPhotoSlots_(row, audit) });
 }
 function getOccurrenceDocument_(payload) {
   const auth = requireSession_(payload.token, ['field', 'supervisor', 'fiscal']), id = requireUuid_(payload.recordId);

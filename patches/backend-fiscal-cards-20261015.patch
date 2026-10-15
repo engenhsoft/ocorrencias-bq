@@ -1,0 +1,22 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -8 +8 @@
+-  version: '2026.10.15.1',
++  version: '2026.10.15.2',
+@@ -2228,0 +2229,8 @@
++function documentPhotoSlots_(row, audit) {
++  const id = String(row[COL.ID - 1]), transformer = String(row[COL.TYPES - 1] || '').split(' | ').indexOf(TYPES[0]) >= 0;
++  return Array.from({ length: transformer ? 7 : 5 }, function (_, index) {
++    const photoIndex = index + 1, confirmed = photoSlotConfirmed_(row, audit, photoIndex);
++    const fileId = confirmed ? extractDriveFileId_(row[photoUrlColumn_(photoIndex) - 1]) : '';
++    return { recordId: id, photoIndex: photoIndex, confirmed: confirmed, previewUrl: fileId ? publicPhotoUrl_(fileId).replace('&sz=w1600', '&sz=w320') : '' };
++  });
++}
+@@ -2230 +2238 @@
+-  return { recordId: String(row[COL.ID - 1]), occurrenceNumber: String(row[COL.OCCURRENCE_NUMBER - 1] || ''), registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]), updatedAt: isoValue_(row[COL.UPDATED_AT - 1]), base: featureBase_(row[COL.BASE - 1]), team: String(row[COL.TEAM - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''), user: String(row[COL.USER - 1] || ''), status: operationalStatusFromValues_(row), totalServices: Number(row[COL.TOTAL - 1]) || 0, occurrenceTypes: String(row[COL.TYPES - 1] || '').split(' | ').filter(Boolean) };
++  return { recordId: String(row[COL.ID - 1]), occurrenceNumber: String(row[COL.OCCURRENCE_NUMBER - 1] || ''), registeredAt: isoValue_(row[COL.REGISTERED_AT - 1]), updatedAt: isoValue_(row[COL.UPDATED_AT - 1]), base: featureBase_(row[COL.BASE - 1]), contract: String(row[COL.CONTRACT - 1] || contractForBase_(row[COL.BASE - 1])), team: String(row[COL.TEAM - 1] || ''), crewLeader: String(row[COL.CREW_LEADER - 1] || ''), user: String(row[COL.USER - 1] || ''), status: operationalStatusFromValues_(row), totalServices: Number(row[COL.TOTAL - 1]) || 0, occurrenceTypes: String(row[COL.TYPES - 1] || '').split(' | ').filter(Boolean), otherOccurrenceType: String(row[COL.OTHER_TYPE - 1] || ''), photoSlots: documentPhotoSlots_(row, safeJson_(row[COL.AUDIT - 1], {})) };
+@@ -2273 +2280,0 @@
+-  const transformer = model.occurrenceTypes.indexOf(TYPES[0]) >= 0;
+@@ -2276 +2283 @@
+-    photoSlots: Array.from({ length: transformer ? 7 : 5 }, function (_, index) { const slot = index + 1; return { photoIndex: slot, confirmed: photoSlotConfirmed_(row, audit, slot) }; }) });
++    photoSlots: documentPhotoSlots_(row, audit) });

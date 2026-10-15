@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from '../occurrence-card.js';
 
 const read = name => readFile(new URL('../' + name, import.meta.url), 'utf8');
 const [appSource, apiSource, coreSource, previousHarness] = await Promise.all([
@@ -35,6 +36,7 @@ const numericUi = ['supervisorKpiTotal', 'supervisorKpiWaiting', 'supervisorKpiC
 
 function harness(source = appSource) {
   const h = appHarness('supervisor', source), c = h.c;
+  Object.assign(c, { cardMetadataMarkup, cardThumbnailsMarkup });
   c.supervisorLoadState = 'idle';
   c.supervisorLastLoadedAt = '';
   c.supervisorFiltersByTab = Object.fromEntries(['occurrences', 'pending', 'published'].map(tab => [tab, { search: '', base: '', team: '', type: '', from: '', to: '', mode: 'period' }]));

@@ -1,0 +1,208 @@
+{
+  "release": "2026.10.15.2",
+  "baseCommit": "c8f2e92b19a6aa6628fb90116d0002e5c2d74e98",
+  "backendDeploymentVersion": 36,
+  "backendHealth": {
+    "ok": true,
+    "success": true,
+    "version": "2026.10.15.2",
+    "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12"
+  },
+  "backendPatchReason": "Fiscal summary omitted contract and photo metadata; additive row projection avoids a complete detail request per card.",
+  "checks": [
+    {
+      "suite": "Fiscal cards / ACL / cache / Supervisor markup",
+      "passed": 15,
+      "failed": 0
+    },
+    {
+      "suite": "Operational backend / Base scope",
+      "passed": 42,
+      "failed": 0
+    },
+    {
+      "suite": "Fiscal Admin regression",
+      "passed": 17,
+      "failed": 0
+    },
+    {
+      "suite": "Supervisor initial load regression",
+      "passed": 26,
+      "failed": 0
+    },
+    {
+      "suite": "Conformity / Excel",
+      "passed": 22,
+      "failed": 0
+    },
+    {
+      "suite": "PDF",
+      "passed": 13,
+      "failed": 0
+    },
+    {
+      "suite": "Financial comparison",
+      "passed": 27,
+      "failed": 0,
+      "optionalHistoricalSnapshotsSkipped": 3
+    },
+    {
+      "suite": "Existing integrated UI",
+      "passed": 24,
+      "failed": 0
+    }
+  ],
+  "countedChecksPassed": 186,
+  "countedChecksFailed": 0,
+  "uiGroups": [
+    {
+      "viewport": "desktop",
+      "layout": true,
+      "threeActions": true,
+      "previews": true,
+      "missingPhotos": true,
+      "readOnly": true,
+      "cachedDetail": true,
+      "uuidValidation": true,
+      "pagination": true,
+      "multipleBases": true,
+      "otherBasesBlocked": true,
+      "overflow": false,
+      "supervisorPreserved": true,
+      "fiscalExcelSingleAndMultiple": true,
+      "fiscalPdf": true,
+      "supervisorDetailMs": 148
+    },
+    {
+      "viewport": "iphone",
+      "layout": true,
+      "threeActions": true,
+      "previews": true,
+      "missingPhotos": true,
+      "readOnly": true,
+      "cachedDetail": true,
+      "uuidValidation": true,
+      "pagination": true,
+      "multipleBases": true,
+      "otherBasesBlocked": true,
+      "overflow": false,
+      "supervisorPreserved": true,
+      "fiscalExcelSingleAndMultiple": true,
+      "fiscalPdf": true,
+      "supervisorDetailMs": 69
+    },
+    {
+      "viewport": "android",
+      "layout": true,
+      "threeActions": true,
+      "previews": true,
+      "missingPhotos": true,
+      "readOnly": true,
+      "cachedDetail": true,
+      "uuidValidation": true,
+      "pagination": true,
+      "multipleBases": true,
+      "otherBasesBlocked": true,
+      "overflow": false,
+      "supervisorPreserved": true,
+      "fiscalExcelSingleAndMultiple": false,
+      "fiscalPdf": false,
+      "supervisorDetailMs": 58
+    }
+  ],
+  "existingExportUiGroupsPassed": 2,
+  "performance": {
+    "latencyPerApiMs": 120,
+    "thumbnailLatencyMs": 180,
+    "measurements": [
+      {
+        "variant": "baseline",
+        "sample": 1,
+        "listMs": 199,
+        "modalMs": 1360,
+        "detailMs": 1365,
+        "repeatedMs": 1407,
+        "photoRequestsBeforeDetail": 7,
+        "listRequests": 1,
+        "detailRequests": 2
+      },
+      {
+        "variant": "baseline",
+        "sample": 2,
+        "listMs": 215,
+        "modalMs": 1331,
+        "detailMs": 1336,
+        "repeatedMs": 1349,
+        "photoRequestsBeforeDetail": 7,
+        "listRequests": 1,
+        "detailRequests": 2
+      },
+      {
+        "variant": "baseline",
+        "sample": 3,
+        "listMs": 226,
+        "modalMs": 1361,
+        "detailMs": 1369,
+        "repeatedMs": 1346,
+        "photoRequestsBeforeDetail": 7,
+        "listRequests": 1,
+        "detailRequests": 2
+      },
+      {
+        "variant": "candidate",
+        "sample": 1,
+        "listMs": 301,
+        "modalMs": 144,
+        "detailMs": 257,
+        "repeatedMs": 233,
+        "photoRequestsBeforeDetail": 0,
+        "listRequests": 1,
+        "detailRequests": 1
+      },
+      {
+        "variant": "candidate",
+        "sample": 2,
+        "listMs": 293,
+        "modalMs": 64,
+        "detailMs": 260,
+        "repeatedMs": 134,
+        "photoRequestsBeforeDetail": 0,
+        "listRequests": 1,
+        "detailRequests": 1
+      },
+      {
+        "variant": "candidate",
+        "sample": 3,
+        "listMs": 276,
+        "modalMs": 77,
+        "detailMs": 265,
+        "repeatedMs": 116,
+        "photoRequestsBeforeDetail": 0,
+        "listRequests": 1,
+        "detailRequests": 1
+      }
+    ],
+    "medians": {
+      "baseline": {
+        "listMs": 215,
+        "modalMs": 1360,
+        "detailMs": 1365,
+        "repeatedMs": 1349
+      },
+      "candidate": {
+        "listMs": 293,
+        "modalMs": 77,
+        "detailMs": 260,
+        "repeatedMs": 134
+      }
+    }
+  },
+  "supervisorHtmlUnchanged": true,
+  "pdfAndExcelLogicUnchanged": true,
+  "pwaReleasePassed": true,
+  "syntaxPassed": true,
+  "diffCheckPassed": true,
+  "operationalLogins": 0,
+  "productionOccurrenceWrites": 0,
+  "physicalSafariTested": false
+}
