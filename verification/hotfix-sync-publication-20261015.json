@@ -204,8 +204,8 @@
           "productionWrites": 0
         },
         {
-          "total": 15,
-          "passed": 15,
+          "total": 16,
+          "passed": 16,
           "failed": 0,
           "productionWrites": 0
         }
@@ -313,9 +313,11 @@
   },
   "backendSourceHashes": {
     "before": "500785a652e544138b58e48ddb2db3bcba924fc9ab92f5e31a8481a35cb87828",
-    "candidate": "28c0984d75ee2eb12eb37910be545e8315e7ffaacfea2b6076279a86e23387b4"
+    "candidate": "3487414dac945ddb89ec9d824735555947ff3e23794ed85007672d39658c49c6"
   },
   "productionQaWrites": 0,
   "productionQaLogins": 0,
-  "physicalSafariVerified": false
+  "physicalSafariVerified": false,
+  "backendDeploymentVersion": 40,
+  "concurrentReadbackCovered": true
 }

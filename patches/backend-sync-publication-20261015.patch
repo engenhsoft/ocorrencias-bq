@@ -108,7 +108,7 @@
  }
  
  function uploadedPhotoFile_(folder, fileName, legacyName, description) {
-@@ -681,9 +703,14 @@
+@@ -681,9 +703,22 @@
    const found = findAcrossMainSheets_(recordId);
    if (!found) throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada.');
    const record = recordFromValuesAt_(found.values);
@@ -119,13 +119,21 @@
 +  const response = stateResponse_(record, false, auth.role !== 'fiscal');
 +  if (auth.role === 'supervisor') {
 +    const official = uniqueCorrectionRow_(sheet_(APP.officialSheet), recordId);
-+    if (official) response.integrity = verifyPublishedIntegrity_(recordId, { repair: false });
++    if (official) {
++      const integrity = verifyPublishedIntegrity_(recordId, { repair: false });
++      if (integrity.pendingCopies === 0) {
++        const confirmed = uniqueCorrectionRow_(sheet_(APP.officialSheet), recordId);
++        if (!confirmed) throw apiError_('PUBLICATION_UNCONFIRMED', 'A publicação precisa de uma nova confirmação. Tente novamente.');
++        return Object.assign(stateResponse_(recordFromValuesAt_(confirmed.values), false, true), { integrity: integrity });
++      }
++      response.integrity = integrity;
++    }
 +  }
 +  return response;
  }
  
  function getDailyTeamProduction_(payload) {
-@@ -1317,8 +1344,14 @@
+@@ -1317,8 +1352,14 @@
    if (options.repair) return reconcilePublication_(recordId, expected, { cleanupPending: Boolean(options.cleanupPending) }).integrity;
    const state = publicationStateForId_(expected.sheets, recordId);
    const plan = bindPublicationExpectation_(recordId, expected, state);
@@ -141,7 +149,7 @@
  }
  
  function finalPublicationEvent_(audit) {
-@@ -1785,12 +1818,14 @@
+@@ -1785,12 +1826,14 @@
  
  /** A origem é lida e validada antes do lock; somente o commit usa exclusão mútua. */
  function approvePublication_(auth, recordId, note, reportedPhotoIssues) {
@@ -157,7 +165,7 @@
    });
  }
  
-@@ -1980,11 +2015,13 @@
+@@ -1980,11 +2023,13 @@
  function reconcilePublication_(recordId, snapshot, options) {
    options = options || {}; const sheets = snapshot.sheets;
    const lock = LockService.getScriptLock(); let acquired = false;
@@ -173,7 +181,7 @@
      const repairs = []; let transformerIntegration = state.official.length ? (safeJson_(state.official[0].values[COL.AUDIT - 1], {}).transformerIntegration || null) : null;
      if (!initial.complete) {
        if (!state.official.length) { appendPublicationRows_(sheets.official, [expected.main], [COL.ID, COL.OCCURRENCE_NUMBER, COL.CONTRACT]); repairs.push('OCORRENCIAS'); }
-@@ -1993,13 +2030,12 @@
+@@ -1993,13 +2038,12 @@
        state = publicationStateForId_(sheets, recordId);
        const afterArtifacts = inspectPublication_(recordId, expected, state);
        if (!afterArtifacts.artifactsComplete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Os dados foram preservados; tente aprovar novamente.', { recordId: recordId });
@@ -189,7 +197,7 @@
      // Retomada após o histórico: a integração pode ter ocorrido antes de seu resultado entrar na auditoria.
      if (!transformerIntegration && expected.model.occurrenceTypes.indexOf(TYPES[0]) >= 0) {
        transformerIntegration = integrateTransformersOnApproval_(Object.assign({}, expected.model, { registeredAt: isoValue_(expected.main[COL.REGISTERED_AT - 1]), transformerPhotos: { removed: String(expected.main[COL.TRAFO_REMOVED_PHOTO - 1] || ''), installed: String(expected.main[COL.TRAFO_INSTALLED_PHOTO - 1] || '') } }));
-@@ -2018,15 +2054,17 @@
+@@ -2018,15 +2062,17 @@
      }
      // Releitura independente imediatamente antes de retirar a fonte da fila.
      state = publicationStateForId_(sheets, recordId);
@@ -210,7 +218,7 @@
        integrity: { ok: true, success: true, recordId: recordId, state: 'INTEGRITY_OK', officialRows: 1, services: finalState.services.length, materials: finalState.materials.length, finalHistoryEvents: 1, pendingCopies: finalState.pending.length, repairs: repairs } };
    } catch (error) {
      if (error.code) throw error;
-@@ -2227,7 +2265,7 @@
+@@ -2227,7 +2273,7 @@
    try { account = fiscalAccount_(payload.user); } catch (error) { throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.'); }
    if (!payload.password || !constantTimeEquals_(sha256_(account.salt + '\n' + String(payload.password)), account.passwordHash)) throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.');
    const expiresAt = Date.now() + APP.sessionHours * 60 * 60 * 1000;
@@ -219,7 +227,7 @@
  }
  
  // Owner-only provisioning: not present in doPost routes and never reachable by an app session.
-@@ -2524,7 +2562,8 @@
+@@ -2524,7 +2570,8 @@
    if (!request || normalize_(request.assignedFiscal) !== normalize_(current.user) || current.bases.indexOf(request.base) < 0 || !fiscalCorrectionRecipientValid_(request)) throw apiError_('FORBIDDEN', 'A correção não está atribuída a este Fiscal. Atualize a lista.');
    if (context && (context.routingRequestId !== request.routingRequestId || context.assignmentRevision !== request.assignmentRevision)) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Seu rascunho foi preservado; atualize a solicitação.');
    const status = operationalStatusFromValues_(values);

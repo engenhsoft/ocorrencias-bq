@@ -158,6 +158,17 @@ test('Supervisor: deadline encerra a requisição e releitura confirma a publica
   assert.equal(result.reconciledResponse, true); assert.deepEqual(ui.counts(), { decisions: 1, reads: 1 });
   assert.equal(h.sheet(h.c.meta.APP.historySheet).rows.filter(row => row[3] === 'APROVADA_E_PUBLICADA').length, 1);
 });
+test('Supervisor: publicação entre a leitura da fila e a prova retorna o estado final confirmado', () => {
+  const h = fixture(), find = h.c.findAcrossMainSheets_; let raced = false;
+  h.c.findAcrossMainSheets_ = id => {
+    const found = find(id);
+    if (!raced) { raced = true; h.c.supervisorAction_({ token: h.token('supervisor'), decision: 'approve', recordId: UUID }); }
+    return found;
+  };
+  const result = h.c.getRecordState_({ token: h.token('supervisor'), recordId: UUID });
+  assert.equal(result.integrity.pendingCopies, 0); assert.equal(result.status, 'PUBLICADA'); assert.equal(result.record.status, 'PUBLICADA');
+  assert.equal(result.record.audit.publicationState, 'PUBLICADA');
+});
 test('Supervisor: localized update changes just the UUID and KPIs, preserves others and filters', () => {
   const other = { recordId: randomUUID(), status: 'AGUARDANDO_SUPERVISOR' };
   const c = vm.createContext({ ...core, supervisorMutationVersion: 0, supervisorRecords: [{ recordId: UUID }, other], supervisorPendingRecords: [],
