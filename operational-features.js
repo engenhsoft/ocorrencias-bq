@@ -1,7 +1,8 @@
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.14.6';
-import { api, ApiError } from './api.js?v=2026.10.14.6';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.14.6';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.14.6';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.1';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.1';
+import { api, ApiError } from './api.js?v=2026.10.15.1';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.1';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -39,6 +40,7 @@ export function excelSelectableRecords(records, session) {
 
 export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onSynchronize, onOpenRecord, onLogout }) {
   const $ = selector => document.querySelector(selector);
+  const fiscalAdmin = createFiscalAdmin({ getSession, getRevision, onLogout });
   let summary = null, summaryTask = null, fiscalTask = null, summaryRevision = -1, fiscalRevision = -1;
   let entryRevision = -1, noticeConsumed = false, pendingNotice = null, fiscalOffset = 0, fiscalNextOffset = null, fiscalSequence = 0;
   let excelCandidates = [], excelSelected = new Set(), excelOpening = false, excelRunning = false, excelAbort = null, excelSequence = 0, excelVisibleLimit = 100;
@@ -195,7 +197,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.14.6');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.1');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -256,7 +258,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.14.6');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.1');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;
@@ -274,6 +276,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if ($('#excelStatus')) $('#excelStatus').textContent = '';
   }
   function reset() {
+    fiscalAdmin.reset();
     financialView = 'current';
     if ($('#financialSection')) $('#financialSection').hidden = true;
     if ($('#financialChart')) $('#financialChart').innerHTML = '';
@@ -295,7 +298,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     for (const key of ['base', 'team', 'crewLeader', 'status', 'from', 'to', 'search']) if ($(`#fiscal-${key}`)) $(`#fiscal-${key}`).value = '';
     if ($('#fiscal-period')) $('#fiscal-period').value = 'month';
   }
-  function enter() { reset(); entryRevision = getRevision(); if (getSession()?.role === 'fiscal') void refreshFiscal(); }
+  function enter() { reset(); fiscalAdmin.enter(); entryRevision = getRevision(); if (getSession()?.role === 'fiscal') void refreshFiscal(); }
   document.addEventListener('close', event => { if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
   document.addEventListener('input', event => { if (event.target.id === 'excelSearch') { excelVisibleLimit = 100; renderExcelSelection(); } });
   document.addEventListener('change', event => {

@@ -807,3 +807,23 @@ a.programacao-access { text-decoration: none; }
 .excel-record small { color: var(--muted); font-size: .72rem; margin-top: .25rem; }
 #excelSelectedCount { font-size: .85rem; }
 #excelStatus { overflow-wrap: anywhere; }
+
+/* Fiscal account administration */
+.fiscal-admin { margin-bottom: 24px; padding: clamp(16px, 3vw, 28px); }
+.fiscal-admin h3, .fiscal-admin h4 { margin-top: 0; }
+.fiscal-accounts-list { display: grid; gap: 12px; margin: 20px 0; }
+.fiscal-account-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px; border: 1px solid var(--border, #dce3ed); border-radius: 12px; }
+.fiscal-account-card > div { min-width: 0; overflow-wrap: anywhere; }
+.fiscal-account-card .status-chip { margin-left: 8px; }
+.fiscal-account-card p { margin: 8px 0; }
+.fiscal-account-form { padding-top: 20px; border-top: 1px solid var(--border, #dce3ed); }
+.fiscal-admin-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 16px; margin: 16px 0; }
+.fiscal-admin fieldset { min-width: 0; border: 1px solid var(--border, #dce3ed); border-radius: 12px; padding: 16px; }
+.fiscal-base-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.fiscal-master-password { border-top: 1px solid var(--border, #dce3ed); margin-top: 24px; padding-top: 20px; }
+.fiscal-master-password summary { cursor: pointer; font-weight: 700; }
+@media (max-width: 640px) { .fiscal-admin-fields { grid-template-columns: 1fr; } .fiscal-base-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fiscal-account-card { align-items: flex-start; flex-direction: column; } }
+
+.fiscal-admin .form-message { color: #38516f; }
+.fiscal-admin .form-message.is-error { color: #b42318; }
+.fiscal-admin .form-message.is-success { color: #08775b; }
