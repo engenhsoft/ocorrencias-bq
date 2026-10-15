@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.10.15.3';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.3';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.15.4';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.4';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -7,6 +7,37 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.code = code;
     this.details = details;
+  }
+}
+
+export function ambiguousMutationError(error) {
+  return ['TIMEOUT', 'NETWORK_ERROR', 'HTTP_SERVER_ERROR', 'INVALID_SERVER_RESPONSE',
+    'INVALID_RECORD_STATE', 'PUBLICATION_INTERRUPTED', 'PUBLICATION_INCOMPLETE',
+    'PUBLICATION_UNCONFIRMED', 'PUBLISHED_RECONCILIATION_REQUIRED'].includes(error?.code);
+}
+
+export function publicationConfirmed(result, recordId) {
+  const proof = result?.integrity;
+  return result?.recordId === recordId && result?.record?.recordId === recordId
+    && result.status === 'PUBLICADA' && result.record.status === 'PUBLICADA'
+    && proof?.recordId === recordId && proof.state === 'INTEGRITY_OK' && proof.ok === true
+    && proof.officialRows === 1 && proof.finalHistoryEvents === 1 && proof.pendingCopies === 0;
+}
+
+async function supervisorDecision(token, decision, recordId, reason, note, photoIssueIndexes) {
+  try {
+    const result = await apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 });
+    if (decision === 'approve' && !publicationConfirmed(result, recordId)) throw new ApiError('A publicação ainda precisa ser confirmada. Tente novamente para reconciliar o mesmo UUID.', 'PUBLICATION_UNCONFIRMED');
+    return result;
+  } catch (error) {
+    if (decision !== 'approve' || !ambiguousMutationError(error)) throw error;
+    try {
+      const state = await apiRequest('getRecordState', { token, recordId });
+      if (publicationConfirmed(state, recordId)) return { ...state, reconciledResponse: true };
+    } catch (readError) {
+      if (['AUTH_REQUIRED', 'PUBLISHED_RECONCILIATION_CONFLICT'].includes(readError?.code)) throw readError;
+    }
+    throw error;
   }
 }
 
@@ -205,7 +236,7 @@ export const api = Object.freeze({
   listPending: (token) => apiRequest('listPending', { token }, { timeoutMs: 60000, enforceDeadline: true }),
   listPublishedRecords: (token, recordIds) => apiRequest('listPublishedRecords', { token, recordIds }),
   supervisorCorrectRecord: (token, record) => apiRequest('supervisorCorrectRecord', { token, record }, { timeoutMs: 60000 }),
-  supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => apiRequest('supervisorAction', { token, decision, recordId, reason, note, photoIssueIndexes }, { timeoutMs: 60000 }),
+  supervisorAction: (token, decision, recordId, reason = '', note = '', photoIssueIndexes = []) => supervisorDecision(token, decision, recordId, reason, note, photoIssueIndexes),
   requestPhotoSyncBatch: (token, recordIds) => apiRequest('requestPhotoSyncBatch', { token, recordIds }, { timeoutMs: 60000 }),
   approveBatch: (token, recordIds = [], all = false, note = '') => apiRequest('approveBatch', { token, recordIds, all, note }, { timeoutMs: 60000 })
 });

@@ -36,6 +36,7 @@ function submissionHarness({ delayedSave = false } = {}) {
     toast: (message) => { events.push(`toast:${message}`); },
     setBusy: () => {}, elements: { submitOccurrenceButton: {} }, console
   };
+  context.editingStorage = () => ({ putRecord: context.putRecord });
   const source = appSource.match(/async function submitOccurrence\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(source, 'função de envio encontrada');
   const submit = vm.runInNewContext(`${source}\nsubmitOccurrence`, context);
@@ -70,7 +71,7 @@ test('resposta tardia não limpa a Sub-base de outro registro aberto', async () 
 test('restauração protege a ocorrência ativa e não espera meta diária para exibir o formulário', () => {
   const source = appSource.match(/async function loadRecordIntoForm\(record\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(source);
-  assert.ok(source.indexOf('elements.operationBase.value = loadingRecord.base') < source.indexOf('await getPhotosForRecord'));
+  assert.ok(source.indexOf('elements.operationBase.value = loadingRecord.base') < source.indexOf('await editingStorage(record).getPhotosForRecord'));
   assert.match(source, /if \(activeRecord !== loadingRecord\) return;/);
   assert.ok(source.indexOf("navigate('new')") < source.indexOf('void loadDailyProduction'));
   assert.doesNotMatch(source, /await loadDailyProduction/);
@@ -147,15 +148,17 @@ test('login termina loading após falha e aceita nova tentativa sem duplicar cha
 });
 
 test('falha transitória mantém UUID na fila e o retry chega à confirmação', async () => {
-  const source = appSource.match(/async function performSyncSingleRecord\(recordId, notify = true\) \{[\s\S]*?\n\}/)?.[0];
+  const source = appSource.match(/async function performSyncSingleRecord\(recordId, notify = true, fiscalKey = \'\'\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(source);
   const statuses = [];
   const recordId = 'registro-offline-1';
-  let stored = { recordId, user: 'Teste', status: 'PENDENTE_ENVIO', services: [], materials: [], occurrenceTypes: ['PODA'], photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: index < 3 })), attempts: 0 };
+  let stored = { recordId, user: 'Teste', status: 'PENDENTE_ENVIO', services: [], materials: [], occurrenceTypes: ['PODA'], photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: index < 3, serverUrl: index < 3 ? 'https://example.test/' + index : '' })), attempts: 0 };
   let submissions = 0;
   const serverState = { status: 'AGUARDANDO_SUPERVISOR', photoStates: stored.photoStates };
   class ApiError extends Error { constructor(message, code) { super(message); this.code = code; } }
+  let stateReads = 0;
   const context = {
+    ...core, ambiguousMutationError: error => error.code === 'NETWORK_ERROR',
     session: { user: 'Teste', token: 'token', role: 'field' }, sessionRevision: 0,
     getRecord: async () => structuredClone(stored),
     putRecord: async (record) => { stored = structuredClone(record); statuses.push(stored.status); },
@@ -172,7 +175,7 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
     updateQueueUi: async () => {}, currentView: 'sync', mineRecords: [], refreshMine: () => {},
     friendlyError: (error) => error.message, statusLabel: (status) => status, toast: () => {}, console, ApiError,
     api: {
-      getRecordState: async () => serverState,
+      getRecordState: async () => { if (++stateReads === 1) throw new ApiError('Não encontrado', 'RECORD_NOT_FOUND'); return { ...serverState, recordId, record: { ...stored, status: 'AGUARDANDO_SUPERVISOR', audit: { expectedPhotoIndexes: [1,2,3] } } }; },
       submitRecord: async () => { submissions += 1; if (submissions === 1) throw new ApiError('Falha de rede transitória', 'NETWORK_ERROR'); return { status: 'FOTOS_SENDO_SINCRONIZADAS', photoStates: stored.photoStates }; },
       uploadPhoto: async () => serverState
     }

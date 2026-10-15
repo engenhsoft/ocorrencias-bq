@@ -1,9 +1,11 @@
-import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.10.15.3';
-import { normalizeText } from './core.js?v=2026.10.15.3';
+import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.10.15.4';
+import { normalizeText } from './core.js?v=2026.10.15.4';
 
-export function fiscalDraftKey(user, recordId, route) {
+export function fiscalDraftKey(user, recordId, route, aclRevision = '') {
   if (!user || !recordId || route?.routingVersion !== 'FISCAL_ASSIGNED' || !route.routingRequestId || !route.assignmentRevision) throw new Error('Solicitação fiscal incompleta. Atualize a lista.');
-  return `fiscalCorrection:${JSON.stringify([normalizeText(user), recordId, route.routingRequestId, route.assignmentRevision])}`;
+  const identity = [normalizeText(user).replace(/\s+/g, ' '), recordId, route.routingRequestId, route.assignmentRevision];
+  if (aclRevision) identity.push(aclRevision);
+  return `fiscalCorrection:${JSON.stringify(identity)}`;
 }
 
 export function fiscalDraftStorage(key) {

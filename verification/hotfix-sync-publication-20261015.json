@@ -1,0 +1,321 @@
+{
+  "baseCommit": "908b25df0ba7cdacd9086bbb95eac961a3924eb0",
+  "release": "2026.10.15.4",
+  "regression": [
+    {
+      "suite": "audit-regression",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 80,
+          "passed": 80,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "stage-validation",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 60,
+          "passed": 60,
+          "failed": 0,
+          "skipped": 10,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "contract-pricing",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 16,
+          "passed": 16,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "material-catalog",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 28,
+          "passed": 28,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "operational-stability",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 9,
+          "passed": 9,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "correction-persistence",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "tests": 53,
+          "passed": 53,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "field-historical-correction",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 48,
+          "passed": 48,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "publication-reconciliation",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 59,
+          "passed": 59,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "fiscal-corrections",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 32,
+          "passed": 32,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "fiscal-admin",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 17,
+          "passed": 17,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "operational-features",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 36,
+          "passed": 36,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "supervisor-workflow",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 14,
+          "passed": 14,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "supervisor-navigation",
+      "exitCode": 0,
+      "summaries": []
+    },
+    {
+      "suite": "supervisor-financial",
+      "exitCode": 0,
+      "summaries": []
+    },
+    {
+      "suite": "conformity-excel",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "passed": 22,
+          "failed": 0,
+          "total": 22
+        }
+      ]
+    },
+    {
+      "suite": "occurrence-pdf",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "passed": 13,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    },
+    {
+      "suite": "static-audit",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 51,
+          "passed": 51,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "suite": "pwa-release",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "hotfix-sync-publication",
+      "exitCode": 0,
+      "summaries": [
+        {
+          "total": 32,
+          "passed": 32,
+          "failed": 0,
+          "productionWrites": 0
+        },
+        {
+          "total": 15,
+          "passed": 15,
+          "failed": 0,
+          "productionWrites": 0
+        }
+      ]
+    }
+  ],
+  "performance": {
+    "environment": "Node VM; Sheets/Drive in RAM; no network latency; not production SLA",
+    "samplesPerVersion": 30,
+    "versions": [
+      {
+        "release": "2026.10.15.3",
+        "wallMs": {
+          "median": 2.9373950000000093,
+          "p95": 5.078339999999997
+        },
+        "reads": {
+          "median": 22,
+          "p95": 22
+        },
+        "searches": {
+          "median": 20,
+          "p95": 20
+        },
+        "writes": {
+          "median": 6,
+          "p95": 6
+        },
+        "stageSample": null
+      },
+      {
+        "release": "2026.10.15.4",
+        "wallMs": {
+          "median": 2.338643999999988,
+          "p95": 3.628717999999992
+        },
+        "reads": {
+          "median": 17,
+          "p95": 17
+        },
+        "searches": {
+          "median": 15,
+          "p95": 15
+        },
+        "writes": {
+          "median": 6,
+          "p95": 6
+        },
+        "stageSample": {
+          "prepareMs": 1,
+          "totalMs": 3,
+          "lockWaitMs": 0,
+          "inspectMs": 0,
+          "artifactsMs": 1,
+          "integrationMs": 0,
+          "commitMs": 1,
+          "confirmMs": 0,
+          "lockHeldMs": 2
+        }
+      }
+    ]
+  },
+  "ui": {
+    "checks": [
+      {
+        "viewport": "desktop",
+        "iphoneSafariProfile": false,
+        "engine": "Chromium",
+        "independentList": true,
+        "sharedIndicators": true,
+        "filterWithoutReload": true,
+        "isolatedDraftAndOriginalOwner": true,
+        "reloadResume": true,
+        "lostResponseRetry": true,
+        "photoConfirmedByReadback": true,
+        "assignmentAdmin": true,
+        "staleSessionDiscarded": true,
+        "supervisorLostResponseAndDoubleClick": true,
+        "supervisorLocalizedKpis": true,
+        "overflow": false
+      },
+      {
+        "viewport": "mobile",
+        "iphoneSafariProfile": true,
+        "engine": "Chromium",
+        "independentList": true,
+        "sharedIndicators": true,
+        "filterWithoutReload": true,
+        "isolatedDraftAndOriginalOwner": true,
+        "reloadResume": true,
+        "lostResponseRetry": true,
+        "photoConfirmedByReadback": true,
+        "assignmentAdmin": true,
+        "staleSessionDiscarded": true,
+        "supervisorLostResponseAndDoubleClick": true,
+        "supervisorLocalizedKpis": true,
+        "overflow": false
+      }
+    ],
+    "errors": [],
+    "calls": 74,
+    "operationalLogins": 0,
+    "productionRequests": 0,
+    "physicalSafariTested": false
+  },
+  "backendSourceHashes": {
+    "before": "500785a652e544138b58e48ddb2db3bcba924fc9ab92f5e31a8481a35cb87828",
+    "candidate": "28c0984d75ee2eb12eb37910be545e8315e7ffaacfea2b6076279a86e23387b4"
+  },
+  "productionQaWrites": 0,
+  "productionQaLogins": 0,
+  "physicalSafariVerified": false
+}

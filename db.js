@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.15.3';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.15.4';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;
@@ -28,6 +28,14 @@ export async function updateFiscalCorrectionDraft(key, mutate) {
   };
   try { await done; } catch (error) { throw result instanceof Error ? result : error; }
   return result;
+}
+
+export async function getFiscalCorrectionDrafts(user, aclRevision = '') {
+  const entries = await readStoreValue(STORE.meta, store => store.getAll());
+  return entries.filter(entry => entry.key?.startsWith('fiscalCorrection:'))
+    .map(entry => entry.value?.record).filter(record => record?.fiscalDraftKey
+      && sameUser(record.fiscalCorrection?.assignedFiscal, user)
+      && String(record.fiscalAclRevision || '') === String(aclRevision));
 }
 
 function requestResult(request, transaction) {

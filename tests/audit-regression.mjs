@@ -230,7 +230,7 @@ async function loadAppHarness() {
     export const clearMetaIfValue=async()=>true; export const searchCachedCatalog=async()=>[]; export const setMeta=async()=>{};
   `);
   const apiStub = dataUrl(`
-    export { loadOccurrenceDataset } from '${dataUrl(apiSource)}';
+    export { loadOccurrenceDataset, ambiguousMutationError } from '${dataUrl(apiSource)}';
     export class ApiError extends Error { constructor(message,code='API_ERROR'){super(message);this.code=code;} }
     const call=(name,...args)=>globalThis.__apiHandlers?.[name]?.(...args);
     export const api=new Proxy({}, {get:(_,name)=>(...args)=>call(name,...args)});

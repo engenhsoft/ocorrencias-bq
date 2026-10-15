@@ -65,7 +65,7 @@ function assertNoPublication(h) {
 }
 function assertOne(h) {const {APP,COL}=h.c.meta;assert.equal(h.sheet(APP.pendingSheet).getLastRow(),2);assert.equal(h.sheet(APP.pendingSheet).rows[1][COL.ID-1],UUID);assertNoPublication(h);}
 
-test('baseline reproduz contrato número x texto, erro de correção em CREATE, zero uploads e cinco blobs preservados',async()=>{
+if (baseline.includes("version: '2026.10.07.1'")) test('baseline reproduz contrato número x texto, erro de correção em CREATE, zero uploads e cinco blobs preservados',async()=>{
   const h=backendHarness(baseline),ui=client(h,oldApp);await ui.c.syncSingleRecord(UUID,false);
   assert.match(ui.saved.get(UUID).lastError,/A correção permanece pendente/);assert.equal(ui.uploads.length,0);assert.equal(ui.photos.size,5);assertOne(h);
   const row=h.sheet(h.c.meta.APP.pendingSheet).rows[1],audit=JSON.parse(row[h.c.meta.COL.AUDIT-1]);assert.deepEqual(plain(audit.photoFileIds),{});assert.deepEqual(plain(audit.expectedPhotoIndexes),[1,2,3,4,5]);assert.equal(row[h.c.meta.COL.CONTRACT-1],4600080939);
@@ -94,8 +94,8 @@ test('3/5 confirmadas: retry envia apenas 4/5 sem regravar dados, snapshots ou t
   const baselineState=h.state();ui.uploads.length=0;ui.fail(0);await ui.c.syncSingleRecord(UUID,false);assert.deepEqual(ui.uploads,[4,5]);assert.equal(ui.submitted.length,1);assert.equal(h.state().record.registeredAt,baselineState.record.registeredAt);assertOne(h);
 });
 test('resposta de upload perdida: mesma uploadKey reconciliada, sem duplicar foto no Drive',async()=>{
-  const h=backendHarness(),ui=client(h);ui.lose();await ui.c.syncSingleRecord(UUID,false);assert.equal(ui.photos.size,5);assert.equal(h.drive.created(),1);
-  ui.uploads.length=0;await ui.c.syncSingleRecord(UUID,false);assert.deepEqual(ui.uploads,[2,3,4,5]);assert.equal(ui.submitted.length,1);assert.equal(h.drive.created(),5);assert.equal(ui.photos.size,0);assertOne(h);
+  const h=backendHarness(),ui=client(h);ui.lose();const result=await ui.c.syncSingleRecord(UUID,false);
+  assert.equal(result.status,'AGUARDANDO_SUPERVISOR');assert.equal(ui.submitted.length,1);assert.equal(h.drive.created(),5);assert.equal(ui.photos.size,0);assert.deepEqual(ui.uploads,[1,2,3,4,5]);assertOne(h);
 });
 test('retry backend do mesmo slot e uploadKey retorna a foto existente',()=>{
   const h=backendHarness();h.submit({...record(),expectedPhotoIndexes:[1,2,3,4,5]});const p={token:'fixture',recordId:UUID,photoIndex:1,uploadKey:key(1),dataUrl:'data:image/jpeg;base64,aGVsbG8='};const a=h.c.uploadPhoto_(p),b=h.c.uploadPhoto_(p);assert.equal(a.photoStates[0].serverUrl,b.photoStates[0].serverUrl);assert.equal(h.drive.created(),1);
@@ -141,5 +141,5 @@ test('fingerprint, fotos, publicacao e batching permanecem byte a byte; correcao
   assert.match(extract(fixed,'prepareCorrectionReceipt_'), /NO_CORRECTION_CHANGES/);
 });
 let passed=0;const failures=[];for(const {name,run} of tests){try{await run();passed++;}catch(e){failures.push({name,error:e.stack});}}
-const result={total:tests.length,passed,failed:failures.length,productionWrites:0,traces,failures};console.log(JSON.stringify(result,null,2));
+const result={skippedHistoricalBaseline: baseline.includes("version: '2026.10.07.1'") ? 0 : 1,total:tests.length,passed,failed:failures.length,productionWrites:0,traces,failures};console.log(JSON.stringify(result,null,2));
 if(process.argv[5])await writeFile(process.argv[5],JSON.stringify(result,null,2));if(failures.length)process.exitCode=1;

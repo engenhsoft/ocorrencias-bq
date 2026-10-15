@@ -1,0 +1,231 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.15.3',
++  version: '2026.10.15.4',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -241,6 +241,16 @@
+       ensureCorrectionHistory_(existing, auth.user);
+       return stateResponse_(recordFromValuesAt_(existing), false, auth.role !== 'fiscal');
+     }
++    if (found && !correction && existingAudit.lastDataConfirmation
++      && correctionFingerprint_(original) === correctionFingerprint_(model)) {
++      const expectedSlots = normalizePhotoIndexes_(existingAudit.expectedPhotoIndexes);
++      if (normalizePhotoIndexes_(submitted.expectedPhotoIndexes).every(function (index) { return expectedSlots.indexOf(index) >= 0; })) return stateResponse_(recordFromValuesAt_(existing), false, auth.role !== 'fiscal');
++      existingAudit.expectedPhotoIndexes = normalizePhotoIndexes_(expectedSlots.concat(normalizePhotoIndexes_(submitted.expectedPhotoIndexes)));
++      const metadata = existing.slice(); metadata[COL.AUDIT - 1] = correctionAuditJson_(existingAudit);
++      metadata[COL.STATUS - 1] = recordReadyForSupervisorValues_(metadata) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS;
++      const verifiedMetadata = writeAndReadCorrection_(pending, found.row, metadata, 'CREATE_DATA');
++      return stateResponse_(recordFromValuesAt_(verifiedMetadata.values), false, auth.role !== 'fiscal');
++    }
+     authorizedWrite = true;
+     const registeredAt = existing[COL.REGISTERED_AT - 1] || nowIso_();
+     const operationalDate = operationalDateFromValue_(registeredAt);
+@@ -267,6 +277,11 @@
+       if (auth.role === 'fiscal') Object.assign(receipt, { routingRequestId: submitted.fiscalCorrection.routingRequestId, assignmentRevision: submitted.fiscalCorrection.assignmentRevision, actorRole: 'fiscal' });
+       // Persist the team's intent before any data mutation, on the same UUID.
+       const staged = existing.slice(); const stagedAudit = safeJson_(existing[COL.AUDIT - 1], {});
++      if (receipt.supersedesRequestId && stagedAudit.lastCorrectionSubmission && stagedAudit.lastCorrectionSubmission.requestId === receipt.supersedesRequestId) {
++        const previousSubmissions = (audit.supersededCorrectionSubmissions || []).slice(-19);
++        if (!previousSubmissions.some(function (item) { return item.requestId === receipt.supersedesRequestId; })) previousSubmissions.push(stagedAudit.lastCorrectionSubmission);
++        stagedAudit.supersededCorrectionSubmissions = previousSubmissions; audit.supersededCorrectionSubmissions = previousSubmissions;
++      }
+       stagedAudit.lastCorrectionSubmission = receipt;
+       staged[COL.AUDIT - 1] = correctionAuditJson_(stagedAudit);
+       staged[COL.STATUS - 1] = STATUS.CORRECTION_REQUESTED;
+@@ -379,6 +394,12 @@
+     return Object.assign({}, previous);
+   }
+   const before = correctionDataFromValues_(values); const after = correctionModelData_(model); const expectedPatch = {}; const beforePatch = {};
++  if (submitted.supersedesRequestId) {
++    if (!previous || previous.requestId !== submitted.supersedesRequestId || previous.requestedAt !== requestedAt
++      || previous.phase !== 'DATA_VERIFIED' || !previous.dataVerifiedAt || !sameUser_(previous.actor, actor)
++      || correctionFingerprint_(before) !== previous.expectedFingerprint) throw apiError_('CORRECTION_DELTA_MISMATCH', 'O envio anterior mudou ou ainda não está confirmado. Preserve a edição e retome a solicitação atual.');
++    Object.assign(before, previous.beforePatch || {});
++  }
+   Object.keys(after).forEach(function (key) {
+     if (key !== 'recordId' && publicationJson_(correctionComparableValue_(key, before[key])) !== publicationJson_(correctionComparableValue_(key, after[key]))) { expectedPatch[key] = after[key]; beforePatch[key] = before[key]; }
+   });
+@@ -389,7 +410,7 @@
+   const photoPatch = correctionPhotoPatch_(submitted.photoPatch, values, 1, 5);
+   const evidencePatch = correctionPhotoPatch_(submitted.evidencePatch, values, 6, 7);
+   if (Object.keys(evidencePatch).length && model.occurrenceTypes.indexOf(TYPES[0]) < 0) throw apiError_('INVALID_PHOTO_INDEX', 'A evidência específica requer substituição de transformador.');
+-  const receipt = { requestId: requestId, requestedAt: requestedAt, actor: actor, receivedAt: nowIso_(), phase: 'STAGED', expectedFingerprint: fingerprint, expectedPatch: expectedPatch, beforePatch: beforePatch,
++  const receipt = { requestId: requestId, supersedesRequestId: submitted.supersedesRequestId || '', requestedAt: requestedAt, actor: actor, receivedAt: nowIso_(), phase: 'STAGED', expectedFingerprint: fingerprint, expectedPatch: expectedPatch, beforePatch: beforePatch,
+     photoPatch: photoPatch, evidencePatch: evidencePatch, beforePhotoPatch: correctionBeforePhotos_(values, photoPatch), beforeEvidencePatch: correctionBeforePhotos_(values, evidencePatch) };
+   if ((Object.prototype.hasOwnProperty.call(submitted, 'photoPatch') || Object.prototype.hasOwnProperty.call(submitted, 'evidencePatch')) && !Object.keys(expectedPatch).length && !Object.keys(photoPatch).length && !Object.keys(evidencePatch).length) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
+   if (!correctionReceiptHasChanges_(values, receipt, false)) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
+@@ -460,11 +481,12 @@
+   return publicationJson_(snapshot);
+ }
+ 
+-function assertCorrectionRow_(sheet, expected, operation) {
++function assertCorrectionRow_(sheet, expected, operation, rowHint) {
+   const recordId = String(expected[COL.ID - 1]);
+   // Uma segunda leitura limitada nao repete a escrita nem enfraquece a comparacao.
+   for (let attempt = 0; attempt < 2; attempt++) {
+-    const found = uniqueCorrectionRow_(sheet, recordId);
++    const hinted = rowHint ? sheet.getRange(rowHint, 1, 1, COL.WIDTH).getValues()[0] : null;
++    const found = hinted && String(hinted[COL.ID - 1]) === recordId ? { row: rowHint, values: hinted } : uniqueCorrectionRow_(sheet, recordId);
+     if (found && pendingPersistenceSnapshot_(found.values) === pendingPersistenceSnapshot_(expected)) return found;
+     if (!attempt) flushSheets_();
+   }
+@@ -476,12 +498,12 @@
+ }
+ function writeAndReadCorrection_(sheet, row, values, operation) {
+   sheet.getRange(row, 1, 1, COL.WIDTH).setValues([values]); flushSheets_();
+-  return assertCorrectionRow_(sheet, values, operation);
++  return assertCorrectionRow_(sheet, values, operation, row);
+ }
+ function writeCorrectionAudit_(sheet, found, audit, operation) {
+   const expected = found.values.slice(); expected[COL.AUDIT - 1] = correctionAuditJson_(audit);
+   sheet.getRange(found.row, COL.AUDIT).setValue(expected[COL.AUDIT - 1]); flushSheets_();
+-  return assertCorrectionRow_(sheet, expected, operation);
++  return assertCorrectionRow_(sheet, expected, operation, found.row);
+ }
+ 
+ function finishCorrection_(sheet, found, actor) {
+@@ -493,7 +515,7 @@
+   // Status is staged first. Readers keep it pending until the receipt is complete.
+   const expected = found.values.slice(); expected[COL.STATUS - 1] = STATUS.WAITING_SUPERVISOR;
+   sheet.getRange(found.row, COL.STATUS).setValue(STATUS.WAITING_SUPERVISOR); flushSheets_();
+-  found = assertCorrectionRow_(sheet, expected);
++  found = assertCorrectionRow_(sheet, expected, undefined, found.row);
+   receipt.phase = 'COMPLETE'; receipt.completedAt = receipt.completedAt || nowIso_();
+   const fiscalRoute = fiscalCorrectionRoute_(audit);
+   if (fiscalRoute && receipt.routingRequestId === fiscalRoute.routingRequestId) { fiscalRoute.assignmentStatus = 'COMPLETE'; fiscalRoute.completedAt = receipt.completedAt; fiscalRoute.completedBy = actor; }
+@@ -653,7 +675,7 @@
+     }
+   } catch (error) { if (authorizedWrite) quarantineCorrectionStatus_(recordId); throw error; }
+   finally { lock.releaseLock(); }
+-  return stateResponse_(recordFromValuesAt_(responseValues), false);
++  return stateResponse_(recordFromValuesAt_(responseValues), false, false);
+ }
+ 
+ function uploadedPhotoFile_(folder, fileName, legacyName, description) {
+@@ -681,9 +703,14 @@
+   const found = findAcrossMainSheets_(recordId);
+   if (!found) throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada.');
+   const record = recordFromValuesAt_(found.values);
+-  if (auth.role === 'fiscal') authorizeFiscalCorrection_(auth, found.values, payload.fiscalCorrection, true);
++  if (auth.role === 'fiscal') authorizeFiscalCorrection_(auth, found.values, payload.fiscalCorrection, 'read');
+   else if (auth.role !== 'supervisor') assertOwner_(auth, record.user);
+-  return stateResponse_(record, false, auth.role !== 'fiscal');
++  const response = stateResponse_(record, false, auth.role !== 'fiscal');
++  if (auth.role === 'supervisor') {
++    const official = uniqueCorrectionRow_(sheet_(APP.officialSheet), recordId);
++    if (official) response.integrity = verifyPublishedIntegrity_(recordId, { repair: false });
++  }
++  return response;
+ }
+ 
+ function getDailyTeamProduction_(payload) {
+@@ -1317,8 +1344,14 @@
+   if (options.repair) return reconcilePublication_(recordId, expected, { cleanupPending: Boolean(options.cleanupPending) }).integrity;
+   const state = publicationStateForId_(expected.sheets, recordId);
+   const plan = bindPublicationExpectation_(recordId, expected, state);
+-  if (!inspectPublication_(recordId, plan, state).complete) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A publicação ainda está incompleta. Tente aprovar novamente para concluir.', { recordId: recordId });
++  if (!inspectPublication_(recordId, plan, state).complete || !publicationAuditConfirmed_(state)) throw apiError_('INTEGRITY_REVIEW_REQUIRED', 'A publicação ainda está incompleta. Tente aprovar novamente para concluir.', { recordId: recordId });
+   return { ok: true, success: true, recordId: recordId, state: 'INTEGRITY_OK', officialRows: 1, services: state.services.length, materials: state.materials.length, finalHistoryEvents: 1, pendingCopies: state.pending.length, repairs: [] };
++}
++
++function publicationAuditConfirmed_(state) {
++  if (state.official.length !== 1) return false;
++  const audit = safeJson_(state.official[0].values[COL.AUDIT - 1], {});
++  return audit.publicationState === 'PUBLICADA' && Boolean(finalPublicationEvent_(audit));
+ }
+ 
+ function finalPublicationEvent_(audit) {
+@@ -1785,12 +1818,14 @@
+ 
+ /** A origem é lida e validada antes do lock; somente o commit usa exclusão mútua. */
+ function approvePublication_(auth, recordId, note, reportedPhotoIssues) {
++  const started = Date.now();
+   const expected = preparePublicationSnapshot_(recordId, auth.user, note, reportedPhotoIssues);
++  const prepared = Date.now();
+   const result = reconcilePublication_(recordId, expected);
+   // Fotos/produção para a resposta ficam fora da seção crítica.
+   return Object.assign(stateResponse_(recordFromRow_(result.values, singletonServicesMap_(recordId, expected.model.services), singletonMaterialsMap_(recordId, expected.model.materials)), false, true), {
+     idempotent: result.wasAlreadyComplete, alreadyPublished: result.wasAlreadyComplete,
+-    reconciliationState: result.initialState, integrity: result.integrity, transformerIntegration: result.transformerIntegration
++    reconciliationState: result.initialState, integrity: result.integrity, transformerIntegration: result.transformerIntegration, timings: Object.assign({ prepareMs: prepared - started, totalMs: Date.now() - started }, result.timings)
+   });
+ }
+ 
+@@ -1980,11 +2015,13 @@
+ function reconcilePublication_(recordId, snapshot, options) {
+   options = options || {}; const sheets = snapshot.sheets;
+   const lock = LockService.getScriptLock(); let acquired = false;
++  const timings = {}, started = Date.now(); let mark = started;
++  const stage = function (name) { const now = Date.now(); timings[name] = now - mark; mark = now; };
+   try {
+-    lock.waitLock(30000); acquired = true;
++    lock.waitLock(30000); acquired = true; stage('lockWaitMs');
+     let state = publicationStateForId_(sheets, recordId);
+     const expected = bindPublicationExpectation_(recordId, snapshot, state);
+-    const initial = inspectPublication_(recordId, expected, state);
++    const initial = inspectPublication_(recordId, expected, state); stage('inspectMs');
+     const repairs = []; let transformerIntegration = state.official.length ? (safeJson_(state.official[0].values[COL.AUDIT - 1], {}).transformerIntegration || null) : null;
+     if (!initial.complete) {
+       if (!state.official.length) { appendPublicationRows_(sheets.official, [expected.main], [COL.ID, COL.OCCURRENCE_NUMBER, COL.CONTRACT]); repairs.push('OCORRENCIAS'); }
+@@ -1993,13 +2030,12 @@
+       state = publicationStateForId_(sheets, recordId);
+       const afterArtifacts = inspectPublication_(recordId, expected, state);
+       if (!afterArtifacts.artifactsComplete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Os dados foram preservados; tente aprovar novamente.', { recordId: recordId });
++      stage('artifactsMs');
+       const integrationRecord = Object.assign({}, expected.model, { registeredAt: isoValue_(expected.main[COL.REGISTERED_AT - 1]), transformerPhotos: { removed: String(expected.main[COL.TRAFO_REMOVED_PHOTO - 1] || ''), installed: String(expected.main[COL.TRAFO_INSTALLED_PHOTO - 1] || '') } });
+-      transformerIntegration = integrateTransformersOnApproval_(integrationRecord);
++      transformerIntegration = integrateTransformersOnApproval_(integrationRecord); stage('integrationMs');
+       // O evento final só é gravado depois de confirmar os três conjuntos finais.
+       if (!state.history.length) { appendPublicationRows_(sheets.history, [expected.history], [1, 9]); repairs.push('HISTORICO'); }
+     }
+-    state = publicationStateForId_(sheets, recordId);
+-    if (!inspectPublication_(recordId, expected, state).complete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Os dados foram preservados; tente aprovar novamente.', { recordId: recordId });
+     // Retomada após o histórico: a integração pode ter ocorrido antes de seu resultado entrar na auditoria.
+     if (!transformerIntegration && expected.model.occurrenceTypes.indexOf(TYPES[0]) >= 0) {
+       transformerIntegration = integrateTransformersOnApproval_(Object.assign({}, expected.model, { registeredAt: isoValue_(expected.main[COL.REGISTERED_AT - 1]), transformerPhotos: { removed: String(expected.main[COL.TRAFO_REMOVED_PHOTO - 1] || ''), installed: String(expected.main[COL.TRAFO_INSTALLED_PHOTO - 1] || '') } }));
+@@ -2018,15 +2054,17 @@
+     }
+     // Releitura independente imediatamente antes de retirar a fonte da fila.
+     state = publicationStateForId_(sheets, recordId);
+-    if (!inspectPublication_(recordId, expected, state).complete) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Tente aprovar novamente.', { recordId: recordId });
++    if (!inspectPublication_(recordId, expected, state).complete || !publicationAuditConfirmed_(state)) throw apiError_('PUBLICATION_INCOMPLETE', 'A publicação ainda não foi concluída. Tente aprovar novamente.', { recordId: recordId });
+     if (options.cleanupPending !== false) {
+       if (state.pending.length > 1) publicationConflict_(recordId, APP.pendingSheet, 1, state.pending.length);
+       if (state.pending.length && snapshot.sourceKind === 'pending' && publicationJson_(state.pending[0].values) !== snapshot.sourceFingerprint) throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A ocorrência foi atualizada durante a conferência. Os dados foram preservados; abra novamente.');
+       state.pending.slice().sort(function (left, right) { return right.row - left.row; }).forEach(function (item) { sheets.pending.deleteRow(item.row); }); flushSheets_();
+     }
++    stage('commitMs');
+     const finalState = publicationStateForId_(sheets, recordId);
+-    if (!inspectPublication_(recordId, expected, finalState).complete || (options.cleanupPending !== false && finalState.pending.length)) throw apiError_('PUBLICATION_INCOMPLETE', 'A conclusão da publicação ainda precisa ser confirmada. Tente novamente.', { recordId: recordId });
+-    return { values: finalState.official[0].values, initialState: initial.state, wasAlreadyComplete: initial.complete, transformerIntegration: transformerIntegration,
++    if (!inspectPublication_(recordId, expected, finalState).complete || !publicationAuditConfirmed_(finalState) || (options.cleanupPending !== false && finalState.pending.length)) throw apiError_('PUBLICATION_INCOMPLETE', 'A conclusão da publicação ainda precisa ser confirmada. Tente novamente.', { recordId: recordId });
++    stage('confirmMs'); timings.lockHeldMs = Date.now() - started - timings.lockWaitMs;
++    return { timings: timings, values: finalState.official[0].values, initialState: initial.state, wasAlreadyComplete: initial.complete, transformerIntegration: transformerIntegration,
+       integrity: { ok: true, success: true, recordId: recordId, state: 'INTEGRITY_OK', officialRows: 1, services: finalState.services.length, materials: finalState.materials.length, finalHistoryEvents: 1, pendingCopies: finalState.pending.length, repairs: repairs } };
+   } catch (error) {
+     if (error.code) throw error;
+@@ -2227,7 +2265,7 @@
+   try { account = fiscalAccount_(payload.user); } catch (error) { throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.'); }
+   if (!payload.password || !constantTimeEquals_(sha256_(account.salt + '\n' + String(payload.password)), account.passwordHash)) throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.');
+   const expiresAt = Date.now() + APP.sessionHours * 60 * 60 * 1000;
+-  return { ok: true, success: true, user: account.user, role: 'fiscal', bases: account.bases, canManageFiscals: account.kind === 'master', token: createToken_(account.user, 'fiscal', expiresAt, account.revision), expiresAt: new Date(expiresAt).toISOString() };
++  return { ok: true, success: true, user: account.user, role: 'fiscal', bases: account.bases, aclRevision: account.revision, canManageFiscals: account.kind === 'master', token: createToken_(account.user, 'fiscal', expiresAt, account.revision), expiresAt: new Date(expiresAt).toISOString() };
+ }
+ 
+ // Owner-only provisioning: not present in doPost routes and never reachable by an app session.
+@@ -2524,7 +2562,8 @@
+   if (!request || normalize_(request.assignedFiscal) !== normalize_(current.user) || current.bases.indexOf(request.base) < 0 || !fiscalCorrectionRecipientValid_(request)) throw apiError_('FORBIDDEN', 'A correção não está atribuída a este Fiscal. Atualize a lista.');
+   if (context && (context.routingRequestId !== request.routingRequestId || context.assignmentRevision !== request.assignmentRevision)) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Seu rascunho foi preservado; atualize a solicitação.');
+   const status = operationalStatusFromValues_(values);
+-  if (status !== STATUS.CORRECTION_REQUESTED && !(allowComplete && status === STATUS.WAITING_SUPERVISOR && request.assignmentStatus === 'COMPLETE')) throw apiError_('CORRECTION_CLOSED', 'A solicitação já foi concluída ou recebeu uma decisão.');
++  const completedStatus = status === STATUS.WAITING_SUPERVISOR || allowComplete === 'read' && [STATUS.PUBLISHED, STATUS.REJECTED].indexOf(status) >= 0;
++  if (status !== STATUS.CORRECTION_REQUESTED && !(allowComplete && completedStatus && request.assignmentStatus === 'COMPLETE')) throw apiError_('CORRECTION_CLOSED', 'A solicitação já foi concluída ou recebeu uma decisão.');
+   return request;
+ }
+ function authorizeCorrectionWrite_(auth, values, context, allowComplete) {

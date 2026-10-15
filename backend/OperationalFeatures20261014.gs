@@ -219,7 +219,7 @@ function loginFiscal_(payload) {
   try { account = fiscalAccount_(payload.user); } catch (error) { throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.'); }
   if (!payload.password || !constantTimeEquals_(sha256_(account.salt + '\n' + String(payload.password)), account.passwordHash)) throw apiError_('INVALID_CREDENTIALS', 'Nome, perfil ou senha inválidos.');
   const expiresAt = Date.now() + APP.sessionHours * 60 * 60 * 1000;
-  return { ok: true, success: true, user: account.user, role: 'fiscal', bases: account.bases, canManageFiscals: account.kind === 'master', token: createToken_(account.user, 'fiscal', expiresAt, account.revision), expiresAt: new Date(expiresAt).toISOString() };
+  return { ok: true, success: true, user: account.user, role: 'fiscal', bases: account.bases, aclRevision: account.revision, canManageFiscals: account.kind === 'master', token: createToken_(account.user, 'fiscal', expiresAt, account.revision), expiresAt: new Date(expiresAt).toISOString() };
 }
 
 // Owner-only provisioning: not present in doPost routes and never reachable by an app session.

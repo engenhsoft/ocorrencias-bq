@@ -37,6 +37,7 @@ const runDecision = async (failure = false) => {
     confirmAction: async () => true, collectDecision: async () => ({ reason: 'teste', note: '' }),
     api: { supervisorAction: async () => { events.push('server'); if (failure) throw Error('Falha do servidor'); } },
     refreshSupervisor: async () => { events.push('refresh'); return []; },
+    applyConfirmedSupervisorResult: () => events.push('localized'),
     advanceSupervisorAfterAction: (before, id) => events.push(`advance:${before.join(',')}:${id}`),
     setBusy: () => {}, toast: () => {}, friendlyError: (error) => error.message, updateSupervisorReviewActions: () => {},
     console
@@ -45,7 +46,7 @@ const runDecision = async (failure = false) => {
   await decide('approve');
   return events;
 };
-assert.deepEqual(await runDecision(), ['server', 'refresh', `advance:${oldOrder.join(',')}:uuid-a`]);
+assert.deepEqual(await runDecision(), ['server', 'localized', `advance:${oldOrder.join(',')}:uuid-a`]);
 assert.deepEqual(await runDecision(true), ['server'], 'falha não avança e não fecha a conferência');
 
 for (const id of ['previousReviewButton', 'nextReviewButton', 'supervisorClearFilters', 'supervisorPublishedBadge']) assert.ok(html.includes(`id="${id}"`));

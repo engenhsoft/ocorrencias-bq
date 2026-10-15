@@ -845,3 +845,5 @@ a.programacao-access { text-decoration: none; }
 .fiscal-workspace-tabs{display:flex;gap:.6rem;flex-wrap:wrap;margin:1rem 0 1.5rem}.fiscal-workspace-tabs .is-active,[data-fiscal-financial-view].is-active{background:var(--primary,#145544);color:#fff}.fiscal-workspace-tabs span{display:inline-grid;place-items:center;min-width:1.6rem;padding:.1rem .35rem;border-radius:1rem;background:#e5a73a;color:#172b25;font-weight:800}.fiscal-indicator-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1rem 0}.fiscal-assignment{display:flex;align-items:end;flex-wrap:wrap;gap:.8rem;padding-top:1rem}.fiscal-assignment .field{flex:1;min-width:170px}.fiscal-correction-card .correction-request-callout{margin:1rem 0}.fiscal-correction-card small{overflow-wrap:anywhere}#fiscalIndicatorsPanel .insight-card{margin-bottom:1.2rem}#fiscalCorrectionBack{margin-bottom:1rem}
 
 .card.fiscal-indicator-filters{padding:1.2rem}
+
+.sync-feedback { padding: .75rem; border-radius: .75rem; background: var(--surface-soft, #eef5f4); font-size: .85rem; overflow-wrap: anywhere; }

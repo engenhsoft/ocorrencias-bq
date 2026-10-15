@@ -35,7 +35,8 @@ function authorizeFiscalCorrection_(auth, values, context, allowComplete) {
   if (!request || normalize_(request.assignedFiscal) !== normalize_(current.user) || current.bases.indexOf(request.base) < 0 || !fiscalCorrectionRecipientValid_(request)) throw apiError_('FORBIDDEN', 'A correção não está atribuída a este Fiscal. Atualize a lista.');
   if (context && (context.routingRequestId !== request.routingRequestId || context.assignmentRevision !== request.assignmentRevision)) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Seu rascunho foi preservado; atualize a solicitação.');
   const status = operationalStatusFromValues_(values);
-  if (status !== STATUS.CORRECTION_REQUESTED && !(allowComplete && status === STATUS.WAITING_SUPERVISOR && request.assignmentStatus === 'COMPLETE')) throw apiError_('CORRECTION_CLOSED', 'A solicitação já foi concluída ou recebeu uma decisão.');
+  const completedStatus = status === STATUS.WAITING_SUPERVISOR || allowComplete === 'read' && [STATUS.PUBLISHED, STATUS.REJECTED].indexOf(status) >= 0;
+  if (status !== STATUS.CORRECTION_REQUESTED && !(allowComplete && completedStatus && request.assignmentStatus === 'COMPLETE')) throw apiError_('CORRECTION_CLOSED', 'A solicitação já foi concluída ou recebeu uma decisão.');
   return request;
 }
 function authorizeCorrectionWrite_(auth, values, context, allowComplete) {

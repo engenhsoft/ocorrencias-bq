@@ -1,8 +1,8 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.15.3';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.3';
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.3';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.15.4';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.4';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.4';
 import {
-  APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
+  dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
@@ -10,13 +10,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.15.3';
+} from './core.js?v=2026.10.15.4';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.15.3';
-import { ApiError, api, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.3';
+} from './db.js?v=2026.10.15.4';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.4';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -158,6 +158,7 @@ let occurrenceSubmissionRunning = false;
 let activeDraftSavePromise = null;
 let supervisorRefreshPromise = null;
 let supervisorRefreshRevision = -1;
+let supervisorMutationVersion = 0;
 let mineRefreshPromise = null;
 let mineRefreshRevision = -1;
 let mineServerDataLoaded = false;
@@ -679,7 +680,7 @@ async function handleLogin(event) {
   try {
     const result = await api.login(user, password, role);
     clearSessionUiState();
-    persistSession({ token: result.token, user: result.user, role: result.role, bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
+    persistSession({ token: result.token, user: result.user, role: result.role, aclRevision: result.aclRevision || '', bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
     localStorage.setItem(LAST_USER_KEY, result.user);
     elements.loginPassword.value = '';
     await enterApplication();
@@ -903,7 +904,7 @@ async function loadDailyProduction(teamValue, notify = false) {
 
 async function saveActiveDraft() {
   if (!activeRecord || occurrenceSubmissionRunning) return;
-  activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); if (!activeRecord.fiscalCorrection) activeRecord.user = session?.user || activeRecord.user;
+  activeRecord.syncPhase = 'saved'; activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); if (!activeRecord.fiscalCorrection) activeRecord.user = session?.user || activeRecord.user;
   const record = JSON.parse(JSON.stringify(activeRecord)); const revision = sessionRevision;
   const previous = activeDraftSavePromise;
   const task = (async () => {
@@ -1459,7 +1460,7 @@ async function submitOccurrence() {
     if (!await confirmAction('Enviar para conferência?', 'Deseja enviar esta ocorrência para conferência do supervisor?', 'Enviar', 'success')) return;
     if (revision !== sessionRevision || activeRecord?.recordId !== candidate.recordId) return;
     submittedId = candidate.recordId;
-    candidate.status = RECORD_STATUS.PENDING; candidate.lastError = '';
+    candidate.status = RECORD_STATUS.PENDING; candidate.syncPhase = 'saved'; candidate.lastError = '';
     setBusy(elements.submitOccurrenceButton, true, 'Guardando…');
     if (activeDraftSavePromise) await activeDraftSavePromise;
     if (revision !== sessionRevision || activeRecord?.recordId !== submittedId) return;
@@ -1467,7 +1468,7 @@ async function submitOccurrence() {
     if (!candidate.fiscalCorrection) await clearMetaIfValue(ACTIVE_DRAFT_META, submittedId);
     toast(candidate.fiscalCorrection ? 'Correção guardada. Aguarde a confirmação; se falhar, retome na aba Correções.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.');
     void syncSingleRecord(submittedId, false, candidate.fiscalDraftKey || '').then((result) => {
-      if (result?.status === RECORD_STATUS.WAITING_SUPERVISOR) { toast('Ocorrência enviada para conferência.', 'success'); if (candidate.fiscalCorrection && revision === sessionRevision) featuresController()?.fiscalConfirmed(); }
+      if (result?.syncPhase === 'confirmed') toast(candidate.fiscalCorrection ? 'Correção reenviada e confirmada.' : 'Ocorrência enviada para conferência.', 'success');
       else if (result?.status === RECORD_STATUS.ERROR) toast(result.lastError || 'Falha ao sincronizar. Tente novamente pela fila.', 'error', 5200);
     }).catch((error) => { console.error('[Fila] Falha ao sincronizar ocorrência guardada.', error); toast('Falha ao sincronizar. O registro continua guardado para nova tentativa.', 'error'); });
   } catch (error) {
@@ -1492,6 +1493,7 @@ async function cacheDailySummary(summary, updateCurrentUi = true) {
 }
 
 async function syncSingleRecord(recordId, notify = true, fiscalKey = '') {
+  const revision = sessionRevision;
   const running = recordSyncPromises.get(fiscalKey || recordId);
   if (running) {
     if (notify) toast('Esta ocorrência já está sendo sincronizada.');
@@ -1499,7 +1501,11 @@ async function syncSingleRecord(recordId, notify = true, fiscalKey = '') {
   }
   const task = performSyncSingleRecord(recordId, notify, fiscalKey);
   recordSyncPromises.set(fiscalKey || recordId, task);
-  try { return await task; }
+  try {
+    const result = await task;
+    if (fiscalKey && result?.syncPhase === 'confirmed' && revision === sessionRevision && typeof featuresController === 'function') featuresController()?.fiscalConfirmed?.();
+    return result;
+  }
   finally { if (recordSyncPromises.get(fiscalKey || recordId) === task) recordSyncPromises.delete(fiscalKey || recordId); }
 }
 
@@ -1508,15 +1514,15 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   const storage = fiscalKey ? fiscalDraftStorage(fiscalKey) : { getRecord, putRecord, getPhoto, deletePhoto };
   const storedRecord = await storage.getRecord(recordId); if (!storedRecord || !requestSession || !(requestSession.role === 'field' && !fiscalKey || requestSession.role === 'fiscal' && fiscalKey)) return null;
   const record = normalizeOccurrenceRecord(storedRecord, 'localRecord');
-  if (fiscalKey ? record.fiscalDraftKey !== fiscalKey || !sameUser(record.fiscalCorrection?.assignedFiscal, requestSession.user) : record.user && !sameUser(record.user, requestSession.user)) {
+  if (fiscalKey ? record.fiscalDraftKey !== fiscalKey || String(record.fiscalAclRevision || '') !== String(requestSession.aclRevision || '') || !sameUser(record.fiscalCorrection?.assignedFiscal, requestSession.user) : record.user && !sameUser(record.user, requestSession.user)) {
     console.warn('[Fila] Registro pertence a outro usuário; sincronização ignorada.', { recordId });
     return null;
   }
   if (!navigator.onLine) {
-    record.status = RECORD_STATUS.PENDING; record.lastError = 'Sem internet';
+    record.status = RECORD_STATUS.PENDING; record.syncPhase = 'saved'; record.lastError = 'Sem internet';
     try { await storage.putRecord(record, { expectedUpdatedAt: String(storedRecord.updatedAt || '') }); }
     catch (error) { if (error?.code === 'LOCAL_RECORD_CHANGED') return storage.getRecord(recordId); throw error; }
-    await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record;
+    if (!fiscalKey) await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record;
   }
   const dailyTotalExcludingRecord = Number(dailyProduction.totalExcludingRecord) || 0;
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
@@ -1525,7 +1531,12 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     const stored = await storage.putRecord(next, { expectedUpdatedAt: localVersion });
     localVersion = String(stored?.updatedAt || next.updatedAt || localVersion);
     if (stored) next = stored;
+    if (fiscalKey && revision === sessionRevision && typeof featuresController === 'function') {
+      try { featuresController()?.fiscalSyncChanged(next); }
+      catch (error) { console.warn('[Fiscal] Estado salvo; atualização visual pendente.', { code: error?.code || error?.name }); }
+    }
   };
+  const stillCurrent = () => revision === sessionRevision && session?.token === requestSession.token;
   const cacheSummary = summary => { if (fiscalKey) return; void cacheDailySummary(summary, () => revision === sessionRevision && session?.token === requestSession.token).catch(error => console.warn('[Produção] Confirmação mantida; cache secundário indisponível.', { code: error?.code || error?.name })); };
   const markSynced = () => { if (fiscalKey) return; void setMeta(LAST_SYNC_META, next.syncedAt).catch(error => console.warn('[Fila] Confirmação mantida; data do último sincronismo não pôde ser armazenada.', { code: error?.code || error?.name })); };
   let correctionPayload = null;
@@ -1538,29 +1549,33 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       legacyData.materials.forEach((material, index) => { material.quantity = Number(next.materials[index].quantity); });
       const legacySignature = JSON.stringify(legacyData);
       const signature = JSON.stringify({ data: correctionDataSnapshot(next), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} });
-      if (!next.correctionRequestId || ![signature, legacySignature].includes(next.correctionPayloadSignature)) next.correctionRequestId = generateUuid();
+      if (!next.correctionRequestId || ![signature, legacySignature].includes(next.correctionPayloadSignature)) {
+        const previous = next.audit?.lastCorrectionSubmission;
+        if (previous && previous.requestId === next.correctionRequestId && previous.phase === 'DATA_VERIFIED' && previous.requestedAt === next.correctionRequestedAt) next.supersedesRequestId = previous.requestId;
+        next.correctionRequestId = generateUuid();
+      }
       next.correctionPayloadSignature = signature;
       if (!Object.hasOwn(next, 'correctionRequestedAt')) next.correctionRequestedAt = correctionRequest(next).lastRequestedAt || correctionRequest(next).requestedAt || '';
       await save();
-      correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt,
+      correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt, supersedesRequestId: next.supersedesRequestId || '',
         ...(next.correctionOriginal ? { expectedPatch: next.expectedPatch, beforePatch: next.beforePatch } : {}), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} };
     }
     if (next.serverConfirmed || next.attempts > 1) {
       try {
         const serverState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
-        dataCommitConfirmed = !next.correctionMode && serverState.record?.recordId === next.recordId
-          && sameUser(serverState.record.user, requestSession.user)
-          && Array.isArray(serverState.record.audit?.expectedPhotoIndexes)
-          && normalizePhotoStates(next.photoStates).filter(photo => photo.localReady || photo.confirmed)
-            .every(photo => serverState.record.audit.expectedPhotoIndexes.includes(photo.photoIndex))
-          && JSON.stringify(correctionDataSnapshot(next)) === JSON.stringify(correctionDataSnapshot(serverState.record));
+        dataCommitConfirmed = dataCommitMatches(next, serverState);
+        if (!next.correctionMode && !dataCommitConfirmed
+          && JSON.stringify(correctionDataSnapshot(next)) !== JSON.stringify(correctionDataSnapshot(serverState.record))
+          && ![RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(serverState.status)) {
+          throw new ApiError('Os dados do servidor diferem deste envio. A edição local foi preservada; confira antes de tentar novamente.', 'DATA_COMMIT_CONFLICT');
+        }
         next = reconcilePhotoStates(next, serverState); await save();
       }
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
     }
     if (next.serverConfirmed && !next.correctionMode && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(next.serverStatus)) {
       if (next.serverStatus === RECORD_STATUS.WAITING_SUPERVISOR && next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Há uma foto local diferente da confirmação do servidor. Ela foi preservada; confira a ocorrência antes de tentar novamente.', 'PHOTO_CONFIRMATION_PENDING');
-      next.status = next.serverStatus; next.lastError = ''; next.syncedAt = new Date().toISOString();
+      next.status = next.serverStatus; next.syncPhase = 'confirmed'; next.lastError = ''; next.syncedAt = new Date().toISOString();
       await save(); markSynced(); cacheSummary(next.dailyProduction);
       if ([RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED].includes(next.status)) {
         for (const photo of next.photoStates) if (photo.confirmed && !photo.replacePending) await storage.deletePhoto(recordId, photo.photoIndex, photo.uploadKey || '').catch(() => {});
@@ -1568,9 +1583,10 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       return next;
     }
     if (!dataCommitConfirmed) {
-      next.status = RECORD_STATUS.SYNCING_DATA; await save();
-      const submitResult = await api.submitRecord(requestSession.token, {
-        recordId: next.recordId, ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}), ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt,
+      next.status = RECORD_STATUS.SYNCING_DATA; next.syncPhase = 'sending'; await save();
+      let submitResult;
+      try { submitResult = await api.submitRecord(requestSession.token, {
+        recordId: next.recordId, ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}), ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt, supersedesRequestId: correctionPayload.supersedesRequestId,
           ...(next.correctionOriginal ? { expectedPatch: correctionPayload.expectedPatch, beforePatch: correctionPayload.beforePatch } : {}), photoPatch: correctionPayload.photoPatch, evidencePatch: correctionPayload.evidencePatch } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
         expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
         occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
@@ -1579,15 +1595,24 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         transformer: next.transformer, services: serializeServicesForBackend(next.services), materials: serializeMaterialsForBackend(next.materials),
         totalServices: correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services)).percentage,
         observation: next.observation
-      }, APP_VERSION);
+      }, APP_VERSION); }
+      catch (error) {
+        if (!ambiguousMutationError(error)) throw error;
+        next.syncPhase = 'confirming'; await save();
+        try {
+          const readback = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
+          if (dataCommitMatches(next, readback)) submitResult = readback;
+        } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
+        if (!submitResult) throw error;
+      }
       if (correctionPayload && !correctionConfirmationMatches(correctionPayload, submitResult)) throw new ApiError('O servidor ainda não confirmou os campos corrigidos. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
       next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
     }
     photoSyncStarted = true;
-    next.status = RECORD_STATUS.SYNCING_PHOTOS; await save();
-    next = reconcilePhotoStates(next, await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection)); await save();
+    next.status = RECORD_STATUS.SYNCING_PHOTOS; next.syncPhase = 'photos'; await save();
     const lastPhotoIndex = normalizeOccurrenceTypes(next.occurrenceTypes).includes(TYPE_TRAFO) ? 7 : 5;
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
+      if (!stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
       const state = next.photoStates[index - 1] || {};
       if (state.confirmed && !state.replacePending) { await storage.deletePhoto(next.recordId, index, state.uploadKey || '').catch(() => {}); continue; }
       const localPhoto = await storage.getPhoto(next.recordId, index);
@@ -1596,26 +1621,39 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         continue;
       }
       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
-      const photoResult = await api.uploadPhoto(requestSession.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending), ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}) });
+      let photoResult;
+      try { photoResult = await api.uploadPhoto(requestSession.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending), ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}) }); }
+      catch (error) {
+        if (!ambiguousMutationError(error)) throw error;
+        next.syncPhase = 'confirming'; await save();
+        try {
+          const readback = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
+          if (readback.photoStates.some(photo => photo.photoIndex === index && photo.confirmed && photo.uploadKey === localPhoto.uploadKey)) photoResult = readback;
+        } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
+        if (!photoResult) throw error;
+      }
+      next.syncPhase = 'photos';
       next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
-      await save(); if (next.photoStates[index - 1]?.confirmed) await storage.deletePhoto(next.recordId, index, localPhoto.uploadKey); await updateQueueUi();
+      await save(); if (next.photoStates[index - 1]?.confirmed) await storage.deletePhoto(next.recordId, index, localPhoto.uploadKey); if (!fiscalKey) await updateQueueUi();
     }
+    next.syncPhase = 'confirming'; await save();
     const finalState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
     if (correctionPayload && !correctionConfirmationMatches(correctionPayload, finalState, true)) throw new ApiError('A releitura ainda não confirmou a correção completa. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
     next = reconcilePhotoStates(next, finalState);
-    if (requiredPhotoDeficit(next) > 0 || next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
+    if (!confirmedEvidenceReady(next) || next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
       if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await storage.deletePhoto(next.recordId, index, next.photoStates[index - 1].uploadKey || '').catch(() => {});
     }
     const confirmedStatus = String(finalState.status || '');
-    const acceptedStatuses = next.correctionMode ? [RECORD_STATUS.WAITING_SUPERVISOR] : [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED];
+    const acceptedStatuses = next.correctionMode ? [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.REJECTED] : [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED];
     if (!acceptedStatuses.includes(confirmedStatus)) {
       throw new ApiError('O servidor ainda não confirmou o estado final. A fila foi preservada para nova tentativa.', 'SERVER_CONFIRMATION_PENDING');
     }
-    next.status = confirmedStatus; next.lastError = ''; next.syncedAt = new Date().toISOString(); next.correctionMode = false; next.requestedPhotoIndexes = [];
+    next.status = confirmedStatus; next.syncPhase = 'confirmed'; next.lastError = ''; next.syncedAt = new Date().toISOString(); next.correctionMode = false; next.requestedPhotoIndexes = [];
     await save(); markSynced(); cacheSummary(finalState.dailyProduction || next.dailyProduction); if (notify) toast(statusLabel(next.status, next.photoCount), 'success'); return next;
   } catch (error) {
     if (error?.code === 'LOCAL_RECORD_CHANGED') { if (notify) toast(friendlyError(error), 'error'); return storage.getRecord(recordId); }
+    next.syncPhase = 'error';
     next.status = error?.code === 'NO_CORRECTION_CHANGES' ? RECORD_STATUS.CORRECTION_REQUESTED : RECORD_STATUS.ERROR;
     next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING'].includes(error?.code)
       ? 'Não foi possível concluir a sincronização das fotos. Os dados e fotos locais pendentes foram preservados. Tente novamente.'
@@ -1624,7 +1662,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     await save();
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
   } finally {
-    await updateQueueUi().catch(error => console.error('[Fila] Falha ao atualizar o resumo após sincronização.', { code: error?.code || error?.name }));
+    if (!fiscalKey) await updateQueueUi().catch(error => console.error('[Fila] Falha ao atualizar o resumo após sincronização.', { code: error?.code || error?.name }));
     if (session?.role === 'field' && (currentView === 'mine' || mineRecords.some((item) => item.recordId === recordId && openPhotoSyncRequest(item, session.user)))) { if (!photoSyncAllRunning) refreshMine(false); }
   }
 }
@@ -1902,8 +1940,10 @@ function recordCard(record, actionHtml = '') {
   const localPhotoCount = photoStates.filter(photo => photo.localReady).length;
   const serverPhotoCount = photoStates.filter(photo => photo.confirmed && photo.serverUrl).length;
   const photoSummary = localPhotoCount ? `${localPhotoCount}/5 fotos salvas neste aparelho · ${serverPhotoCount}/5 confirmadas no servidor${photoStates.some(photo => photo.localReady && (!photo.confirmed || photo.replacePending)) ? ' · Sincronização pendente' : ''}` : `${serverPhotoCount}/5 fotos gerais confirmadas no servidor`;
+  const feedback = record.syncPhase ? synchronizationFeedback(record) : null;
+  const sync = feedback ? `<p class="sync-feedback" role="status"><strong>${escapeHtml(feedback.label)}</strong><br>${escapeHtml(feedback.detail)}</p>` : '';
   const correction = record?.audit?.lastSupervisorCorrection;
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${escapeHtml(photoSummary)}</span>${actionHtml}${[RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.APPROVED].includes(status) ? `<button class="button button--ghost" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button>` : ''}</footer></article>`;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${sync}${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${escapeHtml(photoSummary)}</span>${actionHtml}${[RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.APPROVED].includes(status) ? `<button class="button button--ghost" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button>` : ''}</footer></article>`;
 }
 
 function openScrollableDialog(dialog, body) {
@@ -1957,14 +1997,24 @@ function editingStorage(record = activeRecord) {
 
 async function openAssignedFiscalCorrection(server) {
   if (session?.role !== 'fiscal' || !sameUser(server.fiscalCorrection?.assignedFiscal, session.user)) throw new ApiError('Solicitação não atribuída a este Fiscal.', 'FORBIDDEN');
-  const revision = sessionRevision, key = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection), storage = fiscalDraftStorage(key);
-  const local = await storage.getRecord();
+  const revision = sessionRevision, key = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection, session.aclRevision || ''), storage = fiscalDraftStorage(key);
+  let local = await storage.getRecord();
+  if (!local && session.aclRevision) {
+    // Upgrade a pre-hotfix draft only after openFiscalCorrection authorized the
+    // exact request and assignment. Leave the old bytes intact for recovery.
+    const legacyKey = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection);
+    const legacy = await getMeta(legacyKey);
+    if (legacy?.record && !legacy.record.fiscalAclRevision && revision === sessionRevision) {
+      await setMeta(key, { ...legacy, record: { ...legacy.record, fiscalDraftKey: key, fiscalAclRevision: session.aclRevision } });
+      local = await storage.getRecord();
+    }
+  }
   if (revision !== sessionRevision) return;
   const requestedAt = correctionRequest(server).lastRequestedAt || correctionRequest(server).requestedAt || '';
   const resuming = local?.correctionMode && local.correctionRequestedAt === requestedAt;
   const requested = normalizeArray(server.audit?.requestedPhotoIndexes || [], 'requestedPhotoIndexes').map(Number);
   const correction = resuming ? { ...local, audit: server.audit, fiscalCorrection: server.fiscalCorrection } : { ...server, fiscalDraftKey: key,
-    correctionMode: true, correctionRequestedAt: requestedAt, correctionOriginalRequestedAt: requestedAt, correctionOriginal: correctionOriginalSnapshot(server),
+    fiscalAclRevision: session.aclRevision || '', syncPhase: 'saved', correctionMode: true, correctionRequestedAt: requestedAt, correctionOriginalRequestedAt: requestedAt, correctionOriginal: correctionOriginalSnapshot(server),
     correctionRequestId: '', correctionPayloadSignature: '', serverConfirmed: true, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED,
     requestedPhotoIndexes: requested, photoStates: normalizePhotoStates(server.photoStates).map(state => requested.includes(state.photoIndex) ? { ...state, confirmed: false, replacePending: true, localReady: false } : { ...state, localReady: false }), status: RECORD_STATUS.DRAFT };
   await storage.putRecord(correction);
@@ -2076,6 +2126,7 @@ function normalizeSupervisorRecordList(records, label, summary = false) {
 
 function refreshSupervisor(notify = false) {
   const requestSession = session; const revision = sessionRevision;
+  const mutationVersion = supervisorMutationVersion;
   if (!requestSession || requestSession.role !== 'supervisor') return null;
   if (supervisorRefreshPromise && supervisorRefreshRevision === revision) return supervisorRefreshPromise;
   const isCurrent = () => revision === sessionRevision && session?.role === 'supervisor';
@@ -2101,6 +2152,10 @@ function refreshSupervisor(notify = false) {
         };
       }, { initial: !supervisorDataLoaded, isCurrent });
       if (!isCurrent() || !result) return null;
+      if (mutationVersion !== supervisorMutationVersion) {
+        supervisorLoading = false; renderSupervisorList();
+        return [...supervisorRecords, ...supervisorPendingRecords];
+      }
       const records = result.records;
       const pendingRecords = result.pendingRecords;
       const metricSource = result.metricRecords || [];
@@ -2643,6 +2698,20 @@ async function saveSupervisorCorrection(event) {
   finally { if (isCurrent()) { setBusy(elements.saveSupervisorEditButton, false); supervisorMutationRunning = false; updateSupervisorReviewActions(); } }
 }
 
+function applyConfirmedSupervisorResult(result, refreshIndicators = true) {
+  supervisorMutationVersion += 1;
+  const record = normalizeOccurrenceRecord(result.record), id = record.recordId;
+  if (!id || result.recordId !== id) throw new ApiError('O servidor não confirmou a ocorrência alterada.', 'INVALID_RECORD_STATE');
+  supervisorRecords = supervisorRecords.filter(item => item.recordId !== id);
+  supervisorPendingRecords = supervisorPendingRecords.filter(item => item.recordId !== id);
+  if (record.status === RECORD_STATUS.WAITING_SUPERVISOR) supervisorRecords.push(record);
+  else if ([RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.SYNCING_PHOTOS].includes(record.status)) supervisorPendingRecords.push(record);
+  supervisorMetricRecords = uniqueRecordsById([...supervisorMetricRecords.filter(item => item.recordId !== id), record]);
+  supervisorPhotoFailures.delete(id); selectedSupervisorIds.delete(id);
+  renderSupervisorList();
+  if (refreshIndicators && typeof featuresController === 'function') void featuresController()?.refreshSummary(true);
+}
+
 async function decideSupervisor(decision) {
   const requestSession = session; const revision = sessionRevision;
   const isCurrent = () => revision === sessionRevision && session?.token === requestSession?.token;
@@ -2660,12 +2729,8 @@ async function decideSupervisor(decision) {
     const decisionResult = await api.supervisorAction(requestSession.token, decision, reviewedId, reason, decision === 'request_correction' ? (note || reason) : note, decision === 'request_correction' ? selectedPhotoIndexes : []);
     if (!isCurrent()) return;
     toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : decisionResult.record?.audit?.lastCorrectionRequest?.assignmentStatus === 'WAITING_ASSIGNMENT' ? 'Correção registrada. Aguardando atribuição de Fiscal pela conta mestra.' : `Correção solicitada ao Fiscal ${decisionResult.record?.audit?.lastCorrectionRequest?.assignedFiscal || 'responsável'}.`, 'success');
-    if (supervisorRefreshPromise) await supervisorRefreshPromise;
-    if (!isCurrent()) return;
-    const refreshed = await refreshSupervisor(false);
-    if (!isCurrent()) return;
-    if (refreshed) advanceSupervisorAfterAction(beforeIds, reviewedId);
-    else { elements.reviewDialog.close(); activeSupervisorRecord = null; toast('Decisão salva. Atualize o painel antes de seguir para a próxima ocorrência.', 'error'); }
+    applyConfirmedSupervisorResult(decisionResult);
+    advanceSupervisorAfterAction(beforeIds, reviewedId);
   } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
   finally {
     if (isCurrent()) {
@@ -2794,8 +2859,9 @@ async function approveSupervisorRecords(ids, button) {
     elements.supervisorBatchResult.className = 'batch-result batch-result--progress';
     elements.supervisorBatchResult.textContent = progress;
     try {
-      await api.supervisorAction(requestSession.token, 'approve', recordId);
+      const result = await api.supervisorAction(requestSession.token, 'approve', recordId);
       if (!isCurrent()) return { successes, failures, interrupted: true };
+      applyConfirmedSupervisorResult(result, false);
       successes.push(recordId);
       selectedSupervisorIds.delete(recordId);
     } catch (error) {
@@ -2807,7 +2873,7 @@ async function approveSupervisorRecords(ids, button) {
   elements.supervisorBatchResult.className = `batch-result ${failures.length ? 'batch-result--warning' : 'batch-result--success'}`;
   elements.supervisorBatchResult.innerHTML = `<strong>${escapeHtml(summary)}</strong>${failures.length ? `<ul>${failures.map((failure) => `<li><b>${escapeHtml(failure.label)}</b>: ${escapeHtml(failure.message)} <small>(${escapeHtml(failure.code)})</small></li>`).join('')}</ul>` : ''}`;
   toast(summary, failures.length ? 'error' : 'success', 5200);
-  await refreshSupervisor(false);
+  if (typeof featuresController === 'function') void featuresController()?.refreshSummary(true);
   if (!isCurrent()) return { successes, failures, interrupted: true };
   return { successes, failures };
 }
@@ -2888,6 +2954,7 @@ function featuresController() {
       return mineRecords.filter(record => ids.has(record.recordId));
     },
     onFiscalCorrection: openAssignedFiscalCorrection,
+    onFiscalRetry: (id, key) => syncSingleRecord(id, true, key),
     onCorrection: recordId => { const button = document.createElement('button'); button.dataset.mineAction = 'correct'; button.dataset.recordId = recordId; return handleMineAction({ target: button }); },
     onOpenPhoto: (src, label) => openPhoto(src, label),
     onOpenRecord: (record, { loading = false } = {}) => { elements.mineDetailTitle.textContent = `Ocorrência ${record.occurrenceNumber || 'sem número'}`; elements.mineDetailContent.innerHTML = loading ? '<p class="insight-empty" role="status">Carregando dados confirmados…</p>' : occurrenceDetails(record); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); }

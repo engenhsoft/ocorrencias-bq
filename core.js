@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.15.3';
-export const APP_BUILD = '2026-10-15-fiscal-corrections';
+export const APP_VERSION = '2026.10.15.4';
+export const APP_BUILD = '2026-10-15-sync-publication-hotfix';
 
 export const TEAM_GOAL = 6000;
 
@@ -205,6 +205,38 @@ export function correctionConfirmationMatches(submitted, state, complete = false
     && (complete ? receipt.phase === 'COMPLETE' : ['DATA_VERIFIED', 'COMPLETE'].includes(receipt.phase))
     && correctionReceiptHasChanges(state.record, complete)
     && JSON.stringify(correctionDataSnapshot(submitted)) === JSON.stringify(correctionDataSnapshot(state.record));
+}
+
+export function dataCommitMatches(record, state) {
+  if (record?.correctionMode || record?.correctionRequestId) return correctionConfirmationMatches(record, state);
+  return state?.recordId === record?.recordId && sameUser(record.user, state.record?.user)
+    && Array.isArray(state.record?.audit?.expectedPhotoIndexes)
+    && normalizePhotoStates(record.photoStates).filter(photo => photo.localReady || photo.confirmed)
+      .every(photo => state.record.audit.expectedPhotoIndexes.includes(photo.photoIndex))
+    && JSON.stringify(correctionDataSnapshot(record)) === JSON.stringify(correctionDataSnapshot(state.record));
+}
+
+export function confirmedEvidenceReady(record) {
+  const states = normalizePhotoStates(record?.photoStates);
+  return states.slice(0, 5).filter(photo => photo.confirmed && photo.serverUrl).length >= 3
+    && (!normalizeOccurrenceTypes(record?.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO')
+      || states.slice(5, 7).every(photo => photo.confirmed && photo.serverUrl))
+    && normalizeArray(record?.audit?.expectedPhotoIndexes).every(index => states[Number(index) - 1]?.confirmed);
+}
+
+export function synchronizationFeedback(record = {}) {
+  const phases = {
+    saved: 'ALTERAÇÕES SALVAS NESTE APARELHO', sending: 'ENVIANDO ALTERAÇÕES',
+    photos: 'SINCRONIZANDO FOTOS', confirming: 'AGUARDANDO CONFIRMAÇÃO',
+    confirmed: record.fiscalCorrection || record.correctionRequestId ? 'CORREÇÃO REENVIADA' : 'ENVIO CONFIRMADO',
+    error: 'ERRO — TENTAR NOVAMENTE'
+  };
+  const phase = record.syncPhase || (record.lastError ? 'error' : 'saved');
+  const states = normalizePhotoStates(record.photoStates), applicable = normalizeOccurrenceTypes(record.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO') ? states : states.slice(0, 5);
+  const confirmed = applicable.filter(photo => photo.confirmed).length;
+  const pending = applicable.filter(photo => !photo.confirmed && (photo.localReady || photo.replacePending)).length;
+  return { phase, label: phases[phase] || phases.saved,
+    detail: phase === 'saved' ? 'Ainda não confirmadas no servidor.' : phase === 'photos' ? `${confirmed} confirmadas · ${pending} pendentes` : phase === 'confirming' ? 'Validando a persistência pelo UUID.' : record.lastError || '' };
 }
 
 export function openPhotoSyncRequest(record, recipient = '') {
@@ -865,6 +897,11 @@ export function summarizeQueue(records = []) {
 }
 
 export function reconcilePhotoStates(localRecord, serverState) {
+  if (serverState?.recordId && serverState.recordId !== localRecord?.recordId
+    || serverState?.record?.recordId && serverState.record.recordId !== localRecord?.recordId) {
+    throw Object.assign(new Error('A confirmação pertence a outra ocorrência. Os dados locais foram preservados.'), { code: 'INVALID_RECORD_STATE' });
+  }
+  const authoritative = Boolean(serverState?.recordId || serverState?.record?.recordId);
   const serverStates = normalizePhotoStates(serverState?.photoStates, 'serverState.photoStates');
   const serverRecord = serverState?.record && typeof serverState.record === 'object' && !Array.isArray(serverState.record) ? serverState.record : {};
   const byIndex = new Map(serverStates
@@ -882,12 +919,12 @@ export function reconcilePhotoStates(localRecord, serverState) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: true, serverUrl: server.url || server.serverUrl || current.serverUrl || '' };
     }
     if (!server) {
-      return { ...current, photoIndex: index + 1, confirmed: Boolean(current.confirmed), localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
+      return { ...current, photoIndex: index + 1, confirmed: authoritative ? false : Boolean(current.confirmed), localReady: Boolean(current.localReady), serverUrl: authoritative ? '' : current.serverUrl || '' };
     }
     if (!server.confirmed) {
-      return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: current.serverUrl || '' };
+      return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: '' };
     }
-    return { ...current, photoIndex: index + 1, confirmed: true, localReady: false, replacePending: false, uploadKey: current.uploadKey || server.uploadKey || '', serverUrl: server.url || server.serverUrl || current.serverUrl || '', error: '' };
+    return { ...current, photoIndex: index + 1, confirmed: true, localReady: false, replacePending: false, uploadKey: server.uploadKey || current.uploadKey || '', serverUrl: server.url || server.serverUrl || '', error: '' };
   });
   return normalizeOccurrenceRecord({
     ...localRecord,
