@@ -1,8 +1,8 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.15.4';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.4';
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.4';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.15.5';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.5';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.5';
 import {
-  dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
+  dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
@@ -10,13 +10,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.15.4';
+} from './core.js?v=2026.10.15.5';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.15.4';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.4';
+} from './db.js?v=2026.10.15.5';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.5';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -1525,9 +1525,11 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     if (!fiscalKey) await updateQueueUi(); if (notify) toast('Sem internet. O registro continua guardado neste aparelho.'); return record;
   }
   const dailyTotalExcludingRecord = Number(dailyProduction.totalExcludingRecord) || 0;
-  let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '' };
+  let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '', lastSyncError: null };
+  let syncStage = 'prepare'; let syncPhotoIndex = 0;
   let localVersion = String(storedRecord.updatedAt || '');
   const save = async () => {
+    next.syncProgress = { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed };
     const stored = await storage.putRecord(next, { expectedUpdatedAt: localVersion });
     localVersion = String(stored?.updatedAt || next.updatedAt || localVersion);
     if (stored) next = stored;
@@ -1561,6 +1563,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         ...(next.correctionOriginal ? { expectedPatch: next.expectedPatch, beforePatch: next.beforePatch } : {}), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} };
     }
     if (next.serverConfirmed || next.attempts > 1) {
+      syncStage = 'read_data';
       try {
         const serverState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
         dataCommitConfirmed = dataCommitMatches(next, serverState);
@@ -1583,6 +1586,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       return next;
     }
     if (!dataCommitConfirmed) {
+      syncStage = 'submit_data';
       next.status = RECORD_STATUS.SYNCING_DATA; next.syncPhase = 'sending'; await save();
       let submitResult;
       try { submitResult = await api.submitRecord(requestSession.token, {
@@ -1606,6 +1610,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         if (!submitResult) throw error;
       }
       if (correctionPayload && !correctionConfirmationMatches(correctionPayload, submitResult)) throw new ApiError('O servidor ainda não confirmou os campos corrigidos. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
+      dataCommitConfirmed = true;
       next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
     }
     photoSyncStarted = true;
@@ -1615,16 +1620,23 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       if (!stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
       const state = next.photoStates[index - 1] || {};
       if (state.confirmed && !state.replacePending) { await storage.deletePhoto(next.recordId, index, state.uploadKey || '').catch(() => {}); continue; }
+      syncStage = 'read_photo'; syncPhotoIndex = index; await save();
       const localPhoto = await storage.getPhoto(next.recordId, index);
       if (!localPhoto?.blob && index <= 5) {
         if (state.localReady) throw new ApiError(`A Foto ${index} não está mais disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
         continue;
       }
       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
+      if (fiscalKey && (localPhoto.recordId !== next.recordId || localPhoto.photoIndex !== index || !state.uploadKey || localPhoto.uploadKey !== state.uploadKey)) throw new ApiError(`A identidade local da Foto ${index} diverge do rascunho. Abra novamente a correção; a foto foi preservada.`, 'LOCAL_PHOTO_IDENTITY_MISMATCH');
+      syncStage = 'encode_photo'; await save();
+      const dataUrl = await blobToDataUrl(localPhoto.blob);
+      if (!stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
+      syncStage = 'upload_photo'; await save();
       let photoResult;
-      try { photoResult = await api.uploadPhoto(requestSession.token, { ...localPhoto, dataUrl: await blobToDataUrl(localPhoto.blob) }, { replace: Boolean(state.replacePending), ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}) }); }
+      try { photoResult = await api.uploadPhoto(requestSession.token, { ...localPhoto, dataUrl }, { replace: Boolean(state.replacePending), ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}) }); }
       catch (error) {
         if (!ambiguousMutationError(error)) throw error;
+        syncStage = 'confirm_photo';
         next.syncPhase = 'confirming'; await save();
         try {
           const readback = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
@@ -1632,10 +1644,12 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
         if (!photoResult) throw error;
       }
+      if (fiscalKey && (photoResult?.recordId !== next.recordId || photoResult.record?.recordId !== next.recordId || !photoResult.photoStates?.some(photo => photo.photoIndex === index && photo.confirmed && photo.uploadKey === localPhoto.uploadKey && (photo.url || photo.serverUrl)))) throw new ApiError(`O servidor ainda não confirmou a nova Foto ${index}. Ela permanece neste aparelho.`, 'PHOTO_CONFIRMATION_PENDING');
       next.syncPhase = 'photos';
-      next = reconcilePhotoStates(next, photoResult); next.photoStates[index - 1].replacePending = false; next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
+      next = reconcilePhotoStates(next, photoResult); next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
       await save(); if (next.photoStates[index - 1]?.confirmed) await storage.deletePhoto(next.recordId, index, localPhoto.uploadKey); if (!fiscalKey) await updateQueueUi();
     }
+    syncStage = 'confirm_correction'; syncPhotoIndex = 0;
     next.syncPhase = 'confirming'; await save();
     const finalState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
     if (correctionPayload && !correctionConfirmationMatches(correctionPayload, finalState, true)) throw new ApiError('A releitura ainda não confirmou a correção completa. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
@@ -1654,11 +1668,14 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   } catch (error) {
     if (error?.code === 'LOCAL_RECORD_CHANGED') { if (notify) toast(friendlyError(error), 'error'); return storage.getRecord(recordId); }
     next.syncPhase = 'error';
+    next.lastSyncError = synchronizationDiagnostic(error, { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed });
+    console.error('[Sincronização] Falha recuperável.', { recordId: next.recordId, ...next.lastSyncError });
     next.status = error?.code === 'NO_CORRECTION_CHANGES' ? RECORD_STATUS.CORRECTION_REQUESTED : RECORD_STATUS.ERROR;
     next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING'].includes(error?.code)
       ? 'Não foi possível concluir a sincronização das fotos. Os dados e fotos locais pendentes foram preservados. Tente novamente.'
       : !next.correctionMode && error?.code === 'CORRECTION_PERSISTENCE_MISMATCH'
         ? 'O servidor ainda não confirmou os dados da ocorrência. Os dados locais foram preservados; tente novamente.' : friendlyError(error);
+    if (next.correctionMode) next.lastError = synchronizationFailureMessage(next.lastSyncError, next.lastError);
     await save();
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
   } finally {
@@ -2937,10 +2954,10 @@ function friendlyError(error) {
   if (error?.code === 'TIMEOUT') return 'A conexão demorou demais. A fila foi preservada para nova tentativa.';
   if (error?.code === 'ENDPOINT_NOT_CONFIGURED') return 'A publicação do backend ainda está sendo concluída.';
   if (error instanceof ApiError) {
-    if (isTechnicalErrorMessage(error.message)) { console.error('[Aplicativo] Resposta técnica ocultada do usuário.', error); return 'Ocorreu um erro inesperado.'; }
+    if (isTechnicalErrorMessage(error.message)) { console.error('[Aplicativo] Resposta técnica ocultada do usuário.', synchronizationDiagnostic(error)); return 'Ocorreu um erro inesperado.'; }
     return error.message || 'Ocorreu um erro inesperado.';
   }
-  console.error('[Aplicativo] Erro inesperado.', error);
+  console.error('[Aplicativo] Erro inesperado.', synchronizationDiagnostic(error));
   return 'Ocorreu um erro inesperado.';
 }
 

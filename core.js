@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.15.4';
-export const APP_BUILD = '2026-10-15-sync-publication-hotfix';
+export const APP_VERSION = '2026.10.15.5';
+export const APP_BUILD = '2026-10-15-fiscal-photo-diagnostics';
 
 export const TEAM_GOAL = 6000;
 
@@ -235,8 +235,32 @@ export function synchronizationFeedback(record = {}) {
   const states = normalizePhotoStates(record.photoStates), applicable = normalizeOccurrenceTypes(record.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO') ? states : states.slice(0, 5);
   const confirmed = applicable.filter(photo => photo.confirmed).length;
   const pending = applicable.filter(photo => !photo.confirmed && (photo.localReady || photo.replacePending)).length;
+  const progress = record.syncProgress || {};
+  const photoLabel = Number.isInteger(progress.photoIndex) && progress.photoIndex >= 1 && progress.photoIndex <= 7 ? `Foto ${progress.photoIndex}` : '';
+  const progressLabels = { read_photo: 'lendo neste aparelho', encode_photo: 'preparando envio', upload_photo: 'enviando', confirm_photo: 'confirmando no servidor' };
+  const progressDetail = photoLabel && progressLabels[progress.stage] ? `${progress.dataConfirmed ? 'Dados confirmados · ' : ''}${photoLabel}: ${progressLabels[progress.stage]}` : '';
   return { phase, label: phases[phase] || phases.saved,
-    detail: phase === 'saved' ? 'Ainda não confirmadas no servidor.' : phase === 'photos' ? `${confirmed} confirmadas · ${pending} pendentes` : phase === 'confirming' ? 'Validando a persistência pelo UUID.' : record.lastError || '' };
+    detail: phase === 'saved' ? 'Ainda não confirmadas no servidor.' : phase === 'photos' ? progressDetail || `${confirmed} confirmadas · ${pending} pendentes` : phase === 'confirming' ? 'Validando a persistência pelo UUID.' : record.lastError || '' };
+}
+
+// Persist/log only diagnostic metadata. Error objects can contain HTTP bodies,
+// credentials or image data in details/cause; never copy them into the draft/log.
+export function synchronizationDiagnostic(error, progress = {}) {
+  const stages = ['prepare', 'read_data', 'submit_data', 'read_photo', 'encode_photo', 'upload_photo', 'confirm_photo', 'confirm_correction'];
+  const types = ['TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'EvalError', 'URIError', 'NotReadableError', 'DataCloneError', 'QuotaExceededError', 'InvalidStateError'];
+  const exception = types.find(type => error?.name === type || new RegExp(`\\b${type}\\b`).test(String(error?.message || ''))) || '';
+  const code = /^[A-Z][A-Z0-9_]{1,63}$/.test(String(error?.code || '')) ? String(error.code) : exception ? exception.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase() : 'UNEXPECTED_ERROR';
+  return { stage: stages.includes(progress.stage) ? progress.stage : 'prepare', code, exception,
+    photoIndex: Number.isInteger(progress.photoIndex) && progress.photoIndex >= 1 && progress.photoIndex <= 7 ? progress.photoIndex : 0,
+    dataConfirmed: progress.dataConfirmed === true };
+}
+
+export function synchronizationFailureMessage(diagnostic, fallback = '') {
+  if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED', 'FISCAL_CORRECTION_REQUIRED', 'SESSION_CHANGED'].includes(diagnostic.code)) return fallback;
+  const stageLabels = { read_photo: 'ler a foto neste aparelho', encode_photo: 'preparar a foto', upload_photo: 'enviar a foto', confirm_photo: 'confirmar a foto no servidor', confirm_correction: 'confirmar a correção no servidor' };
+  const label = stageLabels[diagnostic.stage];
+  if (!label) return fallback;
+  return `${diagnostic.dataConfirmed ? 'Dados confirmados. ' : ''}${diagnostic.photoIndex ? `Foto ${diagnostic.photoIndex} pendente. ` : ''}Não foi possível ${label}. Tente novamente para retomar. O rascunho foi preservado. Referência: ${diagnostic.stage}/${diagnostic.code}.`;
 }
 
 export function openPhotoSyncRequest(record, recipient = '') {

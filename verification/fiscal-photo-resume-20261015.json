@@ -1,0 +1,99 @@
+{
+  "kind": "frontend-contract-fixtures",
+  "privateAppsScriptExecuted": false,
+  "realServerConfirmation": false,
+  "productionWrites": 0,
+  "total": 22,
+  "passed": 22,
+  "failed": 0,
+  "results": [
+    {
+      "name": "photo-only DATA_VERIFIED resumes Foto 1, zero data resubmissions, UUID and slots 2–5 preserved",
+      "passed": true
+    },
+    {
+      "name": "photo-only fresh send creates one data receipt then confirms one photo",
+      "passed": true
+    },
+    {
+      "name": "mixed data + photo preserves confirmed data and sends no repeated data",
+      "passed": true
+    },
+    {
+      "name": "failure reading IDB photo stores stage/code, keeps Blob and retries same key",
+      "passed": true
+    },
+    {
+      "name": "failure converting Blob reports encode stage and preserves local photograph",
+      "passed": true
+    },
+    {
+      "name": "network failure before upload preserves photo and retries without resubmitting data",
+      "passed": true
+    },
+    {
+      "name": "technical server exception stores type/code/stage and logs no token, image or response body",
+      "passed": true
+    },
+    {
+      "name": "response lost after upload reconciles by exact key, one upload and one file",
+      "passed": true
+    },
+    {
+      "name": "response lost after data commit does not submit data a second time",
+      "passed": true
+    },
+    {
+      "name": "retry after Drive creation before sheet response reuses same key and one synthetic file",
+      "passed": true
+    },
+    {
+      "name": "lost final readback retains draft; retry only reads and confirms COMPLETE",
+      "passed": true
+    },
+    {
+      "name": "photoPatch intent or old key alone never confirms corrected photograph",
+      "passed": true
+    },
+    {
+      "name": "new photo without COMPLETE receipt does not show correction success",
+      "passed": true
+    },
+    {
+      "name": "wrong local uploadKey is blocked before upload and Blob remains",
+      "passed": true
+    },
+    {
+      "name": "backend authorization rejection is preserved and does not remove draft or image",
+      "passed": true
+    },
+    {
+      "name": "changed assignment blocks client continuation before photo upload",
+      "passed": true
+    },
+    {
+      "name": "legacy Campo correction keeps photo-only retry working",
+      "passed": true
+    },
+    {
+      "name": "mixed general and Trafo evidence 6/7 remain separate and complete after all slots",
+      "passed": true
+    },
+    {
+      "name": "progress identifies Foto 1 read, conversion and upload after confirmed data",
+      "passed": true
+    },
+    {
+      "name": "malformed local Blob fails with recoverable code before FileReader starts",
+      "passed": true
+    },
+    {
+      "name": "session change during Blob conversion stops upload and preserves pending photograph",
+      "passed": true
+    },
+    {
+      "name": "new runtime storage adapter after a failed send resumes the same persisted Blob/key",
+      "passed": true
+    }
+  ]
+}

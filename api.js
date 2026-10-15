@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.10.15.4';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.4';
+import { correctionConfirmationMatches } from './core.js?v=2026.10.15.5';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.5';
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -243,6 +243,10 @@ export const api = Object.freeze({
 
 export function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
+    if (!blob || typeof blob.size !== 'number' || typeof blob.slice !== 'function' || blob.size === 0) {
+      reject(new ApiError('A foto local não pôde ser lida. O rascunho foi preservado.', 'LOCAL_PHOTO_INVALID'));
+      return;
+    }
     const reader = new FileReader();
     let settled = false;
     const finish = (handler) => { if (settled) return; settled = true; clearTimeout(timer); handler(); };
@@ -251,9 +255,9 @@ export function blobToDataUrl(blob) {
       try { reader.abort(); } catch { /* A leitura já pode ter terminado. */ }
     }, 12000);
     reader.onload = () => finish(() => resolve(String(reader.result)));
-    reader.onerror = () => finish(() => reject(reader.error || new Error('Não foi possível ler a foto.')));
+    reader.onerror = () => finish(() => reject(new ApiError('Não foi possível ler a foto neste aparelho. O rascunho foi preservado.', 'LOCAL_PHOTO_READ_ERROR')));
     reader.onabort = () => finish(() => reject(new ApiError('Leitura da foto interrompida. Tente novamente.', 'LOCAL_PHOTO_READ_ABORTED')));
     try { reader.readAsDataURL(blob); }
-    catch (error) { finish(() => reject(error)); }
+    catch { finish(() => reject(new ApiError('Não foi possível iniciar a leitura da foto. O rascunho foi preservado.', 'LOCAL_PHOTO_READ_ERROR'))); }
   });
 }
