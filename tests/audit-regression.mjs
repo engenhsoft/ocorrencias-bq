@@ -401,9 +401,25 @@ test('retry conserva UUID e uploadKey das fotos', async () => {
 });
 
 let passed = 0; const failures = [];
-for (const item of tests) {
-  try { await item.run(); passed += 1; }
-  catch (error) { failures.push({ test: item.name, error: `${error.name}: ${error.message}` }); }
+// Imported fixtures use data: modules. Printing an expected Error's stack can
+// repeat the entire encoded application and block the CI log transport.
+// Retain bounded diagnostics while assertions and unexpected failures still fail.
+const originalWarn = console.warn, originalError = console.error;
+const diagnostics = [];
+const capture = level => (...args) => {
+  if (diagnostics.length < 20) diagnostics.push({ level, values: args.map(value => {
+    if (value && typeof value === 'object') return { name: value.name || '', code: value.code || '' };
+    return String(value).replace(/data:text\/javascript;base64,[A-Za-z0-9+/=]+/g, '<inline test module>').slice(0, 160);
+  }) });
+};
+try {
+  console.warn = capture('warn'); console.error = capture('error');
+  for (const item of tests) {
+    try { await item.run(); passed += 1; }
+    catch (error) { failures.push({ test: item.name, error: `${error.name}: ${error.message}` }); }
+  }
+} finally {
+  console.warn = originalWarn; console.error = originalError;
 }
-console.log(JSON.stringify({ total: tests.length, passed, failed: failures.length, failures }, null, 2));
+console.log(JSON.stringify({ total: tests.length, passed, failed: failures.length, failures, diagnostics }, null, 2));
 if (failures.length) process.exitCode = 1;
