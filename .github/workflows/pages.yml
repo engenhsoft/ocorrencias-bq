@@ -12,10 +12,11 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -29,16 +30,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Validar frontend antes de publicar
-        run: |
-          node tests/fiscal-photo-resume.mjs
-          node tests/audit-regression.mjs
-          node tests/stage-validation.mjs --behavior-only
-          node tests/operational-stability.mjs
-          node tests/contract-pricing.mjs
-          node tests/material-catalog.mjs
-          node tests/pwa-release.mjs
-          node tests/static-audit.mjs
+      - name: Validar retomada da foto Fiscal
+        timeout-minutes: 2
+        run: node tests/fiscal-photo-resume.mjs
+      - name: Validar API e IndexedDB
+        timeout-minutes: 2
+        run: node tests/audit-regression.mjs
+      - name: Validar etapas
+        timeout-minutes: 2
+        run: node tests/stage-validation.mjs --behavior-only
+      - name: Validar estabilidade operacional
+        timeout-minutes: 2
+        run: node tests/operational-stability.mjs
+      - name: Validar preços
+        timeout-minutes: 2
+        run: node tests/contract-pricing.mjs
+      - name: Validar materiais
+        timeout-minutes: 2
+        run: node tests/material-catalog.mjs
+      - name: Validar release PWA
+        timeout-minutes: 2
+        run: node tests/pwa-release.mjs
+      - name: Validar integridade estática
+        timeout-minutes: 2
+        run: node tests/static-audit.mjs
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
         with:
