@@ -1,8 +1,8 @@
-import { getFiscalCorrectionDrafts } from './db.js?v=2026.10.15.5';
-import { api, ApiError } from './api.js?v=2026.10.15.5';
-import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.10.15.5';
-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.5';
-import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.10.15.5';
+import { getFiscalCorrectionDrafts } from './db.js?v=2026.10.18.1';
+import { api, ApiError } from './api.js?v=2026.10.18.1';
+import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.10.18.1';
+import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.10.18.1';
+import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.10.18.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, topThreeMarkup, barsMarkup }) {
@@ -12,6 +12,20 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
   const scope = () => JSON.stringify([generation, getRevision(), getSession()?.token, getSession()?.user, (getSession()?.bases || []).map(normalizeText).sort()]);
   const current = key => getSession()?.role === 'fiscal' && key === scope();
   const allowedBase = base => (getSession()?.bases || []).some(item => normalizeText(item) === normalizeText(base));
+  // A UUID can have drafts from several correction requests/assignments. Keep
+  // those separate, just as IndexedDB does, so an old retry cannot mask a new one.
+  const draftIdentity = record => JSON.stringify([record.recordId, record.fiscalCorrection?.routingVersion,
+    record.fiscalCorrection?.routingRequestId, record.fiscalCorrection?.assignmentRevision,
+    normalizeText(record.fiscalCorrection?.assignedFiscal)]);
+  const localDraftFor = record => localDrafts.get(draftIdentity(record));
+  function latestDrafts() {
+    const latest = new Map();
+    for (const local of localDrafts.values()) {
+      const previous = latest.get(local.recordId);
+      if (!previous || String(local.updatedAt || '') >= String(previous.updatedAt || '')) latest.set(local.recordId, local);
+    }
+    return latest;
+  }
   function error(host, failure) {
     host.textContent = failure.message || 'Não foi possível carregar. Atualize para tentar novamente.';
     if (failure.code === 'AUTH_REQUIRED') onLogout();
@@ -24,9 +38,9 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     }
   }
   function renderCorrections() {
-    const visible = [...records];
-    for (const local of localDrafts.values()) {
-      if (!visible.some(record => record.recordId === local.recordId) && local.correctionMode && local.syncPhase !== 'confirmed') {
+    const visible = records.filter(record => localDraftFor(record)?.syncPhase !== 'confirmed');
+    for (const local of latestDrafts().values()) {
+      if (!records.some(record => record.recordId === local.recordId) && local.correctionMode && local.syncPhase !== 'confirmed') {
         visible.push({ ...local, canCorrect: false, retryLocal: true });
       }
     }
@@ -34,7 +48,7 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     $('#fiscalCorrectionCount').textContent = formatNumber(count);
     $('#fiscalCorrectionsStatus').textContent = confirmedMessage || `${count} ${count === 1 ? 'correção atribuída a você' : 'correções atribuídas a você'}.`;
     $('#fiscalCorrectionsList').innerHTML = visible.length ? visible.map(record => {
-      const local = localDrafts.get(record.recordId);
+      const local = localDraftFor(record);
       const feedback = local ? synchronizationFeedback(local) : null;
       const busy = feedback && ['sending', 'photos', 'confirming'].includes(feedback.phase);
       const sync = feedback ? `<p class="sync-feedback" role="status" aria-live="polite"><strong>${text(feedback.label)}</strong><br>${text(feedback.detail)}</p>` : '';
@@ -55,13 +69,13 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
         const [result, directory, drafts] = await Promise.all([api.listFiscalCorrections(session.token), session.canManageFiscals ? api.listFiscalAccounts(session.token) : Promise.resolve({ accounts: [] }), getFiscalCorrectionDrafts(session.user, session.aclRevision || '')]);
         if (!current(key)) return;
         if (!Array.isArray(result.records) || result.records.some(record => !isUuid(record?.recordId) || !allowedBase(record.base) || !record.fiscalCorrection || record.canCorrect && !sameUser(record.fiscalCorrection.assignedFiscal, session.user))) throw new ApiError('A consulta de correções retornou dados incompletos.', 'INVALID_FISCAL_LIST');
-        const fetchedDrafts = new Map(drafts.filter(record => allowedBase(record.base)).map(record => [record.recordId, record]));
-        for (const [id, local] of localDrafts) if (!fetchedDrafts.has(id) || String(local.updatedAt || '') >= String(fetchedDrafts.get(id).updatedAt || '')) fetchedDrafts.set(id, local);
+        const fetchedDrafts = new Map();
+        for (const local of [...drafts.filter(record => allowedBase(record.base)), ...localDrafts.values()]) {
+          const id = draftIdentity(local), previous = fetchedDrafts.get(id);
+          if (!previous || String(local.updatedAt || '') >= String(previous.updatedAt || '')) fetchedDrafts.set(id, local);
+        }
         localDrafts = fetchedDrafts;
-        records = result.records.filter(record => {
-          const local = localDrafts.get(record.recordId);
-          return local?.syncPhase !== 'confirmed' || local.fiscalCorrection.assignmentRevision !== record.fiscalCorrection.assignmentRevision;
-        });
+        records = result.records;
         accounts = directory.accounts || []; renderCorrections();
       } catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
     })();
@@ -125,7 +139,10 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     button.disabled = true;
     try {
       await api.reassignFiscalCorrection(getSession().token, { recordId: id, assignedFiscal, routingRequestId: record.fiscalCorrection.routingRequestId, expectedRevision: record.fiscalCorrection.assignmentRevision });
-      if (current(key)) { await refreshCorrections(); $('#fiscalCorrectionsStatus').textContent = 'Atribuição confirmada. Dados já gravados foram preservados; rascunhos anteriores continuam no aparelho de origem.'; }
+      if (current(key)) {
+        await refreshCorrections();
+        if (current(key)) $('#fiscalCorrectionsStatus').textContent = 'Atribuição confirmada. Dados já gravados foram preservados; rascunhos anteriores continuam no aparelho de origem.';
+      }
     } catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
     finally { if (current(key)) button.disabled = false; }
   }
@@ -147,15 +164,21 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
   function syncChanged(record) {
     if (getSession()?.role !== 'fiscal' || !sameUser(record.fiscalCorrection?.assignedFiscal, getSession().user)
       || String(record.fiscalAclRevision || '') !== String(getSession().aclRevision || '') || !allowedBase(record.base)) return;
-    localDrafts.set(record.recordId, record);
+    const identity = draftIdentity(record), previous = localDrafts.get(identity);
+    if (previous && String(previous.updatedAt || '') > String(record.updatedAt || '')) return;
+    localDrafts.set(identity, record);
     if (record.syncPhase === 'confirmed') {
-      confirmedMessage = `CORREÇÃO REENVIADA · ocorrência ${record.occurrenceNumber || record.recordId}. Dados e fotos confirmados.`;
-      records = records.filter(item => item.recordId !== record.recordId);
+      if (!records.some(item => item.recordId === record.recordId && draftIdentity(item) !== identity)) {
+        confirmedMessage = `CORREÇÃO REENVIADA · ocorrência ${record.occurrenceNumber || record.recordId}. Dados e fotos confirmados.`;
+      }
+      // Retain the current route until the next server list. Its confirmation
+      // hides this card without allowing a draft from an older route to return.
     }
     renderCorrections();
   }
   async function retry(id, button) {
-    const record = localDrafts.get(id); if (!record || !onRetry) return;
+    const assigned = records.find(record => record.recordId === id);
+    const record = assigned ? localDraftFor(assigned) : latestDrafts().get(id); if (!record || !onRetry) return;
     const key = scope(); button.disabled = true;
     try { await onRetry(id, record.fiscalDraftKey); }
     catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
