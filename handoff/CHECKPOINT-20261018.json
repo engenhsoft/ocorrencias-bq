@@ -1,0 +1,20 @@
+{
+  "recordedAt": "2026-10-18T14:10:57.549504+00:00",
+  "repository": "engenhsoft/ocorrencias-bq",
+  "initialHead": "1ec0f688f76f1140c0300f2ab70b68b6d2c75915",
+  "officialSourceCommit": "0d238849dc09f8384d938f27050007d74b723cb3",
+  "validatedBranchHead": "0ce568a2d1b9fa77307c95d466f471debf91d303",
+  "pullRequest": "https://github.com/engenhsoft/ocorrencias-bq/pull/9",
+  "pagesWorkflow": "https://github.com/engenhsoft/ocorrencias-bq/actions/runs/39134571698",
+  "pagesConclusion": "success",
+  "frontendRelease": "2026.10.18.1",
+  "runtimeHashFile": "verification/audit-production-final-20261018.json",
+  "backendObservedVersion": "2026.10.15.4",
+  "backendContract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+  "backendDeploymentId": "AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f",
+  "backendPublishedInThisAudit": false,
+  "backendOfficialSourceAvailable": false,
+  "backendBlocker": "Official script source extraction HTTP 403; no Apps Script deployment tool/runtime identity",
+  "productionRecordWrites": 0,
+  "nextAction": "Work: compare seven existing functions in official source, apply only needed patch, run private suites, update existing deployment and return deployment/version/hash/evidence"
+}

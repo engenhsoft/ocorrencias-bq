@@ -1,0 +1,858 @@
+diff --git a/api.js b/api.js
+index 15e0cfc..aee94bf 100644
+--- a/api.js
++++ b/api.js
+@@ -1,5 +1,5 @@
+-import { correctionConfirmationMatches } from './core.js?v=2026.10.15.5';
+-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.15.5';
++import { correctionConfirmationMatches } from './core.js?v=2026.10.18.1';
++import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.10.18.1';
+ 
+ export class ApiError extends Error {
+   constructor(message, code = 'API_ERROR', details = null) {
+diff --git a/app.js b/app.js
+index 30ca8d3..eac45f1 100644
+--- a/app.js
++++ b/app.js
+@@ -1,6 +1,6 @@
+-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.15.5';
+-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.5';
+-import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.5';
++import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.18.1';
++import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.18.1';
++import { createOperationalFeatures } from './operational-features.js?v=2026.10.18.1';
+ import {
+   dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
+   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
+@@ -10,13 +10,13 @@ import {
+   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
+   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
+   statusLabel, statusTone, tokenExpiry, validateOccurrence
+-} from './core.js?v=2026.10.15.5';
++} from './core.js?v=2026.10.18.1';
+ import {
+   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
+   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
+   searchCachedCatalog, setMeta
+-} from './db.js?v=2026.10.15.5';
+-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.5';
++} from './db.js?v=2026.10.18.1';
++import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.18.1';
+ 
+ const SESSION_KEY = 'ocorrencias-bq-session-v1';
+ const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
+@@ -676,15 +676,18 @@ async function handleLogin(event) {
+   elements.loginMessage.textContent = '';
+   if (!navigator.onLine) { elements.loginMessage.textContent = 'Faça o primeiro acesso online. Depois, a fila continuará funcionando sem internet.'; return; }
+   loginRunning = true;
++  let requestRevision = sessionRevision;
+   setBusy(elements.loginButton, true, 'Entrando…');
+   try {
+     const result = await api.login(user, password, role);
++    if (requestRevision !== sessionRevision) return;
+     clearSessionUiState();
+     persistSession({ token: result.token, user: result.user, role: result.role, aclRevision: result.aclRevision || '', bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
++    requestRevision = sessionRevision;
+     localStorage.setItem(LAST_USER_KEY, result.user);
+     elements.loginPassword.value = '';
+     await enterApplication();
+-  } catch (error) { elements.loginMessage.textContent = friendlyError(error); }
++  } catch (error) { if (requestRevision === sessionRevision) elements.loginMessage.textContent = friendlyError(error); }
+   finally { loginRunning = false; setBusy(elements.loginButton, false); }
+ }
+ 
+@@ -733,15 +736,18 @@ async function handleProfileSwitch(event) {
+   elements.profileSwitchMessage.textContent = '';
+   if (!navigator.onLine) { elements.profileSwitchMessage.textContent = 'A troca de perfil precisa de conexão para validar a senha.'; return; }
+   profileSwitchRunning = true;
++  let requestRevision = sessionRevision;
+   setBusy(elements.profileSwitchSubmit, true, 'Autenticando…');
+   try {
+     const result = await api.login(user, password, profileSwitchTarget);
++    if (requestRevision !== sessionRevision) return;
+     clearSessionUiState();
+     persistSession({ token: result.token, user: result.user, role: result.role, bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
++    requestRevision = sessionRevision;
+     localStorage.setItem(LAST_USER_KEY, result.user); elements.profileSwitchPassword.value = '';
+     clearInterval(supervisorRefreshTimer); await enterApplication();
+-    toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
+-  } catch (error) { elements.profileSwitchMessage.textContent = friendlyError(error); }
++    if (requestRevision === sessionRevision) toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
++  } catch (error) { if (requestRevision === sessionRevision) elements.profileSwitchMessage.textContent = friendlyError(error); }
+   finally { profileSwitchRunning = false; setBusy(elements.profileSwitchSubmit, false); }
+ }
+ 
+@@ -790,11 +796,22 @@ async function ensureActiveRecord() {
+   if (activeRecord) return activeRecord;
+   if (session?.role === 'fiscal') throw new ApiError('Abra uma correção atribuída no painel Fiscal.', 'FORBIDDEN');
+   const record = blankRecord(); const revision = sessionRevision; activeRecord = record;
+-  await putRecord(record);
+-  if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return record;
+-  await setMeta(ACTIVE_DRAFT_META, record.recordId);
+-  if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
+-  return record;
++  const initialVersion = String(record.updatedAt || '');
++  const saving = (async () => {
++    const stored = await putRecord(record, { expectedUpdatedAt: '' });
++    saving.draftSavedRecord = stored;
++    if (revision === sessionRevision && activeRecord?.recordId === record.recordId && String(activeRecord.updatedAt || '') === initialVersion) activeRecord.updatedAt = stored?.updatedAt || initialVersion;
++    return stored;
++  })();
++  saving.draftRecordId = record.recordId; saving.draftExpectedUpdatedAt = initialVersion;
++  activeDraftSavePromise = saving;
++  try {
++    await saving;
++    if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return record;
++    await setMeta(ACTIVE_DRAFT_META, record.recordId);
++    if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
++    return record;
++  } finally { if (activeDraftSavePromise === saving) activeDraftSavePromise = null; }
+ }
+ 
+ function selectedTypes() { return $$('input[type="checkbox"]:checked', elements.occurrenceTypes).map((input) => input.value); }
+@@ -904,16 +921,26 @@ async function loadDailyProduction(teamValue, notify = false) {
+ 
+ async function saveActiveDraft() {
+   if (!activeRecord || occurrenceSubmissionRunning) return;
+-  activeRecord.syncPhase = 'saved'; activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); if (!activeRecord.fiscalCorrection) activeRecord.user = session?.user || activeRecord.user;
++  activeRecord.syncPhase = 'saved'; activeRecord.step = currentStep; if (!activeRecord.fiscalCorrection) activeRecord.user = session?.user || activeRecord.user;
+   const record = JSON.parse(JSON.stringify(activeRecord)); const revision = sessionRevision;
++  const expectedVersion = String(record.updatedAt || '');
+   const previous = activeDraftSavePromise;
++  let followsPrevious = false;
++  for (let ancestor = previous; ancestor?.draftRecordId === record.recordId; ancestor = ancestor.draftPredecessor) {
++    if ([ancestor.draftExpectedUpdatedAt, ancestor.draftSavedRecord?.updatedAt].includes(expectedVersion)) { followsPrevious = true; break; }
++  }
+   const task = (async () => {
+     if (previous) await previous.catch(() => {});
+-    await editingStorage(record).putRecord(record);
++    const expectedUpdatedAt = followsPrevious ? String(previous.draftSavedRecord?.updatedAt || expectedVersion) : expectedVersion;
++    const stored = await editingStorage(record).putRecord(record, { expectedUpdatedAt });
++    task.draftSavedRecord = stored;
+     if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return;
++    if ([expectedVersion, expectedUpdatedAt].includes(String(activeRecord.updatedAt || ''))) activeRecord.updatedAt = stored?.updatedAt || expectedUpdatedAt;
+     if (!record.fiscalCorrection) await setMeta(ACTIVE_DRAFT_META, record.recordId);
+     if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
++    return stored;
+   })();
++  task.draftRecordId = record.recordId; task.draftExpectedUpdatedAt = expectedVersion; task.draftPredecessor = previous?.draftRecordId === record.recordId ? previous : null;
+   activeDraftSavePromise = task;
+   try { await task; }
+   finally { if (activeDraftSavePromise === task) activeDraftSavePromise = null; }
+@@ -940,11 +967,23 @@ async function resumeDraft() {
+ }
+ 
+ async function discardDraft() {
+-  const recordId = await getMeta(ACTIVE_DRAFT_META); if (!recordId) return;
+-  const record = await getRecord(recordId); if (!record || (record.user && record.user !== session?.user)) return;
+-  if (!await confirmAction('Descartar rascunho?', 'O rascunho e as fotos guardadas somente neste aparelho serão removidos.', 'Descartar', 'danger')) return;
+-  await deleteRecord(recordId); await setMeta(ACTIVE_DRAFT_META, null); elements.resumeBanner.hidden = true;
+-  if (activeRecord?.recordId === recordId) resetForm(); toast('Rascunho descartado.');
++  const button = elements.discardDraftButton;
++  if (button.disabled) return;
++  const revision = sessionRevision, owner = session?.user;
++  setBusy(button, true, 'Preparando…');
++  try {
++    const recordId = await getMeta(ACTIVE_DRAFT_META); if (!recordId) return;
++    const record = await getRecord(recordId);
++    if (revision !== sessionRevision || !record || record.status !== RECORD_STATUS.DRAFT || (record.user && record.user !== owner)) return;
++    if (!await confirmAction('Descartar rascunho?', 'O rascunho e as fotos guardadas somente neste aparelho serão removidos.', 'Descartar', 'danger')) return;
++    if (revision !== sessionRevision) return;
++    setBusy(button, true, 'EXCLUINDO…');
++    await deleteRecord(recordId, { expectedUpdatedAt: String(record.updatedAt || ''), expectedStatus: RECORD_STATUS.DRAFT });
++    await clearMetaIfValue(ACTIVE_DRAFT_META, recordId);
++    if (revision !== sessionRevision) return;
++    elements.resumeBanner.hidden = true;
++    if (activeRecord?.recordId === recordId) resetForm(); toast('Rascunho descartado.');
++  } finally { setBusy(button, false); }
+ }
+ 
+ function goToStep(step) {
+@@ -1238,11 +1277,16 @@ async function storeSelectedPhoto(photoIndex, file, replace) {
+     const blob = await optimizePhoto(file);
+     if (!isCurrent()) return;
+     if (blob.size > 9 * 1024 * 1024) throw new ApiError('A foto ficou acima de 9 MB mesmo após a otimização.', 'PHOTO_TOO_LARGE');
++    if (activeDraftSavePromise) await activeDraftSavePromise;
++    if (!isCurrent()) return;
+     const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
+     const previousPhotoStates = activeRecord.photoStates.slice(); const photoStates = previousPhotoStates.slice();
+     photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.replacePending || state.confirmed || state.serverUrl), error: '' };
+-    const stored = await editingStorage(activeRecord).putPhotoAndRecord({ ...activeRecord, photoStates }, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
++    const photoRecord = JSON.parse(JSON.stringify({ ...activeRecord, photoStates }));
++    const stored = await editingStorage(activeRecord).putPhotoAndRecord(photoRecord, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type, expectedUploadKey: String(state.uploadKey || ''), expectedRecordStatus: photoRecord.status });
+     if (!isCurrent()) return;
++    const photoMetadata = record => Object.fromEntries(Object.keys(record).filter(key => !['updatedAt', 'photoStates', 'syncPhase', 'step'].includes(key)).sort().map(key => [key, record[key]]));
++    if (JSON.stringify(photoMetadata(stored.record)) !== JSON.stringify(photoMetadata(photoRecord))) throw new ApiError('Este rascunho foi alterado em outra aba. A foto foi preservada no rascunho atualizado; reabra a ocorrência antes de continuar.', 'LOCAL_RECORD_CHANGED');
+     activeRecord = { ...activeRecord, updatedAt: stored.record.updatedAt, photoStates: stored.record.photoStates.map((savedState, index) => index !== photoIndex - 1 && activeRecord.photoStates[index] !== previousPhotoStates[index] ? activeRecord.photoStates[index] : savedState) };
+     activePhotos.set(photoIndex, { recordId: activeRecord.recordId, photoIndex, blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
+     await saveActiveDraft(); if (isCurrent()) { updatePhotoGrid(); validateStepOne(false); }
+@@ -1464,7 +1508,7 @@ async function submitOccurrence() {
+     setBusy(elements.submitOccurrenceButton, true, 'Guardando…');
+     if (activeDraftSavePromise) await activeDraftSavePromise;
+     if (revision !== sessionRevision || activeRecord?.recordId !== submittedId) return;
+-    await editingStorage(candidate).putRecord(candidate); locallyQueued = true;
++    await editingStorage(candidate).putRecord(candidate, { expectedUpdatedAt: String(activeRecord.updatedAt || '') }); locallyQueued = true;
+     if (!candidate.fiscalCorrection) await clearMetaIfValue(ACTIVE_DRAFT_META, submittedId);
+     toast(candidate.fiscalCorrection ? 'Correção guardada. Aguarde a confirmação; se falhar, retome na aba Correções.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.');
+     void syncSingleRecord(submittedId, false, candidate.fiscalDraftKey || '').then((result) => {
+@@ -1474,7 +1518,7 @@ async function submitOccurrence() {
+   } catch (error) {
+     console.error('[Envio] Falha ao preparar ocorrência na fila.', error);
+     if (!locallyQueued && activeRecord?.recordId === submittedId) activeRecord.status = previousStatus;
+-    toast(locallyQueued ? 'Ocorrência guardada neste aparelho. Abra a fila para tentar sincronizar.' : 'Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
++    toast(error?.code === 'LOCAL_RECORD_CHANGED' ? friendlyError(error) : locallyQueued ? 'Ocorrência guardada neste aparelho. Abra a fila para tentar sincronizar.' : 'Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
+   } finally {
+     occurrenceSubmissionRunning = false; setBusy(elements.submitOccurrenceButton, false);
+     if (locallyQueued && activeRecord?.recordId === submittedId) {
+@@ -1627,7 +1671,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '')
+         continue;
+       }
+       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
+-      if (fiscalKey && (localPhoto.recordId !== next.recordId || localPhoto.photoIndex !== index || !state.uploadKey || localPhoto.uploadKey !== state.uploadKey)) throw new ApiError(`A identidade local da Foto ${index} diverge do rascunho. Abra novamente a correção; a foto foi preservada.`, 'LOCAL_PHOTO_IDENTITY_MISMATCH');
++      if (localPhoto.recordId !== next.recordId || localPhoto.photoIndex !== index || !state.uploadKey || localPhoto.uploadKey !== state.uploadKey) throw new ApiError(`A identidade local da Foto ${index} diverge do rascunho. Abra novamente a ocorrência; a foto foi preservada.`, 'LOCAL_PHOTO_IDENTITY_MISMATCH');
+       syncStage = 'encode_photo'; await save();
+       const dataUrl = await blobToDataUrl(localPhoto.blob);
+       if (!stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
+@@ -1973,8 +2017,12 @@ function openScrollableDialog(dialog, body) {
+ async function handleMineAction(event) {
+   if (event.target.closest('[data-mine-retry]')) return refreshMine(true);
+   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
++  const revision = sessionRevision, token = session?.token;
++  const isCurrent = () => revision === sessionRevision && token === session?.token;
++  if (!session) return;
+   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
+   const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId);
++  if (!isCurrent()) return;
+   if (!local && !server) return;
+   const record = normalizeOccurrenceRecord({ ...(local || {}), ...(server || {}), photos: server?.photos || local?.photos || [], photoStates: local?.photoStates || server?.photoStates || [], transformerPhotos: server?.transformerPhotos || local?.transformerPhotos || {}, ...(local?.correctionMode ? correctionFields(local) : {}), audit: server?.audit || local?.audit || {} }, 'selectedRecord');
+   if (button.dataset.mineAction === 'view') {
+@@ -1989,11 +2037,16 @@ async function handleMineAction(event) {
+     const resuming = local?.correctionMode && local?.correctionRequestedAt === requestAt;
+     const states = normalizePhotoStates(record.photoStates).map((state) => requested.has(state.photoIndex) ? { ...state, confirmed: false, localReady: Boolean(resuming && state.localReady), replacePending: true } : { ...state, replacePending: Boolean(resuming && state.replacePending) });
+     const correction = { ...record, correctionRequestedAt: requestAt, ...(local?.correctionRequestedAt !== requestAt ? { correctionRequestId: '', correctionPayloadSignature: '' } : {}), status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, requestedPhotoIndexes: [...requested], photoStates: states };
+-    await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId);
++    const storedCorrection = await putRecord(correction, { expectedUpdatedAt: String(local?.updatedAt || '') });
++    if (!isCurrent()) return;
++    await setMeta(ACTIVE_DRAFT_META, correction.recordId);
++    if (!isCurrent()) return;
+     toast(requested.size ? `Refaça: ${[...requested].map(photoIndexLabel).join(', ')}.` : 'Correção carregada. Confira a observação do Supervisor.');
+-    return loadRecordIntoForm(correction);
++    return loadRecordIntoForm(storedCorrection || correction);
+   }
+-  await setMeta(ACTIVE_DRAFT_META, record.recordId); await loadRecordIntoForm(record);
++  await setMeta(ACTIVE_DRAFT_META, record.recordId);
++  if (!isCurrent()) return;
++  await loadRecordIntoForm(record);
+ }
+ 
+ function renderFieldCorrectionBanner(record) {
+@@ -2014,31 +2067,38 @@ function editingStorage(record = activeRecord) {
+ 
+ async function openAssignedFiscalCorrection(server) {
+   if (session?.role !== 'fiscal' || !sameUser(server.fiscalCorrection?.assignedFiscal, session.user)) throw new ApiError('Solicitação não atribuída a este Fiscal.', 'FORBIDDEN');
+-  const revision = sessionRevision, key = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection, session.aclRevision || ''), storage = fiscalDraftStorage(key);
++  const revision = sessionRevision, requestSession = session;
++  const isCurrent = () => revision === sessionRevision && session?.token === requestSession.token;
++  const key = fiscalDraftKey(requestSession.user, server.recordId, server.fiscalCorrection, requestSession.aclRevision || ''), storage = fiscalDraftStorage(key);
+   let local = await storage.getRecord();
+-  if (!local && session.aclRevision) {
++  if (!isCurrent()) return;
++  if (!local && requestSession.aclRevision) {
+     // Upgrade a pre-hotfix draft only after openFiscalCorrection authorized the
+     // exact request and assignment. Leave the old bytes intact for recovery.
+-    const legacyKey = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection);
++    const legacyKey = fiscalDraftKey(requestSession.user, server.recordId, server.fiscalCorrection);
+     const legacy = await getMeta(legacyKey);
+-    if (legacy?.record && !legacy.record.fiscalAclRevision && revision === sessionRevision) {
+-      await setMeta(key, { ...legacy, record: { ...legacy.record, fiscalDraftKey: key, fiscalAclRevision: session.aclRevision } });
++    if (!isCurrent()) return;
++    if (legacy?.record && !legacy.record.fiscalAclRevision) {
++      await setMeta(key, { ...legacy, record: { ...legacy.record, fiscalDraftKey: key, fiscalAclRevision: requestSession.aclRevision } });
++      if (!isCurrent()) return;
+       local = await storage.getRecord();
+     }
+   }
+-  if (revision !== sessionRevision) return;
++  if (!isCurrent()) return;
+   const requestedAt = correctionRequest(server).lastRequestedAt || correctionRequest(server).requestedAt || '';
+   const resuming = local?.correctionMode && local.correctionRequestedAt === requestedAt;
+   const requested = normalizeArray(server.audit?.requestedPhotoIndexes || [], 'requestedPhotoIndexes').map(Number);
+   const correction = resuming ? { ...local, audit: server.audit, fiscalCorrection: server.fiscalCorrection } : { ...server, fiscalDraftKey: key,
+-    fiscalAclRevision: session.aclRevision || '', syncPhase: 'saved', correctionMode: true, correctionRequestedAt: requestedAt, correctionOriginalRequestedAt: requestedAt, correctionOriginal: correctionOriginalSnapshot(server),
++    fiscalAclRevision: requestSession.aclRevision || '', syncPhase: 'saved', correctionMode: true, correctionRequestedAt: requestedAt, correctionOriginalRequestedAt: requestedAt, correctionOriginal: correctionOriginalSnapshot(server),
+     correctionRequestId: '', correctionPayloadSignature: '', serverConfirmed: true, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED,
+     requestedPhotoIndexes: requested, photoStates: normalizePhotoStates(server.photoStates).map(state => requested.includes(state.photoIndex) ? { ...state, confirmed: false, replacePending: true, localReady: false } : { ...state, localReady: false }), status: RECORD_STATUS.DRAFT };
+-  await storage.putRecord(correction);
+-  if (revision !== sessionRevision) return;
+-  await loadRecordIntoForm(correction); void loadTeamDirectory();
++  const storedCorrection = await storage.putRecord(correction, { expectedUpdatedAt: String(local?.updatedAt || '') });
++  if (!isCurrent()) return;
++  await loadRecordIntoForm(storedCorrection || correction);
++  if (!isCurrent()) return;
++  void loadTeamDirectory();
+   // Offer only permitted Bases; the backend validates the final assignment.
+-  for (const option of elements.operationBase.options) if (option.value) { option.hidden = !session.bases.includes(option.value); option.disabled = option.hidden; }
++  for (const option of elements.operationBase.options) if (option.value) { option.hidden = !requestSession.bases.includes(option.value); option.disabled = option.hidden; }
+   toast(resuming ? 'Rascunho recuperado. Dados do Campo original preservados.' : 'Correção atribuída carregada. Confira a observação do Supervisor.');
+ }
+ 
+@@ -2095,7 +2155,7 @@ async function loadRecordIntoForm(record) {
+       activePhotos.set(photo.photoIndex, photo);
+       setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob));
+     }
+-    if (photos.length) await editingStorage(activeRecord).putRecord(activeRecord);
++    if (photos.length) await saveActiveDraft();
+     if (activeRecord === loadingRecord) updatePhotoGrid();
+   } catch (error) {
+     console.error('[Rascunho] Falha ao recuperar evidências locais.', error);
+diff --git a/core.js b/core.js
+index 5a98675..7044433 100644
+--- a/core.js
++++ b/core.js
+@@ -1,5 +1,5 @@
+-export const APP_VERSION = '2026.10.15.5';
+-export const APP_BUILD = '2026-10-15-fiscal-photo-diagnostics';
++export const APP_VERSION = '2026.10.18.1';
++export const APP_BUILD = '2026-10-18-stability-audit';
+ 
+ export const TEAM_GOAL = 6000;
+ 
+@@ -541,10 +541,14 @@ export function searchMaterialCatalog(value, query, limit = 40) {
+     .slice(0, Math.max(0, Number(limit) || 0));
+ }
+ 
++// Preserve whether a remote collection was supplied before normalization fills
++// missing arrays. This is private metadata and never enters storage/API payloads.
++const occurrenceCollectionPresence = new WeakMap();
++
+ export function normalizeOccurrenceRecord(value, label = 'record') {
+   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+   if (source !== value && value != null && value !== '') globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Object; usando objeto vazio.`, { type: typeof value });
+-  return {
++  const record = {
+     ...source,
+     occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
+     services: normalizeServices(source.services, `${label}.services`),
+@@ -554,6 +558,10 @@ export function normalizeOccurrenceRecord(value, label = 'record') {
+     transformer: source.transformer && typeof source.transformer === 'object' && !Array.isArray(source.transformer) ? source.transformer : {},
+     transformerPhotos: source.transformerPhotos && typeof source.transformerPhotos === 'object' && !Array.isArray(source.transformerPhotos) ? source.transformerPhotos : {}
+   };
++  const presence = occurrenceCollectionPresence.get(source) || Object.fromEntries(['services', 'materials'].map(key => [key,
++    Object.hasOwn(source, key) && Array.isArray(source[key]) && (source[key].length === 0 || record[key].length > 0)]));
++  occurrenceCollectionPresence.set(record, presence);
++  return record;
+ }
+ 
+ export function normalizePhotoUrls(value, label = 'photos') {
+@@ -988,8 +996,8 @@ export function mergeRecordCollections(localRecords, serverRecords) {
+       localStatus: local.status,
+       status: server.status || local.status,
+       occurrenceTypes: server.occurrenceTypes.length ? server.occurrenceTypes : local.occurrenceTypes,
+-      services: server.services.length ? server.services : local.services,
+-      materials: server.materials.length ? server.materials : local.materials,
++      services: occurrenceCollectionPresence.get(server).services ? server.services : local.services,
++      materials: occurrenceCollectionPresence.get(server).materials ? server.materials : local.materials,
+       photoStates: existingLocal ? reconcilePhotoStates(local, { photoStates: server.photoStates }).photoStates : server.photoStates,
+       photos: server.photos.length ? server.photos : local.photos,
+       transformer: Object.keys(server.transformer).length ? server.transformer : local.transformer,
+diff --git a/db.js b/db.js
+index 70f56a8..859e94e 100644
+--- a/db.js
++++ b/db.js
+@@ -1,4 +1,4 @@
+-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.15.5';
++import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.18.1';
+ 
+ const DB_NAME = 'ocorrencias-bq-db';
+ const DB_VERSION = 1;
+@@ -15,9 +15,8 @@ let connectionPromise;
+ // drafts must never overwrite a Campo record or its UUID/slot photo keys.
+ export async function updateFiscalCorrectionDraft(key, mutate) {
+   if (!String(key).startsWith('fiscalCorrection:')) throw new Error('Identificador de rascunho fiscal inválido.');
+-  const database = await openDatabase();
+-  const transaction = database.transaction(STORE.meta, 'readwrite');
+-  const done = transactionDone(transaction), store = transaction.objectStore(STORE.meta);
++  const { transaction, store: objectStore } = await storeTransaction([STORE.meta], 'readwrite');
++  const done = transactionDone(transaction), store = objectStore(STORE.meta);
+   let result;
+   const request = store.get(key);
+   request.onsuccess = () => {
+@@ -179,8 +178,15 @@ export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, met
+   };
+   const { transaction, store } = await storeTransaction([STORE.records, STORE.photos], 'readwrite');
+   const done = transactionDone(transaction); const records = store(STORE.records); const request = records.get(record.recordId);
++  let conflict;
+   request.onsuccess = () => {
+     const current = request.result;
++    if ((Object.hasOwn(metadata, 'expectedUploadKey') || Object.hasOwn(metadata, 'expectedRecordStatus')) && (!current
++      || Object.hasOwn(metadata, 'expectedRecordStatus') && current.status !== metadata.expectedRecordStatus
++      || Object.hasOwn(metadata, 'expectedUploadKey') && String(current.photoStates?.[photoIndex - 1]?.uploadKey || '') !== metadata.expectedUploadKey)) {
++      conflict = Object.assign(new Error('Esta ocorrência ou foto foi alterada em outra aba. A versão atual foi preservada; reabra a ocorrência antes de continuar.'), { code: 'LOCAL_RECORD_CHANGED' });
++      return;
++    }
+     if (current && current.updatedAt !== record.updatedAt) {
+       const selectedState = record.photoStates?.[photoIndex - 1];
+       Object.assign(nextRecord, current, { photoStates: Array.from({ length: 7 }, (_, index) => index === photoIndex - 1 ? selectedState : current.photoStates?.[index] || { photoIndex: index + 1 }) });
+@@ -189,6 +195,7 @@ export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, met
+     records.put(nextRecord); store(STORE.photos).put(photo);
+   };
+   await done;
++  if (conflict) throw conflict;
+   return { record: nextRecord, photo };
+ }
+ 
+@@ -205,18 +212,34 @@ export async function getAllRecords() {
+   }).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+ }
+ 
+-export async function deleteRecord(recordId) {
++export async function deleteRecord(recordId, options = {}) {
+   const { transaction, store } = await storeTransaction([STORE.records, STORE.photos], 'readwrite');
+-  store(STORE.records).delete(recordId);
+-  const index = store(STORE.photos).index('recordId');
+-  const cursorRequest = index.openCursor(IDBKeyRange.only(recordId));
+-  cursorRequest.onsuccess = () => {
+-    const cursor = cursorRequest.result;
+-    if (!cursor) return;
+-    cursor.delete();
+-    cursor.continue();
++  const done = transactionDone(transaction);
++  const records = store(STORE.records);
++  let conflict;
++  const remove = () => {
++    records.delete(recordId);
++    const index = store(STORE.photos).index('recordId');
++    const cursorRequest = index.openCursor(IDBKeyRange.only(recordId));
++    cursorRequest.onsuccess = () => {
++      const cursor = cursorRequest.result;
++      if (!cursor) return;
++      cursor.delete();
++      cursor.continue();
++    };
+   };
+-  await transactionDone(transaction);
++  if (typeof options.expectedUpdatedAt === 'string' || typeof options.expectedStatus === 'string') {
++    const request = records.get(recordId);
++    request.onsuccess = () => {
++      const current = request.result;
++      if (!current || typeof options.expectedUpdatedAt === 'string' && String(current.updatedAt || '') !== options.expectedUpdatedAt
++        || typeof options.expectedStatus === 'string' && current.status !== options.expectedStatus) {
++        conflict = Object.assign(new Error('Esta ocorrência mudou neste aparelho. A exclusão foi cancelada; confira a versão atual.'), { code: 'LOCAL_RECORD_CHANGED' });
++      } else remove();
++    };
++  } else remove();
++  await done;
++  if (conflict) throw conflict;
+ }
+ 
+ export async function putPhoto(recordId, photoIndex, blob, uploadKey, metadata = {}) {
+diff --git a/fiscal-admin.js b/fiscal-admin.js
+index c387e20..1f713c8 100644
+--- a/fiscal-admin.js
++++ b/fiscal-admin.js
+@@ -1,5 +1,5 @@
+-import { escapeHtml, formatDateTime } from './core.js?v=2026.10.15.5';
+-import { api } from './api.js?v=2026.10.15.5';
++import { escapeHtml, formatDateTime } from './core.js?v=2026.10.18.1';
++import { api } from './api.js?v=2026.10.18.1';
+ 
+ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
+   const $ = selector => document.querySelector(selector);
+@@ -74,7 +74,7 @@ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
+     const currentPassword = $('#fiscalMasterCurrentPassword').value, newPassword = $('#fiscalMasterNewPassword').value;
+     if (newPassword !== $('#fiscalMasterPasswordConfirm').value) { status('As novas senhas não correspondem.', 'error'); return; }
+     const { token } = getSession(), revision = getRevision(), run = generation;
+-    saving = true; for (const control of passwordForm.elements) control.disabled = true; passwordForm.reset();
++    saving = true; for (const control of passwordForm.elements) control.disabled = true; passwordForm.reset(); status('Alterando senha da conta mestra…');
+     try {
+       await api.changeFiscalMasterPassword(token, currentPassword, newPassword);
+       if (current(revision, token, run)) { onLogout(); $('#loginMessage').textContent = 'Senha da conta mestra alterada. Entre novamente com a nova senha.'; }
+diff --git a/fiscal-drafts.js b/fiscal-drafts.js
+index d2cf424..1eff6ce 100644
+--- a/fiscal-drafts.js
++++ b/fiscal-drafts.js
+@@ -1,5 +1,5 @@
+-import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.10.15.5';
+-import { normalizeText } from './core.js?v=2026.10.15.5';
++import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.10.18.1';
++import { normalizeText } from './core.js?v=2026.10.18.1';
+ 
+ export function fiscalDraftKey(user, recordId, route, aclRevision = '') {
+   if (!user || !recordId || route?.routingVersion !== 'FISCAL_ASSIGNED' || !route.routingRequestId || !route.assignmentRevision) throw new Error('Solicitação fiscal incompleta. Atualize a lista.');
+@@ -23,8 +23,15 @@ export function fiscalDraftStorage(key) {
+     getPhotosForRecord: async () => Object.values((await getMeta(key))?.photos || {}),
+     putPhotoAndRecord: async (record, photoIndex, blob, uploadKey, details = {}) => {
+       const saved = await update(draft => {
+-        const states = record.photoStates.map((state, index) => index === photoIndex - 1 ? state : draft.record?.photoStates?.[index] || state);
+-        return { record: { ...record, photoStates: states, fiscalDraftKey: key, updatedAt: stamp(draft.record?.updatedAt) },
++        if ((Object.hasOwn(details, 'expectedUploadKey') || Object.hasOwn(details, 'expectedRecordStatus')) && (!draft.record
++          || Object.hasOwn(details, 'expectedRecordStatus') && draft.record.status !== details.expectedRecordStatus
++          || Object.hasOwn(details, 'expectedUploadKey') && String(draft.record.photoStates?.[photoIndex - 1]?.uploadKey || '') !== details.expectedUploadKey)) throw conflict();
++        const current = draft.record;
++        // A photo may finish after another tab has saved newer correction data.
++        // Merge only this slot in that case, as the Campo transaction does.
++        const next = current && current.updatedAt !== record.updatedAt ? current : record;
++        const states = record.photoStates.map((state, index) => index === photoIndex - 1 ? state : current?.photoStates?.[index] || state);
++        return { record: { ...next, photoStates: states, fiscalDraftKey: key, updatedAt: stamp(current?.updatedAt) },
+           photos: { ...draft.photos, [photoIndex]: { ...details, recordId: record.recordId, photoIndex, blob, uploadKey } } };
+       });
+       return { record: saved.record, photo: saved.photos[photoIndex] };
+diff --git a/fiscal-workspace.js b/fiscal-workspace.js
+index 8cf673b..1e2bf9f 100644
+--- a/fiscal-workspace.js
++++ b/fiscal-workspace.js
+@@ -1,8 +1,8 @@
+-import { getFiscalCorrectionDrafts } from './db.js?v=2026.10.15.5';
+-import { api, ApiError } from './api.js?v=2026.10.15.5';
+-import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.10.15.5';
+-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.5';
+-import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.10.15.5';
++import { getFiscalCorrectionDrafts } from './db.js?v=2026.10.18.1';
++import { api, ApiError } from './api.js?v=2026.10.18.1';
++import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.10.18.1';
++import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.10.18.1';
++import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.10.18.1';
+ 
+ const text = value => escapeHtml(String(value ?? ''));
+ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, topThreeMarkup, barsMarkup }) {
+@@ -12,6 +12,20 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
+   const scope = () => JSON.stringify([generation, getRevision(), getSession()?.token, getSession()?.user, (getSession()?.bases || []).map(normalizeText).sort()]);
+   const current = key => getSession()?.role === 'fiscal' && key === scope();
+   const allowedBase = base => (getSession()?.bases || []).some(item => normalizeText(item) === normalizeText(base));
++  // A UUID can have drafts from several correction requests/assignments. Keep
++  // those separate, just as IndexedDB does, so an old retry cannot mask a new one.
++  const draftIdentity = record => JSON.stringify([record.recordId, record.fiscalCorrection?.routingVersion,
++    record.fiscalCorrection?.routingRequestId, record.fiscalCorrection?.assignmentRevision,
++    normalizeText(record.fiscalCorrection?.assignedFiscal)]);
++  const localDraftFor = record => localDrafts.get(draftIdentity(record));
++  function latestDrafts() {
++    const latest = new Map();
++    for (const local of localDrafts.values()) {
++      const previous = latest.get(local.recordId);
++      if (!previous || String(local.updatedAt || '') >= String(previous.updatedAt || '')) latest.set(local.recordId, local);
++    }
++    return latest;
++  }
+   function error(host, failure) {
+     host.textContent = failure.message || 'Não foi possível carregar. Atualize para tentar novamente.';
+     if (failure.code === 'AUTH_REQUIRED') onLogout();
+@@ -24,9 +38,9 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
+     }
+   }
+   function renderCorrections() {
+-    const visible = [...records];
+-    for (const local of localDrafts.values()) {
+-      if (!visible.some(record => record.recordId === local.recordId) && local.correctionMode && local.syncPhase !== 'confirmed') {
++    const visible = records.filter(record => localDraftFor(record)?.syncPhase !== 'confirmed');
++    for (const local of latestDrafts().values()) {
++      if (!records.some(record => record.recordId === local.recordId) && local.correctionMode && local.syncPhase !== 'confirmed') {
+         visible.push({ ...local, canCorrect: false, retryLocal: true });
+       }
+     }
+@@ -34,7 +48,7 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
+     $('#fiscalCorrectionCount').textContent = formatNumber(count);
+     $('#fiscalCorrectionsStatus').textContent = confirmedMessage || `${count} ${count === 1 ? 'correção atribuída a você' : 'correções atribuídas a você'}.`;
+     $('#fiscalCorrectionsList').innerHTML = visible.length ? visible.map(record => {
+-      const local = localDrafts.get(record.recordId);
++      const local = localDraftFor(record);
+       const feedback = local ? synchronizationFeedback(local) : null;
+       const busy = feedback && ['sending', 'photos', 'confirming'].includes(feedback.phase);
+       const sync = feedback ? `<p class="sync-feedback" role="status" aria-live="polite"><strong>${text(feedback.label)}</strong><br>${text(feedback.detail)}</p>` : '';
+@@ -55,13 +69,13 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
+         const [result, directory, drafts] = await Promise.all([api.listFiscalCorrections(session.token), session.canManageFiscals ? api.listFiscalAccounts(session.token) : Promise.resolve({ accounts: [] }), getFiscalCorrectionDrafts(session.user, session.aclRevision || '')]);
+         if (!current(key)) return;
+         if (!Array.isArray(result.records) || result.records.some(record => !isUuid(record?.recordId) || !allowedBase(record.base) || !record.fiscalCorrection || record.canCorrect && !sameUser(record.fiscalCorrection.assignedFiscal, session.user))) throw new ApiError('A consulta de correções retornou dados incompletos.', 'INVALID_FISCAL_LIST');
+-        const fetchedDrafts = new Map(drafts.filter(record => allowedBase(record.base)).map(record => [record.recordId, record]));
+-        for (const [id, local] of localDrafts) if (!fetchedDrafts.has(id) || String(local.updatedAt || '') >= String(fetchedDrafts.get(id).updatedAt || '')) fetchedDrafts.set(id, local);
++        const fetchedDrafts = new Map();
++        for (const local of [...drafts.filter(record => allowedBase(record.base)), ...localDrafts.values()]) {
++          const id = draftIdentity(local), previous = fetchedDrafts.get(id);
++          if (!previous || String(local.updatedAt || '') >= String(previous.updatedAt || '')) fetchedDrafts.set(id, local);
++        }
+         localDrafts = fetchedDrafts;
+-        records = result.records.filter(record => {
+-          const local = localDrafts.get(record.recordId);
+-          return local?.syncPhase !== 'confirmed' || local.fiscalCorrection.assignmentRevision !== record.fiscalCorrection.assignmentRevision;
+-        });
++        records = result.records;
+         accounts = directory.accounts || []; renderCorrections();
+       } catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
+     })();
+@@ -125,7 +139,10 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
+     button.disabled = true;
+     try {
+       await api.reassignFiscalCorrection(getSession().token, { recordId: id, assignedFiscal, routingRequestId: record.fiscalCorrection.routingRequestId, expectedRevision: record.fiscalCorrection.assignmentRevision });
+-      if (current(key)) { await refreshCorrections(); $('#fiscalCorrectionsStatus').textContent = 'Atribuição confirmada. Dados já gravados foram preservados; rascunhos anteriores continuam no aparelho de origem.'; }
++      if (current(key)) {
++        await refreshCorrections();
++        if (current(key)) $('#fiscalCorrectionsStatus').textContent = 'Atribuição confirmada. Dados já gravados foram preservados; rascunhos anteriores continuam no aparelho de origem.';
++      }
+     } catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
+     finally { if (current(key)) button.disabled = false; }
+   }
+@@ -147,15 +164,21 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
+   function syncChanged(record) {
+     if (getSession()?.role !== 'fiscal' || !sameUser(record.fiscalCorrection?.assignedFiscal, getSession().user)
+       || String(record.fiscalAclRevision || '') !== String(getSession().aclRevision || '') || !allowedBase(record.base)) return;
+-    localDrafts.set(record.recordId, record);
++    const identity = draftIdentity(record), previous = localDrafts.get(identity);
++    if (previous && String(previous.updatedAt || '') > String(record.updatedAt || '')) return;
++    localDrafts.set(identity, record);
+     if (record.syncPhase === 'confirmed') {
+-      confirmedMessage = `CORREÇÃO REENVIADA · ocorrência ${record.occurrenceNumber || record.recordId}. Dados e fotos confirmados.`;
+-      records = records.filter(item => item.recordId !== record.recordId);
++      if (!records.some(item => item.recordId === record.recordId && draftIdentity(item) !== identity)) {
++        confirmedMessage = `CORREÇÃO REENVIADA · ocorrência ${record.occurrenceNumber || record.recordId}. Dados e fotos confirmados.`;
++      }
++      // Retain the current route until the next server list. Its confirmation
++      // hides this card without allowing a draft from an older route to return.
+     }
+     renderCorrections();
+   }
+   async function retry(id, button) {
+-    const record = localDrafts.get(id); if (!record || !onRetry) return;
++    const assigned = records.find(record => record.recordId === id);
++    const record = assigned ? localDraftFor(assigned) : latestDrafts().get(id); if (!record || !onRetry) return;
+     const key = scope(); button.disabled = true;
+     try { await onRetry(id, record.fiscalDraftKey); }
+     catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
+diff --git a/index.html b/index.html
+index ef2d27e..2e10588 100644
+--- a/index.html
++++ b/index.html
+@@ -9,10 +9,10 @@
+     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+     <meta name="apple-mobile-web-app-title" content="Ocorrências" />
+     <title>Ocorrências B&Q</title>
+-    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.15.5" />
++    <link rel="manifest" href="./manifest.webmanifest?v=2026.10.18.1" />
+     <link rel="icon" href="./assets/icon-192.png" sizes="192x192" />
+     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+-    <link rel="stylesheet" href="./styles.css?v=2026.10.15.5" />
++    <link rel="stylesheet" href="./styles.css?v=2026.10.18.1" />
+   </head>
+   <body>
+     <noscript>Este aplicativo precisa do JavaScript ativado.</noscript>
+@@ -296,6 +296,6 @@
+     <dialog id="releaseNoticeDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><header class="modal__header"><div><p class="eyebrow">Novidades desta versão</p><h2>OCORRÊNCIAS B&amp;Q ATUALIZADO</h2></div></header><div class="modal__body"><p>O envio de fotos mostra a etapa em andamento e identifica a foto pendente. Se houver uma falha, a mensagem traz uma referência para o suporte. Retome pela opção SINCRONIZAR AGORA no aparelho em que a foto foi anexada. O rascunho continua guardado enquanto a correção aguarda confirmação.</p></div><footer class="modal__footer"><button id="releaseNoticeAcknowledge" class="button button--primary" value="acknowledged">Entendi</button></footer></form></dialog>
+     <dialog id="confirmDialog" class="modal modal--compact"><form method="dialog" class="modal__surface"><div class="modal__body confirm-body"><span id="confirmIcon" class="confirm-icon">?</span><h2 id="confirmTitle">Confirmar ação</h2><p id="confirmMessage"></p></div><footer class="modal__footer"><button class="button button--ghost" value="cancel">Cancelar</button><button id="confirmActionButton" class="button button--primary" value="confirm">Confirmar</button></footer></form></dialog>
+     <dialog id="photoDialog" class="photo-modal"><form method="dialog"><button class="photo-modal__close" value="cancel" aria-label="Fechar foto">×</button><button id="photoPreviousButton" class="photo-modal__nav photo-modal__nav--previous" type="button" aria-label="Foto anterior">‹</button><img id="photoDialogImage" alt="Evidência ampliada" /><button id="photoNextButton" class="photo-modal__nav photo-modal__nav--next" type="button" aria-label="Próxima foto">›</button><p id="photoDialogLabel"></p></form></dialog>
+-    <script type="module" src="./app.js?v=2026.10.15.5"></script>
++    <script type="module" src="./app.js?v=2026.10.18.1"></script>
+   </body>
+ </html>
+diff --git a/occurrence-card.js b/occurrence-card.js
+index 342e2ef..30f19a1 100644
+--- a/occurrence-card.js
++++ b/occurrence-card.js
+@@ -1,4 +1,4 @@
+-import { escapeHtml, formatCurrency, formatDateTime, statusLabel, statusTone, normalizeOccurrenceTypes, driveFileId } from './core.js?v=2026.10.15.5';
++import { escapeHtml, formatCurrency, formatDateTime, statusLabel, statusTone, normalizeOccurrenceTypes, driveFileId } from './core.js?v=2026.10.18.1';
+ 
+ // Shared presentation only. Actions and permissions stay with each profile.
+ export function cardMetadataMarkup(entries) {
+diff --git a/occurrence-excel-worker.js b/occurrence-excel-worker.js
+index deb8b53..13a4ec7 100644
+--- a/occurrence-excel-worker.js
++++ b/occurrence-excel-worker.js
+@@ -2,7 +2,7 @@
+ importScripts('./vendor/exceljs-4.4.0.min.js');
+ self.onmessage = async event => {
+   try {
+-    const { buildOccurrenceWorkbook } = await import('./occurrence-excel.js?v=2026.10.15.5');
++    const { buildOccurrenceWorkbook } = await import('./occurrence-excel.js?v=2026.10.18.1');
+     const output = await buildOccurrenceWorkbook(event.data.entries, { onProgress: progress => self.postMessage({ progress }) });
+     const bytes = new Uint8Array(output.bytes).buffer;
+     self.postMessage({ bytes, filename: output.filename }, [bytes]);
+diff --git a/occurrence-excel.js b/occurrence-excel.js
+index a93f7e7..4d668ae 100644
+--- a/occurrence-excel.js
++++ b/occurrence-excel.js
+@@ -1,4 +1,4 @@
+-import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.15.5';
++import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.18.1';
+ 
+ const moneyFormat = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+ const decimalFormat = '#,##0.###';
+@@ -46,8 +46,9 @@ export async function prepareExcelPhoto(dataUrl) {
+ }
+ 
+ export async function collectExcelEntries(recordIds, { getRecord, getPhoto, preparePhoto = prepareExcelPhoto, isCurrent = () => true, signal, onProgress = () => {} } = {}) {
+-  const ids = [...new Set(recordIds)];
+-  if (!ids.length || ids.some(id => !isUuid(id))) throw new Error('Selecione ocorrências válidas.');
++  const candidates = [...new Set(recordIds)];
++  if (!candidates.length || candidates.some(id => !isUuid(id))) throw new Error('Selecione ocorrências válidas.');
++  const ids = [...new Map(candidates.map(id => [id.toLowerCase(), id])).values()];
+   const check = () => { if (signal?.aborted) throw cancelled(); if (!isCurrent()) throw Object.assign(new Error('A sessão mudou durante a exportação.'), { code: 'AUTH_REQUIRED' }); };
+   const entries = []; let photoBytes = 0;
+   for (const [position, id] of ids.entries()) {
+@@ -105,7 +106,7 @@ export async function buildOccurrenceWorkbook(entries, { ExcelJS = globalThis.Ex
+   const seen = new Set();
+   for (const [position, entry] of entries.entries()) {
+     const record = entry.record, id = record.recordId;
+-    if (!isUuid(id) || seen.has(id)) continue; seen.add(id);
++    if (!isUuid(id) || seen.has(id.toLowerCase())) continue; seen.add(id.toLowerCase());
+     const transformer = record.transformer || {};
+     occurrences.addRow([record.occurrenceNumber, id, statusLabel(record.status), ...(hasProject ? [record.project] : []), record.base, record.contract, record.team, record.crewLeader, record.user, date(record.registeredAt), (record.occurrenceTypes || []).join(' / '), record.otherOccurrenceType, record.pgPostRemoved, record.pgPostInstalled, record.pgConductorStart, record.pgConductorEnd, transformer.removedCode, transformer.removedCia, transformer.removedBto, transformer.newCode, transformer.newCia, transformer.newBto, record.observation, record.totalServices, record.supervisor, date(record.reviewedAt), date(record.publishedAt), date(record.updatedAt), record.reason, record.supervisorNote]);
+     for (const item of record.services || []) services.addRow([record.occurrenceNumber, id, string(item.code), item.description, string(item.unit), number(item.quantity), number(item.referenceValue), number(item.totalValue), string(item.contract || record.contract)]);
+@@ -138,7 +139,7 @@ export function writeExcelInWorker(entries, { onProgress = () => {}, signal } =
+   return new Promise((resolve, reject) => {
+     if (signal?.aborted) { reject(cancelled()); return; }
+     let worker;
+-    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.15.5', import.meta.url)); }
++    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.18.1', import.meta.url)); }
+     catch { reject(new Error('Não foi possível iniciar o Excel. Atualize o aplicativo e tente novamente.')); return; }
+     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); worker.terminate(); };
+     const abort = () => { cleanup(); reject(cancelled()); };
+diff --git a/occurrence-pdf.js b/occurrence-pdf.js
+index c0af334..4d0e431 100644
+--- a/occurrence-pdf.js
++++ b/occurrence-pdf.js
+@@ -1,4 +1,4 @@
+-import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.15.5';
++import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.18.1';
+ 
+ function documentDateTime(value) {
+   if (!value) return 'Não informada';
+@@ -10,7 +10,10 @@ async function loadPdfLibrary() {
+   if (globalThis.PDFLib) return globalThis.PDFLib;
+   if (!pdfLibraryPromise) pdfLibraryPromise = new Promise((resolve, reject) => {
+     const script = document.createElement('script'); script.src = new URL('./vendor/pdf-lib-1.17.1.min.js', import.meta.url).href;
+-    script.onload = () => globalThis.PDFLib ? resolve(globalThis.PDFLib) : reject(new Error('Biblioteca PDF indisponível.'));
++    script.onload = () => {
++      if (globalThis.PDFLib) resolve(globalThis.PDFLib);
++      else { pdfLibraryPromise = null; script.remove(); reject(new Error('Biblioteca PDF indisponível.')); }
++    };
+     script.onerror = () => { pdfLibraryPromise = null; script.remove(); reject(new Error('Não foi possível carregar a geração de PDF. Tente novamente.')); };
+     document.head.append(script);
+   });
+@@ -117,7 +120,14 @@ export async function createOccurrencePdf(record, { getPhoto = async () => ({ av
+   table(['Código', 'Descrição', 'Unidade', 'Quantidade'], [70, 300, 60, 85], (record.materials || []).map(item => [item.code, item.description, item.unit, formatNumber(item.quantity)]));
+   section('Conferência');
+   fields([['Status atual', statusLabel(record.status)], ['Supervisor', record.supervisor], ['Data de revisão', record.reviewedAt ? documentDateTime(record.reviewedAt) : ''], ['Motivo / correção solicitada', record.reason], ['Observação do Supervisor', record.supervisorNote]]);
+-  const slots = Array.isArray(record.photoSlots) ? record.photoSlots : Array.from({ length: (record.occurrenceTypes || []).includes('SUBSTITUIÇÃO DE TRAFO') ? 7 : 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: false }));
++  const slotCount = (record.occurrenceTypes || []).includes('SUBSTITUIÇÃO DE TRAFO') ? 7 : 5;
++  const suppliedSlots = new Map((Array.isArray(record.photoSlots) ? record.photoSlots : [])
++    .filter(slot => Number.isInteger(slot?.photoIndex) && slot.photoIndex >= 1 && slot.photoIndex <= slotCount)
++    .map(slot => [slot.photoIndex, slot]));
++  const slots = Array.from({ length: slotCount }, (_, position) => {
++    const photoIndex = position + 1, supplied = suppliedSlots.get(photoIndex);
++    return { photoIndex, confirmed: supplied?.confirmed === true && (!supplied.recordId || supplied.recordId === record.recordId) };
++  });
+   const photoResults = [];
+   section('Fotografias e evidências');
+   for (const slot of slots) {
+diff --git a/operational-features.js b/operational-features.js
+index e99ba92..20bc008 100644
+--- a/operational-features.js
++++ b/operational-features.js
+@@ -1,10 +1,10 @@
+-import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.15.5';
+-import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.15.5';
+-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.5';
+-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.5';
+-import { api, ApiError } from './api.js?v=2026.10.15.5';
+-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.5';
+-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.5';
++import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.18.1';
++import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.18.1';
++import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.18.1';
++import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.18.1';
++import { api, ApiError } from './api.js?v=2026.10.18.1';
++import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.18.1';
++import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.18.1';
+ 
+ const text = value => escapeHtml(String(value ?? ''));
+ const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
+@@ -37,7 +37,7 @@ export function excelSelectableRecords(records, session) {
+   const statuses = [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED];
+   return [...new Map((records || []).filter(record => isUuid(record?.recordId) && statuses.includes(record.status)
+     && (session.role !== 'field' || sameUser(record.user, session.user))
+-    && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId, record])).values()];
++    && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId.toLowerCase(), record])).values()];
+ }
+ 
+ export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onFiscalCorrection, onFiscalRetry, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
+@@ -50,6 +50,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
+   let financialView = 'current';
+   let fiscalRecords = new Map(), fiscalRendered = '', fiscalRequestKey = '', fiscalDetailSequence = 0, fiscalPhotoSequence = 0;
+   const fiscalDetails = new Map(), fiscalDetailTasks = new Map(), fiscalPhotoTasks = new Map();
++  const pdfTasks = new Set();
+   const fiscalScope = () => JSON.stringify([getRevision(), getSession()?.token, getSession()?.user, (getSession()?.bases || []).map(normalizeText).sort()]);
+   const fiscalVersion = record => JSON.stringify([record.updatedAt, record.status, normalizeText(record.base), record.photoSlots]);
+   const fiscalCurrent = (revision, token, scope) => current(revision, token) && fiscalScope() === scope;
+@@ -237,12 +238,15 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
+   }
+   async function exportDocument(recordId, button) {
+     const session = getSession(), revision = getRevision(); if (!session) return;
++    const key = JSON.stringify([revision, session.token, recordId.toLowerCase()]);
++    if (pdfTasks.has(key)) return;
++    pdfTasks.add(key);
+     const original = button.textContent; button.disabled = true; button.textContent = 'Gerando PDF…';
+     try {
+       const result = await api.getOccurrenceDocument(session.token, recordId);
+       if (!current(revision, session.token)) return;
+       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
+-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.5');
++      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.18.1');
+       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
+         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
+         const photo = await api.getDocumentPhoto(session.token, recordId, index);
+@@ -251,7 +255,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
+       } });
+       if (current(revision, session.token)) downloadOccurrencePdf(output);
+     } catch (error) { if (current(revision, session.token)) { button.textContent = error.message || 'Falha ao gerar PDF'; if (error.code === 'AUTH_REQUIRED') onLogout(); return; } }
+-    finally { if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
++    finally { pdfTasks.delete(key); if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
+   }
+   function excelMatches() {
+     const query = normalizeText($('#excelSearch')?.value || '');
+@@ -303,7 +307,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
+     excelRunning = true; excelAbort = abort; renderExcelSelection();
+     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
+     try {
+-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.5');
++      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.18.1');
+       if (!valid()) return;
+       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
+       if (!valid()) return;
+diff --git a/service-worker.js b/service-worker.js
+index 4c6bc43..a59dd9e 100644
+--- a/service-worker.js
++++ b/service-worker.js
+@@ -1,5 +1,5 @@
+ const CACHE_PREFIX = 'ocorrencias-bq-';
+-const WORKER_VERSION = '2026.10.15.5';
++const WORKER_VERSION = '2026.10.18.1';
+ const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
+ const versioned = (path) => `${path}?v=${WORKER_VERSION}`;
+ const APP_SHELL = [
+diff --git a/supervisor-conformity.js b/supervisor-conformity.js
+index 8d42cda..ce6bd83 100644
+--- a/supervisor-conformity.js
++++ b/supervisor-conformity.js
+@@ -1,4 +1,4 @@
+-import { escapeHtml, formatNumber, normalizeText, operationalDate, isUuid } from './core.js?v=2026.10.15.5';
++import { escapeHtml, formatNumber, normalizeText, operationalDate, isUuid } from './core.js?v=2026.10.18.1';
+ 
+ export const CONFORMITY_CATEGORIES = Object.freeze({ approved: 'Aprovadas sem edição direta', corrected: 'Corrigidas pelo Supervisor', rejected: 'Rejeitadas', requested: 'Correção solicitada à equipe' });
+ const list = value => Array.isArray(value) ? value : [];
+@@ -37,7 +37,7 @@ export function conformityIdentity(record) {
+ 
+ export function buildConformityComparison(records, { period = 'month', month = operationalDate().slice(0, 7), base = '', crewLeader = '', dimension = 'base' } = {}) {
+   const byId = new Map();
+-  for (const record of records || []) if (isUuid(record?.recordId)) byId.set(record.recordId, record);
++  for (const record of records || []) if (isUuid(record?.recordId)) byId.set(record.recordId.toLowerCase(), record);
+   const groups = new Map(), totals = { approved: 0, corrected: 0, rejected: 0, requested: 0 };
+   let insufficient = 0;
+   for (const record of byId.values()) {
+diff --git a/supervisor-financial.js b/supervisor-financial.js
+index e392270..a78e435 100644
+--- a/supervisor-financial.js
++++ b/supervisor-financial.js
+@@ -1,4 +1,4 @@
+-import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.10.15.5';
++import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.10.18.1';
+ 
+ const list = value => Array.isArray(value) ? value : [];
+ const text = value => escapeHtml(String(value ?? ''));

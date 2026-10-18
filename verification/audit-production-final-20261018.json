@@ -1,0 +1,286 @@
+{
+  "checkedAt": "2026-10-18T14:09:28Z",
+  "frontendVersion": "2026.10.18.1",
+  "sourceCommit": "0d238849dc09f8384d938f27050007d74b723cb3",
+  "pullRequest": "https://github.com/engenhsoft/ocorrencias-bq/pull/9",
+  "workflow": {
+    "conclusion": "success",
+    "headSha": "0d238849dc09f8384d938f27050007d74b723cb3",
+    "jobs": [
+      {
+        "completedAt": "2026-10-18T14:07:52Z",
+        "conclusion": "success",
+        "databaseId": 117696358944,
+        "name": "deploy",
+        "startedAt": "2026-10-18T14:07:31Z",
+        "status": "completed",
+        "steps": [
+          {
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Obter frontend",
+            "number": 2,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Preparar Node para regressões do frontend",
+            "number": 3,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar retomada da foto Fiscal",
+            "number": 4,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar API e IndexedDB",
+            "number": 5,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar etapas",
+            "number": 6,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar estabilidade operacional",
+            "number": 7,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar preços",
+            "number": 8,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar materiais",
+            "number": 9,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar auditoria de integridade e segurança",
+            "number": 10,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar concorrência e recuperação operacional",
+            "number": 11,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar release PWA",
+            "number": 12,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Validar integridade estática",
+            "number": 13,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Configurar GitHub Pages",
+            "number": 14,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Preparar conteúdo",
+            "number": 15,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Publicar",
+            "number": 16,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Post Preparar Node para regressões do frontend",
+            "number": 31,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Post Obter frontend",
+            "number": 32,
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 33,
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/engenhsoft/ocorrencias-bq/actions/runs/39134571698/job/117696358944"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/engenhsoft/ocorrencias-bq/actions/runs/39134571698"
+  },
+  "assets": [
+    {
+      "path": "index.html",
+      "status": 200,
+      "networkMs": 927.54,
+      "sha256": "3a43735a27748b40afcd98691971646e356a7685490fc74a5c5c40b7048e28e1",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "core.js",
+      "status": 200,
+      "networkMs": 737.53,
+      "sha256": "b307f6eb788d52915cf886e5389a11e27b8e8d0fd20a4f5bf376d3ee578b123e",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "networkMs": 867.16,
+      "sha256": "3ce60fedd292eca9d4b0d37c32063cbd794a6270c8bfc2ca21a44235cb238794",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "api.js",
+      "status": 200,
+      "networkMs": 710.23,
+      "sha256": "04c8a05fa0d30b6751a5843cc56a190722844848c43639e2c77cdad52a857804",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "db.js",
+      "status": 200,
+      "networkMs": 443.83,
+      "sha256": "c0e2f3137ea923e70fdfea61a9803b0340e1c6f5f51545941d77fd870f2487cd",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "fiscal-drafts.js",
+      "status": 200,
+      "networkMs": 268.65,
+      "sha256": "c9d0a31d44289c45cd8131ccb5f655714d34ebd174eef479373d24c5eab5a687",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "fiscal-workspace.js",
+      "status": 200,
+      "networkMs": 535.23,
+      "sha256": "2fc82abcdd6ae9a0aecf1a60d4646e69dee100da0d14c69eb7b1e5ff48a564fd",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "fiscal-admin.js",
+      "status": 200,
+      "networkMs": 623.13,
+      "sha256": "7e0ba54846dc1f67985cb98bb9b37a0a8aee33df42a45a089262792c825b5869",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "operational-features.js",
+      "status": 200,
+      "networkMs": 834.82,
+      "sha256": "b4f23ea899c956d50f78f833b37df0ae350ec1b892c02f03a714273b813268c1",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "occurrence-card.js",
+      "status": 200,
+      "networkMs": 254.04,
+      "sha256": "8ac2ca42805d61dcc267c3d9aa8e04b13d47dd61ecc74c96118269d1c8d5b45f",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "occurrence-pdf.js",
+      "status": 200,
+      "networkMs": 535.77,
+      "sha256": "210761365bac73c78e5a2a29c54328af032cb91b74c5dcd234416fc198526414",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "occurrence-excel.js",
+      "status": 200,
+      "networkMs": 650.88,
+      "sha256": "4f35bd2e421f2dbac3a9a0c1e36ac4a94323e1cb84932f4829fe50b1fd470832",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "occurrence-excel-worker.js",
+      "status": 200,
+      "networkMs": 394.69,
+      "sha256": "f9acdd38519fc9598202dac79f095d34b54473726611760d3aefc4c9f922eaf0",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "supervisor-conformity.js",
+      "status": 200,
+      "networkMs": 174.51,
+      "sha256": "cbda78bed2261e8c6786beee7d8b68c316cb6d6c065abe10f45fdd429af3ec1d",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "supervisor-financial.js",
+      "status": 200,
+      "networkMs": 424.31,
+      "sha256": "02206c71d2f855ff3aa3b05aab35b944746112ea7918b2715cf3d2586a27c645",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "service-worker.js",
+      "status": 200,
+      "networkMs": 250.2,
+      "sha256": "ed3889bb583f753f0114ce2b08d32f9a1004a2dda0f507e789387056396e2fe0",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "config.js",
+      "status": 200,
+      "networkMs": 463.62,
+      "sha256": "6031c35af95b58098baa43a03c4d4b537f50c625885294e96592bb41633d53c6",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "styles.css",
+      "status": 200,
+      "networkMs": 388.15,
+      "sha256": "c0bf2cafb54d3dbc860b316e40c7d38fa2304201216eea16b4424428cc9bab41",
+      "equalsCommittedRuntime": true
+    },
+    {
+      "path": "manifest.webmanifest",
+      "status": 200,
+      "networkMs": 902.88,
+      "sha256": "4f91c427c20f3b19e3708322586015165aea66a0467a881d0a58b47e669f4542",
+      "equalsCommittedRuntime": true
+    }
+  ],
+  "allAssetHashesMatch": true,
+  "backendHealth": {
+    "ok": true,
+    "success": true,
+    "service": "OCORRÊNCIAS B&Q",
+    "version": "2026.10.15.4",
+    "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+    "timestamp": "2026-10-18T11:09:24-03:00"
+  },
+  "backendDeploymentChanged": false,
+  "productionRecordWrites": 0,
+  "credentialChanges": 0
+}

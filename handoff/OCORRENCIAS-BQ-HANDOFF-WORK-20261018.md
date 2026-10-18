@@ -86,3 +86,13 @@ node tests/hotfix-sync-publication.mjs /caminho/privado/BACKEND_CANDIDATO.gs
 **Reversão:** selecionar novamente a versão anterior no mesmo deployment, mantendo `/exec`; não reverter dados ou planilhas. Conservar o checkpoint do código anterior em diretório privado. As alterações candidatas não migraram dados e não exigem limpeza.
 
 **Aceite:** 26 testes novos e suítes privadas aplicáveis aprovados; foto não confirmada segue solicitada após transferência; fotos confirmadas não são reenviadas; ACL revogada durante leitura não recebe conteúdo; perfis e legado conservados; health declara a versão implantada no deployment original. Até receber essas evidências, backend permanece **candidato validado localmente, implantação pendente**.
+
+## Checkpoint e frontend já preparado
+
+Fonte frontend da release 2026.10.18.1: commits d9fb824, accff41, a227bd4, 95da921 e a59f9b5; candidato backend 44321d3; regressão/CI 0ce568a. PR oficial #9, merge 0d238849dc09f8384d938f27050007d74b723cb3, integrado em 18/10/2026. O resultado do Pages e os hashes servidos constam do relatório final e de verification/audit-production-final-20261018.json; não inferir implantação a partir deste checkpoint Git.
+
+O frontend utiliza o backend v12 atual e não depende da aplicação dos três patches backend candidatos. Não republicar frontend antigo para aplicar o backend. O ZIP contém o repositório público, testes e evidências; não contém a fonte integral privada, tokens ou dados operacionais.
+
+Reversão frontend: preservar o código/commit anterior e publicar nova release com os arquivos anteriores e um NOVO identificador de cache. Nunca limpar IndexedDB/Blobs para reverter código e não usar force push. A reversão backend seleciona a versão anterior no mesmo deployment sem alterar /exec ou reverter dados.
+
+Na devolução ao Codex, incluir: hash do fonte ativo anterior e final, funções efetivamente diferentes, versão declarada, número de versão Apps Script, deployment preservado, health v12, resultados das oito suítes privadas e da suíte nova --official-source. Se uma função já estiver corrigida no fonte atual, registrar e preservá-la; não reaplicar o defeito nem presumir que o módulo público seja todo o projeto.

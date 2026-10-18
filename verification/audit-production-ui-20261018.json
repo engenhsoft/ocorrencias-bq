@@ -1,0 +1,30 @@
+{
+  "scope": "public login screen only; no credentials, login attempts, or backend mutations; Service Worker blocked here and tested separately on localhost",
+  "browser": "Chromium",
+  "results": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "version": "v2026.10.18.1",
+      "loginVisible": true,
+      "overflow": false,
+      "pageErrors": [],
+      "blocked": [],
+      "passed": true
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "version": "v2026.10.18.1",
+      "loginVisible": true,
+      "overflow": false,
+      "pageErrors": [],
+      "blocked": [],
+      "passed": true
+    }
+  ]
+}
