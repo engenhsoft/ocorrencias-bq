@@ -1,4 +1,4 @@
-import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.15.5';
+import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.18.1';
 
 const moneyFormat = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
 const decimalFormat = '#,##0.###';
@@ -46,8 +46,9 @@ export async function prepareExcelPhoto(dataUrl) {
 }
 
 export async function collectExcelEntries(recordIds, { getRecord, getPhoto, preparePhoto = prepareExcelPhoto, isCurrent = () => true, signal, onProgress = () => {} } = {}) {
-  const ids = [...new Set(recordIds)];
-  if (!ids.length || ids.some(id => !isUuid(id))) throw new Error('Selecione ocorrências válidas.');
+  const candidates = [...new Set(recordIds)];
+  if (!candidates.length || candidates.some(id => !isUuid(id))) throw new Error('Selecione ocorrências válidas.');
+  const ids = [...new Map(candidates.map(id => [id.toLowerCase(), id])).values()];
   const check = () => { if (signal?.aborted) throw cancelled(); if (!isCurrent()) throw Object.assign(new Error('A sessão mudou durante a exportação.'), { code: 'AUTH_REQUIRED' }); };
   const entries = []; let photoBytes = 0;
   for (const [position, id] of ids.entries()) {
@@ -105,7 +106,7 @@ export async function buildOccurrenceWorkbook(entries, { ExcelJS = globalThis.Ex
   const seen = new Set();
   for (const [position, entry] of entries.entries()) {
     const record = entry.record, id = record.recordId;
-    if (!isUuid(id) || seen.has(id)) continue; seen.add(id);
+    if (!isUuid(id) || seen.has(id.toLowerCase())) continue; seen.add(id.toLowerCase());
     const transformer = record.transformer || {};
     occurrences.addRow([record.occurrenceNumber, id, statusLabel(record.status), ...(hasProject ? [record.project] : []), record.base, record.contract, record.team, record.crewLeader, record.user, date(record.registeredAt), (record.occurrenceTypes || []).join(' / '), record.otherOccurrenceType, record.pgPostRemoved, record.pgPostInstalled, record.pgConductorStart, record.pgConductorEnd, transformer.removedCode, transformer.removedCia, transformer.removedBto, transformer.newCode, transformer.newCia, transformer.newBto, record.observation, record.totalServices, record.supervisor, date(record.reviewedAt), date(record.publishedAt), date(record.updatedAt), record.reason, record.supervisorNote]);
     for (const item of record.services || []) services.addRow([record.occurrenceNumber, id, string(item.code), item.description, string(item.unit), number(item.quantity), number(item.referenceValue), number(item.totalValue), string(item.contract || record.contract)]);
@@ -138,7 +139,7 @@ export function writeExcelInWorker(entries, { onProgress = () => {}, signal } = 
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(cancelled()); return; }
     let worker;
-    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.15.5', import.meta.url)); }
+    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.18.1', import.meta.url)); }
     catch { reject(new Error('Não foi possível iniciar o Excel. Atualize o aplicativo e tente novamente.')); return; }
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); worker.terminate(); };
     const abort = () => { cleanup(); reject(cancelled()); };

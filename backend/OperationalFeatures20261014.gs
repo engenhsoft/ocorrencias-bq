@@ -286,6 +286,7 @@ function listFiscalRecords_(payload) {
   });
   records.sort(function (a, b) { return String(b[COL.REGISTERED_AT - 1]).localeCompare(String(a[COL.REGISTERED_AT - 1])) || String(a[0]).localeCompare(String(b[0])); });
   const offset = Math.max(0, Math.floor(Number(payload.offset) || 0)), limit = 60;
+  requireSession_(payload.token, ['fiscal']);
   return { ok: true, success: true, bases: bases, summary: summary, records: records.slice(offset, offset + limit).map(fiscalRecordSummary_), offset: offset, nextOffset: offset + limit < records.length ? offset + limit : null, calculatedAt: nowIso_() };
 }
 
@@ -308,7 +309,9 @@ function getOccurrenceDocument_(payload) {
   authorizeDocumentRow_(auth, found.values);
   const status = operationalStatusFromValues_(found.values);
   if (auth.role !== 'fiscal' && !payload.detail && [STATUS.WAITING_SUPERVISOR, STATUS.PUBLISHED, STATUS.APPROVED].indexOf(status) < 0) throw apiError_('RECORD_NOT_READY', 'PDF disponível nas ocorrências aguardando conferência ou publicadas.');
-  return { ok: true, success: true, record: occurrenceDocumentData_(found.values, spreadsheet_()) };
+  const record = occurrenceDocumentData_(found.values, spreadsheet_());
+  authorizeDocumentRow_(requireSession_(payload.token, ['field', 'supervisor', 'fiscal']), found.values);
+  return { ok: true, success: true, record: record };
 }
 function getDocumentPhoto_(payload) {
   const auth = requireSession_(payload.token, ['field', 'supervisor', 'fiscal']), id = requireUuid_(payload.recordId), index = Number(payload.photoIndex);

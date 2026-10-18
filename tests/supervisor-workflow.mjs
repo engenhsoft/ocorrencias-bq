@@ -92,7 +92,7 @@ test('equipe recebe destaque, abre o mesmo registro e pode reenviar', () => {
   assert.match(appSource, /CORREÇÃO SOLICITADA PELO SUPERVISOR/);
   assert.match(appSource, /const correction = \{ \.\.\.record,[\s\S]*correctionMode: true/);
   assert.match(appSource, /Reenviar ao Supervisor/);
-  assert.match(appSource, /loadRecordIntoForm\(correction\)/);
+  assert.match(appSource, /loadRecordIntoForm\(storedCorrection \|\| correction\)/);
   assert.match(appSource, /record\.services/);
   assert.match(appSource, /record\.materials/);
 });

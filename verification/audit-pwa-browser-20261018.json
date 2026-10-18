@@ -1,0 +1,84 @@
+{
+  "suite": "audit-pwa-browser-20261018",
+  "executedAt": "2026-10-18T14:00:19.771Z",
+  "scope": "Chromium lifecycle and offline only; localhost; synthetic UUID/slot/uploadKey/Blob; no Safari/iPhone physical validation",
+  "productionWrites": 0,
+  "baselineCommit": "1ec0f688f76f1140c0300f2ab70b68b6d2c75915",
+  "baselineVersion": "2026.10.15.5",
+  "candidateVersion": "2026.10.18.1",
+  "sources": {
+    "before": {
+      "index.html": "53c2a2cd38e917d8fa80258fe6ae0155a5db1c2fde29fc3157f7854210e57e9b",
+      "service-worker.js": "dbc84ff1fd8211b73c968ea993e481dabeb70fa6a67dd745215a0d3324a7443d",
+      "core.js": "3918c94fff47a8c2a96d1da720996ed56f52e3147c6918ed9ddb38a94e888062",
+      "db.js": "7c6fa572e444b02a95f0a861424ad51002d3fee5c4b5bbc528cfd014488e6939"
+    },
+    "after": {
+      "index.html": "3a43735a27748b40afcd98691971646e356a7685490fc74a5c5c40b7048e28e1",
+      "service-worker.js": "ed3889bb583f753f0114ce2b08d32f9a1004a2dda0f507e789387056396e2fe0",
+      "core.js": "b307f6eb788d52915cf886e5389a11e27b8e8d0fd20a4f5bf376d3ee578b123e",
+      "db.js": "c0e2f3137ea923e70fdfea61a9803b0340e1c6f5f51545941d77fd870f2487cd"
+    }
+  },
+  "tests": [
+    {
+      "name": "Initial release installs its real Service Worker and controls the page",
+      "passed": true,
+      "elapsedMs": 1398.611
+    },
+    {
+      "name": "Baseline persists a synthetic UUID, exact slot/key and readable Blob",
+      "passed": true,
+      "elapsedMs": 8.925
+    },
+    {
+      "name": "Normal update installs a waiting worker while the current page stays on its initial release",
+      "passed": true,
+      "elapsedMs": 2686.966
+    },
+    {
+      "name": "Waiting update keeps old HTML and old core together across navigation",
+      "passed": true,
+      "elapsedMs": 236.701
+    },
+    {
+      "name": "The existing update button sends SKIP_WAITING, activates and reloads the new HTML/core",
+      "passed": true,
+      "elapsedMs": 1264.397
+    },
+    {
+      "name": "Activating the new release preserves the IndexedDB UUID/slot/key/Blob byte for byte",
+      "passed": true,
+      "elapsedMs": 6.283
+    },
+    {
+      "name": "Activation retains the new release cache and preserves unrelated caches",
+      "passed": true,
+      "elapsedMs": 9.139
+    },
+    {
+      "name": "Offline reload serves the new release shell and matching core from its Service Worker",
+      "passed": true,
+      "elapsedMs": 163.256
+    },
+    {
+      "name": "The preserved UUID and Blob remain readable after the offline reload",
+      "passed": true,
+      "elapsedMs": 2.912
+    }
+  ],
+  "browser": "154.0.8037.57",
+  "localRequests": {
+    "before": 41,
+    "after": 29
+  },
+  "externalRequestsBlocked": 0,
+  "offline": {
+    "serverRefusedSource": true,
+    "sourceResponsesServed": 0,
+    "requestsRefused": 1
+  },
+  "total": 9,
+  "passed": 9,
+  "failed": 0
+}

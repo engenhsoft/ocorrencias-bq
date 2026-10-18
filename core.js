@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.15.5';
-export const APP_BUILD = '2026-10-15-fiscal-photo-diagnostics';
+export const APP_VERSION = '2026.10.18.1';
+export const APP_BUILD = '2026-10-18-stability-audit';
 
 export const TEAM_GOAL = 6000;
 
@@ -541,10 +541,14 @@ export function searchMaterialCatalog(value, query, limit = 40) {
     .slice(0, Math.max(0, Number(limit) || 0));
 }
 
+// Preserve whether a remote collection was supplied before normalization fills
+// missing arrays. This is private metadata and never enters storage/API payloads.
+const occurrenceCollectionPresence = new WeakMap();
+
 export function normalizeOccurrenceRecord(value, label = 'record') {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   if (source !== value && value != null && value !== '') globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Object; usando objeto vazio.`, { type: typeof value });
-  return {
+  const record = {
     ...source,
     occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
     services: normalizeServices(source.services, `${label}.services`),
@@ -554,6 +558,10 @@ export function normalizeOccurrenceRecord(value, label = 'record') {
     transformer: source.transformer && typeof source.transformer === 'object' && !Array.isArray(source.transformer) ? source.transformer : {},
     transformerPhotos: source.transformerPhotos && typeof source.transformerPhotos === 'object' && !Array.isArray(source.transformerPhotos) ? source.transformerPhotos : {}
   };
+  const presence = occurrenceCollectionPresence.get(source) || Object.fromEntries(['services', 'materials'].map(key => [key,
+    Object.hasOwn(source, key) && Array.isArray(source[key]) && (source[key].length === 0 || record[key].length > 0)]));
+  occurrenceCollectionPresence.set(record, presence);
+  return record;
 }
 
 export function normalizePhotoUrls(value, label = 'photos') {
@@ -988,8 +996,8 @@ export function mergeRecordCollections(localRecords, serverRecords) {
       localStatus: local.status,
       status: server.status || local.status,
       occurrenceTypes: server.occurrenceTypes.length ? server.occurrenceTypes : local.occurrenceTypes,
-      services: server.services.length ? server.services : local.services,
-      materials: server.materials.length ? server.materials : local.materials,
+      services: occurrenceCollectionPresence.get(server).services ? server.services : local.services,
+      materials: occurrenceCollectionPresence.get(server).materials ? server.materials : local.materials,
       photoStates: existingLocal ? reconcilePhotoStates(local, { photoStates: server.photoStates }).photoStates : server.photoStates,
       photos: server.photos.length ? server.photos : local.photos,
       transformer: Object.keys(server.transformer).length ? server.transformer : local.transformer,

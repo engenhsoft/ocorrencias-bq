@@ -1,0 +1,18 @@
+{
+  "scenario": "Coleta Excel de UUID repetido em grafias maiúscula/minúscula; mock local 2ms por requisição, 5 fotos. Não representa rede nem Apps Script em produção.",
+  "before": {
+    "samples": 31,
+    "medianMs": 59.139,
+    "p95Ms": 75.456,
+    "recordCallsPerOperation": 2,
+    "photoCallsPerOperation": 10
+  },
+  "after": {
+    "samples": 31,
+    "medianMs": 19.875,
+    "p95Ms": 52.423,
+    "recordCallsPerOperation": 1,
+    "photoCallsPerOperation": 5
+  },
+  "productionWrites": 0
+}

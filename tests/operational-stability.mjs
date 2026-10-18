@@ -122,6 +122,7 @@ test('login termina loading após falha e aceita nova tentativa sem duplicar cha
   const fields = { user: 'Teste', password: 'simulado', role: 'supervisor' };
   const context = {
     loginRunning: false,
+    sessionRevision: 0,
     FormData: class { get(key) { return fields[key]; } },
     elements: { loginForm: {}, loginMessage: { textContent: '' }, loginButton: {}, loginPassword: { value: 'simulado' } },
     navigator: { onLine: true },

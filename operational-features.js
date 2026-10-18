@@ -1,10 +1,10 @@
-import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.15.5';
-import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.15.5';
-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.15.5';
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.15.5';
-import { api, ApiError } from './api.js?v=2026.10.15.5';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.15.5';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.15.5';
+import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.18.1';
+import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.18.1';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.18.1';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.18.1';
+import { api, ApiError } from './api.js?v=2026.10.18.1';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.18.1';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.18.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -37,7 +37,7 @@ export function excelSelectableRecords(records, session) {
   const statuses = [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED];
   return [...new Map((records || []).filter(record => isUuid(record?.recordId) && statuses.includes(record.status)
     && (session.role !== 'field' || sameUser(record.user, session.user))
-    && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId, record])).values()];
+    && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId.toLowerCase(), record])).values()];
 }
 
 export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onFiscalCorrection, onFiscalRetry, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
@@ -50,6 +50,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   let financialView = 'current';
   let fiscalRecords = new Map(), fiscalRendered = '', fiscalRequestKey = '', fiscalDetailSequence = 0, fiscalPhotoSequence = 0;
   const fiscalDetails = new Map(), fiscalDetailTasks = new Map(), fiscalPhotoTasks = new Map();
+  const pdfTasks = new Set();
   const fiscalScope = () => JSON.stringify([getRevision(), getSession()?.token, getSession()?.user, (getSession()?.bases || []).map(normalizeText).sort()]);
   const fiscalVersion = record => JSON.stringify([record.updatedAt, record.status, normalizeText(record.base), record.photoSlots]);
   const fiscalCurrent = (revision, token, scope) => current(revision, token) && fiscalScope() === scope;
@@ -237,12 +238,15 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   }
   async function exportDocument(recordId, button) {
     const session = getSession(), revision = getRevision(); if (!session) return;
+    const key = JSON.stringify([revision, session.token, recordId.toLowerCase()]);
+    if (pdfTasks.has(key)) return;
+    pdfTasks.add(key);
     const original = button.textContent; button.disabled = true; button.textContent = 'Gerando PDF…';
     try {
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.15.5');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.18.1');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -251,7 +255,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       } });
       if (current(revision, session.token)) downloadOccurrencePdf(output);
     } catch (error) { if (current(revision, session.token)) { button.textContent = error.message || 'Falha ao gerar PDF'; if (error.code === 'AUTH_REQUIRED') onLogout(); return; } }
-    finally { if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
+    finally { pdfTasks.delete(key); if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
   }
   function excelMatches() {
     const query = normalizeText($('#excelSearch')?.value || '');
@@ -303,7 +307,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.15.5');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.18.1');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;

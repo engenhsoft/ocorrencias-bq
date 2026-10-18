@@ -53,7 +53,9 @@ test('foto local com FileReader preso termina em erro sem apagar o blob', async 
   h.blobToDataUrl(new Blob(['preservar'])).catch(value => { error = value; }); h.timers.fire(12000); await settle();
   assert.equal(error?.code, 'LOCAL_PHOTO_READ_TIMEOUT'); assert.equal(aborted, 1);
 });
-const syncState = (id = 'a', extra = {}) => ({ ok: true, recordId: id, record: { recordId: id }, status: core.RECORD_STATUS.WAITING_SUPERVISOR,
+// getRecordState returns persisted record data and the submitted photo intent.
+// An identity-only record is a conflicting payload under the current contract.
+const syncState = (id = 'a', extra = {}) => ({ ok: true, recordId: id, record: { recordId: id, user: 'Campo FICTÍCIO', occurrenceTypes: ['PODA'], services: [], materials: [], audit: { expectedPhotoIndexes: [1, 2, 3] } }, status: core.RECORD_STATUS.WAITING_SUPERVISOR,
   photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: index < 3, url: index < 3 ? 'foto-' + index : '', uploadKey: 'k' + index })), ...extra });
 for (const [name, change] of [
   ['sem identidade', value => { delete value.recordId; }], ['outro UUID', value => { value.recordId = 'outro'; }],
@@ -196,7 +198,7 @@ test('reconexão inicia fila antes da conclusão do health check', async () => {
 });
 function syncHarness(records = []) {
   const saved = new Map(records.map(r => [r.recordId, structuredClone(r)])), photos = new Map(), calls = [], c = {
-    ...core, ApiError: apiHarness().ApiError, session: { user: 'Campo FICTÍCIO', token: 'token-ficticio', role: 'field' }, sessionRevision: 1, navigator: { onLine: true },
+    ...core, ApiError: apiHarness().ApiError, ambiguousMutationError: apiHarness().c.ambiguousMutationError, session: { user: 'Campo FICTÍCIO', token: 'token-ficticio', role: 'field' }, sessionRevision: 1, navigator: { onLine: true },
     dailyProduction: { totalExcludingRecord: 0 }, APP_VERSION: core.APP_VERSION, TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO',
     recordSyncPromises: new Map(), syncRunning: false, elements: { syncNowButton: {} }, SYNCABLE_STATUSES: new Set([core.RECORD_STATUS.PENDING, core.RECORD_STATUS.ERROR]),
     getRecord: async id => structuredClone(saved.get(id)), getAllRecords: async () => [...saved.values()].map(r => structuredClone(r)),
@@ -250,11 +252,14 @@ test('perda de conexão no upload mantém blob e a reconexão recupera a mesma c
   const record = { ...syncRecord('a'), photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, localReady: index < 3, uploadKey: 'k' + index })) };
   const h = syncHarness([record]); const uploaded = new Map(); let failed = false, submissions = 0;
   const response = () => syncState('a', { status: uploaded.size >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: uploaded.has(index + 1), url: uploaded.has(index + 1) ? 'foto-' + index : '', uploadKey: uploaded.get(index + 1) || '' })) });
-  h.c.api.submitRecord = async () => { submissions++; return response(); }; h.c.api.getRecordState = async () => response();
+  h.c.api.submitRecord = async () => { submissions++; return response(); }; h.c.api.getRecordState = async () => {
+    if (!h.c.navigator.onLine) throw new h.c.ApiError('sem conexão', 'NETWORK_ERROR');
+    return response();
+  };
   h.c.api.uploadPhoto = async (_token, photo) => { uploaded.set(photo.photoIndex, photo.uploadKey); if (!failed) { failed = true; h.c.navigator.onLine = false; throw new h.c.ApiError('resposta perdida', 'NETWORK_ERROR'); } return response(); };
   for (let index = 1; index <= 3; index++) h.photos.set('a:' + index, { recordId: 'a', photoIndex: index, uploadKey: 'k' + (index - 1), blob: new Blob(['foto']) });
   await h.c.syncSingleRecord('a', false); assert.equal(h.saved.get('a').status, core.RECORD_STATUS.ERROR); assert.equal(h.photos.size, 3);
-  h.c.navigator.onLine = true; await h.c.syncSingleRecord('a', false); assert.equal(h.saved.get('a').status, core.RECORD_STATUS.WAITING_SUPERVISOR); assert.equal(uploaded.size, 3); assert.equal(h.photos.size, 0); assert.equal(submissions, 2);
+  h.c.navigator.onLine = true; await h.c.syncSingleRecord('a', false); assert.equal(h.saved.get('a').status, core.RECORD_STATUS.WAITING_SUPERVISOR); assert.equal(uploaded.size, 3); assert.equal(h.photos.size, 0); assert.equal(submissions, 1, 'dados confirmados não são reenviados após a reconexão');
 });
 test('finally da consulta publicada antiga não remove a Promise da sessão nova', async () => {
   const first = deferred(), second = deferred(); const c = { ApiError: apiHarness().ApiError, session: { token: 'old' }, sessionRevision: 1, reviewOrder: ['a'], publishedDetailCache: new Map(), publishedDetailRequests: new Map(), api: { listPublishedRecords: () => first.promise }, ...core };

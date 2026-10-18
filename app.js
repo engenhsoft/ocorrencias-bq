@@ -1,6 +1,6 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.15.5';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.15.5';
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.15.5';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.18.1';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.18.1';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.18.1';
 import {
   dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -10,13 +10,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.15.5';
+} from './core.js?v=2026.10.18.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.15.5';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.15.5';
+} from './db.js?v=2026.10.18.1';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.18.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -676,15 +676,18 @@ async function handleLogin(event) {
   elements.loginMessage.textContent = '';
   if (!navigator.onLine) { elements.loginMessage.textContent = 'Faça o primeiro acesso online. Depois, a fila continuará funcionando sem internet.'; return; }
   loginRunning = true;
+  let requestRevision = sessionRevision;
   setBusy(elements.loginButton, true, 'Entrando…');
   try {
     const result = await api.login(user, password, role);
+    if (requestRevision !== sessionRevision) return;
     clearSessionUiState();
     persistSession({ token: result.token, user: result.user, role: result.role, aclRevision: result.aclRevision || '', bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
+    requestRevision = sessionRevision;
     localStorage.setItem(LAST_USER_KEY, result.user);
     elements.loginPassword.value = '';
     await enterApplication();
-  } catch (error) { elements.loginMessage.textContent = friendlyError(error); }
+  } catch (error) { if (requestRevision === sessionRevision) elements.loginMessage.textContent = friendlyError(error); }
   finally { loginRunning = false; setBusy(elements.loginButton, false); }
 }
 
@@ -733,15 +736,18 @@ async function handleProfileSwitch(event) {
   elements.profileSwitchMessage.textContent = '';
   if (!navigator.onLine) { elements.profileSwitchMessage.textContent = 'A troca de perfil precisa de conexão para validar a senha.'; return; }
   profileSwitchRunning = true;
+  let requestRevision = sessionRevision;
   setBusy(elements.profileSwitchSubmit, true, 'Autenticando…');
   try {
     const result = await api.login(user, password, profileSwitchTarget);
+    if (requestRevision !== sessionRevision) return;
     clearSessionUiState();
     persistSession({ token: result.token, user: result.user, role: result.role, bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
+    requestRevision = sessionRevision;
     localStorage.setItem(LAST_USER_KEY, result.user); elements.profileSwitchPassword.value = '';
     clearInterval(supervisorRefreshTimer); await enterApplication();
-    toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
-  } catch (error) { elements.profileSwitchMessage.textContent = friendlyError(error); }
+    if (requestRevision === sessionRevision) toast(result.role === 'supervisor' ? 'Modo Supervisor autenticado.' : 'Modo operacional autenticado.', 'success');
+  } catch (error) { if (requestRevision === sessionRevision) elements.profileSwitchMessage.textContent = friendlyError(error); }
   finally { profileSwitchRunning = false; setBusy(elements.profileSwitchSubmit, false); }
 }
 
@@ -790,11 +796,22 @@ async function ensureActiveRecord() {
   if (activeRecord) return activeRecord;
   if (session?.role === 'fiscal') throw new ApiError('Abra uma correção atribuída no painel Fiscal.', 'FORBIDDEN');
   const record = blankRecord(); const revision = sessionRevision; activeRecord = record;
-  await putRecord(record);
-  if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return record;
-  await setMeta(ACTIVE_DRAFT_META, record.recordId);
-  if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
-  return record;
+  const initialVersion = String(record.updatedAt || '');
+  const saving = (async () => {
+    const stored = await putRecord(record, { expectedUpdatedAt: '' });
+    saving.draftSavedRecord = stored;
+    if (revision === sessionRevision && activeRecord?.recordId === record.recordId && String(activeRecord.updatedAt || '') === initialVersion) activeRecord.updatedAt = stored?.updatedAt || initialVersion;
+    return stored;
+  })();
+  saving.draftRecordId = record.recordId; saving.draftExpectedUpdatedAt = initialVersion;
+  activeDraftSavePromise = saving;
+  try {
+    await saving;
+    if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return record;
+    await setMeta(ACTIVE_DRAFT_META, record.recordId);
+    if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
+    return record;
+  } finally { if (activeDraftSavePromise === saving) activeDraftSavePromise = null; }
 }
 
 function selectedTypes() { return $$('input[type="checkbox"]:checked', elements.occurrenceTypes).map((input) => input.value); }
@@ -904,16 +921,26 @@ async function loadDailyProduction(teamValue, notify = false) {
 
 async function saveActiveDraft() {
   if (!activeRecord || occurrenceSubmissionRunning) return;
-  activeRecord.syncPhase = 'saved'; activeRecord.step = currentStep; activeRecord.updatedAt = new Date().toISOString(); if (!activeRecord.fiscalCorrection) activeRecord.user = session?.user || activeRecord.user;
+  activeRecord.syncPhase = 'saved'; activeRecord.step = currentStep; if (!activeRecord.fiscalCorrection) activeRecord.user = session?.user || activeRecord.user;
   const record = JSON.parse(JSON.stringify(activeRecord)); const revision = sessionRevision;
+  const expectedVersion = String(record.updatedAt || '');
   const previous = activeDraftSavePromise;
+  let followsPrevious = false;
+  for (let ancestor = previous; ancestor?.draftRecordId === record.recordId; ancestor = ancestor.draftPredecessor) {
+    if ([ancestor.draftExpectedUpdatedAt, ancestor.draftSavedRecord?.updatedAt].includes(expectedVersion)) { followsPrevious = true; break; }
+  }
   const task = (async () => {
     if (previous) await previous.catch(() => {});
-    await editingStorage(record).putRecord(record);
+    const expectedUpdatedAt = followsPrevious ? String(previous.draftSavedRecord?.updatedAt || expectedVersion) : expectedVersion;
+    const stored = await editingStorage(record).putRecord(record, { expectedUpdatedAt });
+    task.draftSavedRecord = stored;
     if (revision !== sessionRevision || activeRecord?.recordId !== record.recordId) return;
+    if ([expectedVersion, expectedUpdatedAt].includes(String(activeRecord.updatedAt || ''))) activeRecord.updatedAt = stored?.updatedAt || expectedUpdatedAt;
     if (!record.fiscalCorrection) await setMeta(ACTIVE_DRAFT_META, record.recordId);
     if (revision === sessionRevision && activeRecord?.recordId === record.recordId) showDraftId();
+    return stored;
   })();
+  task.draftRecordId = record.recordId; task.draftExpectedUpdatedAt = expectedVersion; task.draftPredecessor = previous?.draftRecordId === record.recordId ? previous : null;
   activeDraftSavePromise = task;
   try { await task; }
   finally { if (activeDraftSavePromise === task) activeDraftSavePromise = null; }
@@ -940,11 +967,23 @@ async function resumeDraft() {
 }
 
 async function discardDraft() {
-  const recordId = await getMeta(ACTIVE_DRAFT_META); if (!recordId) return;
-  const record = await getRecord(recordId); if (!record || (record.user && record.user !== session?.user)) return;
-  if (!await confirmAction('Descartar rascunho?', 'O rascunho e as fotos guardadas somente neste aparelho serão removidos.', 'Descartar', 'danger')) return;
-  await deleteRecord(recordId); await setMeta(ACTIVE_DRAFT_META, null); elements.resumeBanner.hidden = true;
-  if (activeRecord?.recordId === recordId) resetForm(); toast('Rascunho descartado.');
+  const button = elements.discardDraftButton;
+  if (button.disabled) return;
+  const revision = sessionRevision, owner = session?.user;
+  setBusy(button, true, 'Preparando…');
+  try {
+    const recordId = await getMeta(ACTIVE_DRAFT_META); if (!recordId) return;
+    const record = await getRecord(recordId);
+    if (revision !== sessionRevision || !record || record.status !== RECORD_STATUS.DRAFT || (record.user && record.user !== owner)) return;
+    if (!await confirmAction('Descartar rascunho?', 'O rascunho e as fotos guardadas somente neste aparelho serão removidos.', 'Descartar', 'danger')) return;
+    if (revision !== sessionRevision) return;
+    setBusy(button, true, 'EXCLUINDO…');
+    await deleteRecord(recordId, { expectedUpdatedAt: String(record.updatedAt || ''), expectedStatus: RECORD_STATUS.DRAFT });
+    await clearMetaIfValue(ACTIVE_DRAFT_META, recordId);
+    if (revision !== sessionRevision) return;
+    elements.resumeBanner.hidden = true;
+    if (activeRecord?.recordId === recordId) resetForm(); toast('Rascunho descartado.');
+  } finally { setBusy(button, false); }
 }
 
 function goToStep(step) {
@@ -1238,11 +1277,16 @@ async function storeSelectedPhoto(photoIndex, file, replace) {
     const blob = await optimizePhoto(file);
     if (!isCurrent()) return;
     if (blob.size > 9 * 1024 * 1024) throw new ApiError('A foto ficou acima de 9 MB mesmo após a otimização.', 'PHOTO_TOO_LARGE');
+    if (activeDraftSavePromise) await activeDraftSavePromise;
+    if (!isCurrent()) return;
     const uploadKey = generateUuid(); const state = activeRecord.photoStates[photoIndex - 1] || { photoIndex };
     const previousPhotoStates = activeRecord.photoStates.slice(); const photoStates = previousPhotoStates.slice();
     photoStates[photoIndex - 1] = { ...state, photoIndex, confirmed: false, localReady: true, uploadKey, replacePending: replace || Boolean(state.replacePending || state.confirmed || state.serverUrl), error: '' };
-    const stored = await editingStorage(activeRecord).putPhotoAndRecord({ ...activeRecord, photoStates }, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type });
+    const photoRecord = JSON.parse(JSON.stringify({ ...activeRecord, photoStates }));
+    const stored = await editingStorage(activeRecord).putPhotoAndRecord(photoRecord, photoIndex, blob, uploadKey, { fileName: file.name, mimeType: blob.type, expectedUploadKey: String(state.uploadKey || ''), expectedRecordStatus: photoRecord.status });
     if (!isCurrent()) return;
+    const photoMetadata = record => Object.fromEntries(Object.keys(record).filter(key => !['updatedAt', 'photoStates', 'syncPhase', 'step'].includes(key)).sort().map(key => [key, record[key]]));
+    if (JSON.stringify(photoMetadata(stored.record)) !== JSON.stringify(photoMetadata(photoRecord))) throw new ApiError('Este rascunho foi alterado em outra aba. A foto foi preservada no rascunho atualizado; reabra a ocorrência antes de continuar.', 'LOCAL_RECORD_CHANGED');
     activeRecord = { ...activeRecord, updatedAt: stored.record.updatedAt, photoStates: stored.record.photoStates.map((savedState, index) => index !== photoIndex - 1 && activeRecord.photoStates[index] !== previousPhotoStates[index] ? activeRecord.photoStates[index] : savedState) };
     activePhotos.set(photoIndex, { recordId: activeRecord.recordId, photoIndex, blob, uploadKey }); setPreviewUrl(photoIndex, URL.createObjectURL(blob));
     await saveActiveDraft(); if (isCurrent()) { updatePhotoGrid(); validateStepOne(false); }
@@ -1464,7 +1508,7 @@ async function submitOccurrence() {
     setBusy(elements.submitOccurrenceButton, true, 'Guardando…');
     if (activeDraftSavePromise) await activeDraftSavePromise;
     if (revision !== sessionRevision || activeRecord?.recordId !== submittedId) return;
-    await editingStorage(candidate).putRecord(candidate); locallyQueued = true;
+    await editingStorage(candidate).putRecord(candidate, { expectedUpdatedAt: String(activeRecord.updatedAt || '') }); locallyQueued = true;
     if (!candidate.fiscalCorrection) await clearMetaIfValue(ACTIVE_DRAFT_META, submittedId);
     toast(candidate.fiscalCorrection ? 'Correção guardada. Aguarde a confirmação; se falhar, retome na aba Correções.' : 'Ocorrência guardada na fila. A sincronização continuará automaticamente.');
     void syncSingleRecord(submittedId, false, candidate.fiscalDraftKey || '').then((result) => {
@@ -1474,7 +1518,7 @@ async function submitOccurrence() {
   } catch (error) {
     console.error('[Envio] Falha ao preparar ocorrência na fila.', error);
     if (!locallyQueued && activeRecord?.recordId === submittedId) activeRecord.status = previousStatus;
-    toast(locallyQueued ? 'Ocorrência guardada neste aparelho. Abra a fila para tentar sincronizar.' : 'Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
+    toast(error?.code === 'LOCAL_RECORD_CHANGED' ? friendlyError(error) : locallyQueued ? 'Ocorrência guardada neste aparelho. Abra a fila para tentar sincronizar.' : 'Não foi possível guardar a ocorrência neste aparelho. Tente novamente.', 'error');
   } finally {
     occurrenceSubmissionRunning = false; setBusy(elements.submitOccurrenceButton, false);
     if (locallyQueued && activeRecord?.recordId === submittedId) {
@@ -1627,7 +1671,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         continue;
       }
       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
-      if (fiscalKey && (localPhoto.recordId !== next.recordId || localPhoto.photoIndex !== index || !state.uploadKey || localPhoto.uploadKey !== state.uploadKey)) throw new ApiError(`A identidade local da Foto ${index} diverge do rascunho. Abra novamente a correção; a foto foi preservada.`, 'LOCAL_PHOTO_IDENTITY_MISMATCH');
+      if (localPhoto.recordId !== next.recordId || localPhoto.photoIndex !== index || !state.uploadKey || localPhoto.uploadKey !== state.uploadKey) throw new ApiError(`A identidade local da Foto ${index} diverge do rascunho. Abra novamente a ocorrência; a foto foi preservada.`, 'LOCAL_PHOTO_IDENTITY_MISMATCH');
       syncStage = 'encode_photo'; await save();
       const dataUrl = await blobToDataUrl(localPhoto.blob);
       if (!stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
@@ -1973,8 +2017,12 @@ function openScrollableDialog(dialog, body) {
 async function handleMineAction(event) {
   if (event.target.closest('[data-mine-retry]')) return refreshMine(true);
   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
+  const revision = sessionRevision, token = session?.token;
+  const isCurrent = () => revision === sessionRevision && token === session?.token;
+  if (!session) return;
   if (button.dataset.mineAction === 'sync') return syncSingleRecord(recordId, true);
   const local = await getRecord(recordId); const server = mineRecords.find((item) => item.recordId === recordId);
+  if (!isCurrent()) return;
   if (!local && !server) return;
   const record = normalizeOccurrenceRecord({ ...(local || {}), ...(server || {}), photos: server?.photos || local?.photos || [], photoStates: local?.photoStates || server?.photoStates || [], transformerPhotos: server?.transformerPhotos || local?.transformerPhotos || {}, ...(local?.correctionMode ? correctionFields(local) : {}), audit: server?.audit || local?.audit || {} }, 'selectedRecord');
   if (button.dataset.mineAction === 'view') {
@@ -1989,11 +2037,16 @@ async function handleMineAction(event) {
     const resuming = local?.correctionMode && local?.correctionRequestedAt === requestAt;
     const states = normalizePhotoStates(record.photoStates).map((state) => requested.has(state.photoIndex) ? { ...state, confirmed: false, localReady: Boolean(resuming && state.localReady), replacePending: true } : { ...state, replacePending: Boolean(resuming && state.replacePending) });
     const correction = { ...record, correctionRequestedAt: requestAt, ...(local?.correctionRequestedAt !== requestAt ? { correctionRequestId: '', correctionPayloadSignature: '' } : {}), status: RECORD_STATUS.DRAFT, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED, correctionMode: true, requestedPhotoIndexes: [...requested], photoStates: states };
-    await putRecord(correction); await setMeta(ACTIVE_DRAFT_META, correction.recordId);
+    const storedCorrection = await putRecord(correction, { expectedUpdatedAt: String(local?.updatedAt || '') });
+    if (!isCurrent()) return;
+    await setMeta(ACTIVE_DRAFT_META, correction.recordId);
+    if (!isCurrent()) return;
     toast(requested.size ? `Refaça: ${[...requested].map(photoIndexLabel).join(', ')}.` : 'Correção carregada. Confira a observação do Supervisor.');
-    return loadRecordIntoForm(correction);
+    return loadRecordIntoForm(storedCorrection || correction);
   }
-  await setMeta(ACTIVE_DRAFT_META, record.recordId); await loadRecordIntoForm(record);
+  await setMeta(ACTIVE_DRAFT_META, record.recordId);
+  if (!isCurrent()) return;
+  await loadRecordIntoForm(record);
 }
 
 function renderFieldCorrectionBanner(record) {
@@ -2014,31 +2067,38 @@ function editingStorage(record = activeRecord) {
 
 async function openAssignedFiscalCorrection(server) {
   if (session?.role !== 'fiscal' || !sameUser(server.fiscalCorrection?.assignedFiscal, session.user)) throw new ApiError('Solicitação não atribuída a este Fiscal.', 'FORBIDDEN');
-  const revision = sessionRevision, key = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection, session.aclRevision || ''), storage = fiscalDraftStorage(key);
+  const revision = sessionRevision, requestSession = session;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession.token;
+  const key = fiscalDraftKey(requestSession.user, server.recordId, server.fiscalCorrection, requestSession.aclRevision || ''), storage = fiscalDraftStorage(key);
   let local = await storage.getRecord();
-  if (!local && session.aclRevision) {
+  if (!isCurrent()) return;
+  if (!local && requestSession.aclRevision) {
     // Upgrade a pre-hotfix draft only after openFiscalCorrection authorized the
     // exact request and assignment. Leave the old bytes intact for recovery.
-    const legacyKey = fiscalDraftKey(session.user, server.recordId, server.fiscalCorrection);
+    const legacyKey = fiscalDraftKey(requestSession.user, server.recordId, server.fiscalCorrection);
     const legacy = await getMeta(legacyKey);
-    if (legacy?.record && !legacy.record.fiscalAclRevision && revision === sessionRevision) {
-      await setMeta(key, { ...legacy, record: { ...legacy.record, fiscalDraftKey: key, fiscalAclRevision: session.aclRevision } });
+    if (!isCurrent()) return;
+    if (legacy?.record && !legacy.record.fiscalAclRevision) {
+      await setMeta(key, { ...legacy, record: { ...legacy.record, fiscalDraftKey: key, fiscalAclRevision: requestSession.aclRevision } });
+      if (!isCurrent()) return;
       local = await storage.getRecord();
     }
   }
-  if (revision !== sessionRevision) return;
+  if (!isCurrent()) return;
   const requestedAt = correctionRequest(server).lastRequestedAt || correctionRequest(server).requestedAt || '';
   const resuming = local?.correctionMode && local.correctionRequestedAt === requestedAt;
   const requested = normalizeArray(server.audit?.requestedPhotoIndexes || [], 'requestedPhotoIndexes').map(Number);
   const correction = resuming ? { ...local, audit: server.audit, fiscalCorrection: server.fiscalCorrection } : { ...server, fiscalDraftKey: key,
-    fiscalAclRevision: session.aclRevision || '', syncPhase: 'saved', correctionMode: true, correctionRequestedAt: requestedAt, correctionOriginalRequestedAt: requestedAt, correctionOriginal: correctionOriginalSnapshot(server),
+    fiscalAclRevision: requestSession.aclRevision || '', syncPhase: 'saved', correctionMode: true, correctionRequestedAt: requestedAt, correctionOriginalRequestedAt: requestedAt, correctionOriginal: correctionOriginalSnapshot(server),
     correctionRequestId: '', correctionPayloadSignature: '', serverConfirmed: true, serverStatus: RECORD_STATUS.CORRECTION_REQUESTED,
     requestedPhotoIndexes: requested, photoStates: normalizePhotoStates(server.photoStates).map(state => requested.includes(state.photoIndex) ? { ...state, confirmed: false, replacePending: true, localReady: false } : { ...state, localReady: false }), status: RECORD_STATUS.DRAFT };
-  await storage.putRecord(correction);
-  if (revision !== sessionRevision) return;
-  await loadRecordIntoForm(correction); void loadTeamDirectory();
+  const storedCorrection = await storage.putRecord(correction, { expectedUpdatedAt: String(local?.updatedAt || '') });
+  if (!isCurrent()) return;
+  await loadRecordIntoForm(storedCorrection || correction);
+  if (!isCurrent()) return;
+  void loadTeamDirectory();
   // Offer only permitted Bases; the backend validates the final assignment.
-  for (const option of elements.operationBase.options) if (option.value) { option.hidden = !session.bases.includes(option.value); option.disabled = option.hidden; }
+  for (const option of elements.operationBase.options) if (option.value) { option.hidden = !requestSession.bases.includes(option.value); option.disabled = option.hidden; }
   toast(resuming ? 'Rascunho recuperado. Dados do Campo original preservados.' : 'Correção atribuída carregada. Confira a observação do Supervisor.');
 }
 
@@ -2095,7 +2155,7 @@ async function loadRecordIntoForm(record) {
       activePhotos.set(photo.photoIndex, photo);
       setPreviewUrl(photo.photoIndex, URL.createObjectURL(photo.blob));
     }
-    if (photos.length) await editingStorage(activeRecord).putRecord(activeRecord);
+    if (photos.length) await saveActiveDraft();
     if (activeRecord === loadingRecord) updatePhotoGrid();
   } catch (error) {
     console.error('[Rascunho] Falha ao recuperar evidências locais.', error);

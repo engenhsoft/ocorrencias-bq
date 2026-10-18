@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as conformity from '../supervisor-conformity.js';
+import * as financial from '../supervisor-financial.js';
 
 const root = new URL('../', import.meta.url);
 const [app, coreSource, features, html, beforeApp, beforeFeatures] = await Promise.all([
@@ -46,7 +47,10 @@ function charts(role = 'supervisor') {
   const summary = { top3: [], month: '2026-10', bases: { month: [{ label: 'CAICÓ', count: 4, percentage: 100 }], all: [] }, nonconformity: { month: { base: [{ label: 'CAICÓ', analysed: 4, nonconforming: 1, percentage: 25 }], crewLeader: [] }, all: { base: [], crewLeader: [] } } };
   summary.conformityRecords = [{ recordId: A, base: 'CAICÓ', crewLeader: 'Chefe A', audit: { timeline: [{ action: 'PUBLICADA', actor: 'Supervisor A', at: '2026-10-14T12:00:00-03:00' }] } }];
   const api = { getOperationalSummary: async () => { events.push('summary'); return state.role === 'field' ? { top3: [], month: '2026-10' } : summary; }, listFiscalRecords: async () => { events.push('fiscal'); return { records: [], bases: ['CAICÓ'], summary: { total: 0 }, nextOffset: null }; } };
-  const c = vm.createContext({ ...core, ...conformity, api, navigator: { onLine: true }, document: { querySelector: host, addEventListener() {}, querySelectorAll: () => [] }, ApiError: class extends Error {} });
+  // Admin/correction controllers are unrelated to these summary/chart checks.
+  const createFiscalAdmin = () => ({ reset() {}, enter() {} });
+  const createFiscalWorkspace = () => ({ reset() {}, enter() {}, syncChanged() {}, confirmed() {}, setPanel() {} });
+  const c = vm.createContext({ ...core, ...conformity, ...financial, createFiscalAdmin, createFiscalWorkspace, api, navigator: { onLine: true }, document: { querySelector: host, addEventListener() {}, querySelectorAll: () => [] }, ApiError: class extends Error {} });
   vm.runInContext(features.replace(/^import .*?;\n/gm, '').replace(/^export /gm, ''), c);
   const controller = c.createOperationalFeatures({ getSession: () => state.role ? { role: state.role, user: 'Fixture', token: 't' + state.revision } : null, getRevision: () => state.revision, onNavigate() {}, onCorrection() {}, onSynchronize() {}, onOpenRecord() {}, onLogout() {} });
   return { controller, state, host, events };

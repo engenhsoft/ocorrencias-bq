@@ -1,0 +1,50 @@
+{
+  "kind": "non-invasive-unauthenticated-read-checks",
+  "productionRecordWrites": 0,
+  "loginAttempts": 0,
+  "at": "2026-10-18T13:51:45Z",
+  "results": [
+    {
+      "action": "listMine",
+      "ms": 3322.65,
+      "error": "AUTH_REQUIRED",
+      "denied": true,
+      "dataKeysPresent": []
+    },
+    {
+      "action": "listPending",
+      "ms": 3421.13,
+      "error": "AUTH_REQUIRED",
+      "denied": true,
+      "dataKeysPresent": []
+    },
+    {
+      "action": "listFiscalRecords",
+      "ms": 3010.17,
+      "error": "AUTH_REQUIRED",
+      "denied": true,
+      "dataKeysPresent": []
+    },
+    {
+      "action": "getOccurrenceDocument",
+      "ms": 2374.42,
+      "error": "AUTH_REQUIRED",
+      "denied": true,
+      "dataKeysPresent": []
+    },
+    {
+      "action": "getDocumentPhoto",
+      "ms": 3169.27,
+      "error": "AUTH_REQUIRED",
+      "denied": true,
+      "dataKeysPresent": []
+    },
+    {
+      "action": "listFiscalAccounts",
+      "ms": 3037.67,
+      "error": "AUTH_REQUIRED",
+      "denied": true,
+      "dataKeysPresent": []
+    }
+  ]
+}

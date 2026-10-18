@@ -1,0 +1,40 @@
+{
+  "scope": "public Apps Script modules with isolated service fixtures; no official router/token/publication coverage",
+  "total": 26,
+  "passed": 20,
+  "failed": 6,
+  "productionWrites": 0,
+  "measurements": [
+    {
+      "scenario": "25 fiscal correction records",
+      "accountPropertyReads": 51,
+      "sheetReads": 1
+    }
+  ],
+  "failures": [
+    {
+      "name": "P1 staged upload remains requested after fiscal transfer",
+      "error": "AssertionError [ERR_ASSERTION]: URL and key alone cannot prove a STAGED upload is confirmed.\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:88:10\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:180:50"
+    },
+    {
+      "name": "transfer preserves requested slot on wrong-url",
+      "error": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok(JSON.parse(f.row[COL.AUDIT - 1]).requestedPhotoIndexes.includes(2))\n\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:104:30\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:180:50"
+    },
+    {
+      "name": "P2 correction list uses one account snapshot for 25 projections",
+      "error": "AssertionError [ERR_ASSERTION]: Account service reads must not scale as two per record: 51\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:110:10\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:180:50"
+    },
+    {
+      "name": "P1 revocation during sheet read blocks response in listFiscalCorrections_",
+      "error": "AssertionError [ERR_ASSERTION]: Missing expected exception.\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:115:10\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:180:50"
+    },
+    {
+      "name": "P1 revocation during sheet read blocks response in listFiscalRecords_",
+      "error": "AssertionError [ERR_ASSERTION]: Missing expected exception.\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:115:10\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:180:50"
+    },
+    {
+      "name": "P1 revocation during document material read blocks export response",
+      "error": "AssertionError [ERR_ASSERTION]: Missing expected exception.\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:122:10\n    at file:///workspace/ocorrencias-bq/tests/audit-backend-20261018.mjs:180:50"
+    }
+  ]
+}
