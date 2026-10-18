@@ -3,8 +3,8 @@ function fiscalCorrectionRoute_(audit) {
   const request = audit && audit.lastCorrectionRequest || {};
   return request.routingVersion === 'FISCAL_ASSIGNED' ? request : null;
 }
-function fiscalCorrectionCandidates_(base) {
-  const accounts = fiscalAccounts_();
+function fiscalCorrectionCandidates_(base, snapshot) {
+  const accounts = snapshot || fiscalAccounts_();
   return Object.keys(accounts).map(function (key) { return accounts[key]; }).filter(function (account) {
     return account && account.active === true && account.kind !== 'master' && Array.isArray(account.bases) && account.bases.indexOf(base) >= 0;
   });
@@ -17,17 +17,18 @@ function newFiscalCorrectionRoute_(request, base) {
     base: base, assignedFiscal: selected ? selected.user : '', assignmentStatus: selected ? 'ASSIGNED' : 'WAITING_ASSIGNMENT',
     assignmentReason: selected ? '' : candidates.length ? 'MULTIPLE_FISCALS_WITHOUT_PRINCIPAL' : 'NO_ACTIVE_FISCAL' });
 }
-function fiscalCorrectionRecipientValid_(request) {
+function fiscalCorrectionRecipientValid_(request, accounts) {
   if (!request || !request.assignedFiscal) return false;
-  return fiscalCorrectionCandidates_(request.base).some(function (account) { return normalize_(account.user) === normalize_(request.assignedFiscal); });
+  return fiscalCorrectionCandidates_(request.base, accounts).some(function (account) { return normalize_(account.user) === normalize_(request.assignedFiscal); });
 }
-function fiscalCorrectionProjection_(audit) {
+function fiscalCorrectionProjection_(audit, accounts) {
   const request = fiscalCorrectionRoute_(audit);
   if (!request) return { routingVersion: 'LEGACY_FIELD' };
   const complete = request.assignmentStatus === 'COMPLETE';
+  const recipientValid = complete || fiscalCorrectionRecipientValid_(request, accounts);
   return { routingVersion: request.routingVersion, routingRequestId: request.routingRequestId, assignmentRevision: request.assignmentRevision,
-    base: request.base, assignedFiscal: request.assignedFiscal || '', assignmentStatus: complete ? 'COMPLETE' : fiscalCorrectionRecipientValid_(request) ? 'ASSIGNED' : 'WAITING_ASSIGNMENT',
-    assignmentReason: !complete && !fiscalCorrectionRecipientValid_(request) ? request.assignmentReason || 'RECIPIENT_UNAVAILABLE' : '', requestedAt: request.requestedAt };
+    base: request.base, assignedFiscal: request.assignedFiscal || '', assignmentStatus: complete ? 'COMPLETE' : recipientValid ? 'ASSIGNED' : 'WAITING_ASSIGNMENT',
+    assignmentReason: !recipientValid ? request.assignmentReason || 'RECIPIENT_UNAVAILABLE' : '', requestedAt: request.requestedAt };
 }
 function authorizeFiscalCorrection_(auth, values, context, allowComplete) {
   const current = fiscalSession_(auth), audit = safeJson_(values[COL.AUDIT - 1], {}), request = fiscalCorrectionRoute_(audit);
@@ -79,15 +80,16 @@ function fiscalCorrectionVerified_(audit, receipt, previousTotal, total) {
   }
 }
 function listFiscalCorrections_(payload) {
-  const auth = requireSession_(payload.token, ['fiscal']);
+  const auth = requireSession_(payload.token, ['fiscal']), accounts = fiscalAccounts_();
   const records = dataRows_(sheet_(APP.pendingSheet), COL.WIDTH).filter(function (values) {
     return auth.bases.indexOf(featureBase_(values[COL.BASE - 1])) >= 0 && operationalStatusFromValues_(values) === STATUS.CORRECTION_REQUESTED;
   }).map(function (values) {
-    const audit = safeJson_(values[COL.AUDIT - 1], {}), route = fiscalCorrectionProjection_(audit);
+    const audit = safeJson_(values[COL.AUDIT - 1], {}), route = fiscalCorrectionProjection_(audit, accounts);
     return Object.assign(fiscalRecordSummary_(values), { reason: String(values[COL.REASON - 1] || ''), supervisorNote: String(values[COL.SUPERVISOR_NOTE - 1] || ''),
       fiscalCorrection: route, canCorrect: route.routingVersion === 'FISCAL_ASSIGNED' && route.assignmentStatus === 'ASSIGNED' && normalize_(route.assignedFiscal) === normalize_(auth.user) });
   });
-  return { ok: true, success: true, records: records, bases: auth.bases, aclRevision: auth.aclRevision, calculatedAt: nowIso_() };
+  const current = requireSession_(payload.token, ['fiscal']);
+  return { ok: true, success: true, records: records, bases: current.bases, aclRevision: current.aclRevision, calculatedAt: nowIso_() };
 }
 function openFiscalCorrection_(payload) {
   const auth = requireSession_(payload.token, ['fiscal']), id = requireUuid_(payload.recordId);
@@ -116,7 +118,7 @@ function reassignFiscalCorrection_(payload) {
     if (receipt && receipt.requestedAt === correctionRequestedAt_(audit) && receipt.phase !== 'COMPLETE') {
       const remaining = Object.keys(Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {})).map(Number).filter(function (index) {
         const slot = Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {})[index];
-        return !found.values[photoUrlColumn_(index) - 1] || found.values[photoUploadKeyColumn_(index) - 1] !== slot.uploadKey;
+        return !photoSlotConfirmed_(found.values, audit, index) || found.values[photoUploadKeyColumn_(index) - 1] !== slot.uploadKey;
       });
       audit.requestedPhotoIndexes = normalizePhotoIndexes_((audit.requestedPhotoIndexes || []).concat(remaining));
       audit.transferredCorrectionSubmissions = (audit.transferredCorrectionSubmissions || []).concat([receipt]).slice(-10);
