@@ -92,7 +92,7 @@ for (const [handler, prefix, runSearch] of [['handleCatalogInput', 'catalog', 's
 function photoHarness() {
   const writes = [], previews = [], feedback = [];
   let counter = 0;
-  const c = { ...core, sessionRevision: 1, session: { user: 'Campo FICTÍCIO' }, activeRecord: record(), photoSelectionRequests: new Map(),
+  const c = { ...core, sessionRevision: 1, session: { user: 'Campo FICTÍCIO' }, activeRecord: record(), activeDraftSavePromise: null, photoSelectionRequests: new Map(),
     activePhotos: new Map(), ensureActiveRecord: async () => c.activeRecord, optimizePhoto: async file => file,
     generateUuid: () => 'upload-' + ++counter, putPhotoAndRecord: async (r, index, blob, key) => {
       writes.push({ id: r.recordId, index, blob, key });
@@ -100,7 +100,10 @@ function photoHarness() {
     }, saveActiveDraft: async () => {}, setPreviewUrl: (index, url) => previews.push([index, url]),
     URL: { createObjectURL: blob => 'blob:' + blob.name }, updatePhotoGrid() {}, validateStepOne() {},
     ApiError: class extends Error {}, friendlyError: error => error.message, toast: text => feedback.push(text) };
-  load(c, 'storeSelectedPhoto', 'removePhoto'); return { c, writes, previews, feedback };
+  // The extracted handlers use the same adapter as the field/Fiscal form.
+  c.getPhoto = async () => undefined; c.getPhotosForRecord = async () => [];
+  c.deletePhoto = async () => true; c.putRecord = async value => structuredClone(value);
+  load(c, 'editingStorage', 'storeSelectedPhoto', 'removePhoto'); return { c, writes, previews, feedback };
 }
 const image = name => ({ name, type: 'image/jpeg', size: 20 });
 test('foto em decodificação não é anexada a outro UUID', async () => {
@@ -201,14 +204,16 @@ test('salvar rascunho durante logout não acessa formulário encerrado', async (
   const work = deferred(), metas = [];
   const c = { activeRecord: record(), currentStep: 2, session: { user: 'Campo FICTÍCIO' }, sessionRevision: 1, Date,
     putRecord: () => work.promise, setMeta: async (...args) => metas.push(args), ACTIVE_DRAFT_META: 'activeDraftId', showDraftId() {} };
-  c.occurrenceSubmissionRunning = false; c.activeDraftSavePromise = null; load(c, 'saveActiveDraft'); const task = c.saveActiveDraft(); c.sessionRevision++; c.session = null; c.activeRecord = null;
+  c.occurrenceSubmissionRunning = false; c.activeDraftSavePromise = null;
+  c.editingStorage = () => ({ putRecord: c.putRecord });
+  load(c, 'saveActiveDraft'); const task = c.saveActiveDraft(); c.sessionRevision++; c.session = null; c.activeRecord = null;
   work.resolve(record()); await assert.doesNotReject(task); assert.equal(metas.length, 0);
 });
 test('sincronização offline não sobrescreve edição posterior de outra aba', async () => {
   const original = record(); original.status = core.RECORD_STATUS.PENDING;
   let latest = { ...record(), observation: 'edição mais recente', updatedAt: '2026-10-06T20:00:01Z' }, reads = 0;
   const c = { ...core, session: { role: 'field', user: 'Campo FICTÍCIO', token: 'FICTÍCIO' }, sessionRevision: 1,
-    getRecord: async () => structuredClone(++reads === 1 ? original : latest), navigator: { onLine: false },
+    getRecord: async () => structuredClone(++reads === 1 ? original : latest), getPhoto: async () => undefined, deletePhoto: async () => false, navigator: { onLine: false },
     putRecord: async (r, options = {}) => {
       if (options.expectedUpdatedAt !== undefined && options.expectedUpdatedAt !== latest.updatedAt) {
         const error = Error('versão local mudou'); error.code = 'LOCAL_RECORD_CHANGED'; throw error;

@@ -1,0 +1,82 @@
+{
+  "scope": "isolated fixtures; public backend modules; no production record mutations",
+  "total": 125,
+  "passed": 125,
+  "failed": 0,
+  "suites": 9,
+  "failedSuites": 0,
+  "results": [
+    {
+      "suite": "audit-sync-20261018.mjs",
+      "passed": true,
+      "total": 28,
+      "approved": 28,
+      "failed": 0,
+      "durationMs": 208
+    },
+    {
+      "suite": "audit-offline-20261018.mjs",
+      "passed": true,
+      "total": 10,
+      "approved": 10,
+      "failed": 0,
+      "durationMs": 126
+    },
+    {
+      "suite": "audit-deletion-20261018.mjs",
+      "passed": true,
+      "total": 9,
+      "approved": 9,
+      "failed": 0,
+      "durationMs": 71
+    },
+    {
+      "suite": "audit-session-20261018.mjs",
+      "passed": true,
+      "total": 9,
+      "approved": 9,
+      "failed": 0,
+      "durationMs": 59
+    },
+    {
+      "suite": "audit-mine-session-20261018.mjs",
+      "passed": true,
+      "total": 9,
+      "approved": 9,
+      "failed": 0,
+      "durationMs": 61
+    },
+    {
+      "suite": "audit-fiscal-ui-20261018.mjs",
+      "passed": true,
+      "total": 11,
+      "approved": 11,
+      "failed": 0,
+      "durationMs": 84
+    },
+    {
+      "suite": "audit-merge-20261018.mjs",
+      "passed": true,
+      "total": 13,
+      "approved": 13,
+      "failed": 0,
+      "durationMs": 64
+    },
+    {
+      "suite": "audit-exports-20261018.mjs",
+      "passed": true,
+      "total": 10,
+      "approved": 10,
+      "failed": 0,
+      "durationMs": 538
+    },
+    {
+      "suite": "audit-backend-20261018.mjs",
+      "passed": true,
+      "total": 26,
+      "approved": 26,
+      "failed": 0,
+      "durationMs": 101
+    }
+  ]
+}

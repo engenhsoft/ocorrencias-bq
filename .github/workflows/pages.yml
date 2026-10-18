@@ -48,6 +48,17 @@ jobs:
       - name: Validar materiais
         timeout-minutes: 2
         run: node tests/material-catalog.mjs
+      - name: Validar auditoria de integridade e segurança
+        timeout-minutes: 3
+        run: |
+          npm install --prefix "$RUNNER_TEMP/occbq-audit-deps" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund fake-indexeddb@6.2.6
+          NODE_PATH="$RUNNER_TEMP/occbq-audit-deps/node_modules" node tests/run-audit-20261018.mjs
+      - name: Validar concorrência e recuperação operacional
+        timeout-minutes: 3
+        run: |
+          node tests/stability-audit.mjs
+          node tests/stability-sweep.mjs
+          node tests/supervisor-load-completion.mjs
       - name: Validar release PWA
         timeout-minutes: 2
         run: node tests/pwa-release.mjs

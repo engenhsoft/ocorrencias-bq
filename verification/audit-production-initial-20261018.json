@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-18T13:45:34Z",
+  "productionWrites": 0,
+  "assets": [
+    {
+      "path": "index.html",
+      "status": 200,
+      "networkMs": 733.83,
+      "sha256": "53c2a2cd38e917d8fa80258fe6ae0155a5db1c2fde29fc3157f7854210e57e9b",
+      "equalsLocalInitial": true
+    },
+    {
+      "path": "core.js",
+      "status": 200,
+      "networkMs": 702.71,
+      "sha256": "3918c94fff47a8c2a96d1da720996ed56f52e3147c6918ed9ddb38a94e888062",
+      "equalsLocalInitial": true
+    },
+    {
+      "path": "service-worker.js",
+      "status": 200,
+      "networkMs": 470.31,
+      "sha256": "dbc84ff1fd8211b73c968ea993e481dabeb70fa6a67dd745215a0d3324a7443d",
+      "equalsLocalInitial": true
+    },
+    {
+      "path": "config.js",
+      "status": 200,
+      "networkMs": 760.57,
+      "sha256": "6031c35af95b58098baa43a03c4d4b537f50c625885294e96592bb41633d53c6",
+      "equalsLocalInitial": true
+    }
+  ],
+  "health": {
+    "status": 200,
+    "networkMs": 3138.88,
+    "response": {
+      "ok": true,
+      "success": true,
+      "service": "OCORRÊNCIAS B&Q",
+      "version": "2026.10.15.4",
+      "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+      "timestamp": "2026-10-18T10:45:38-03:00"
+    }
+  }
+}

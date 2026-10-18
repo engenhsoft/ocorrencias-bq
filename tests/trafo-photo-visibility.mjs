@@ -37,6 +37,7 @@ class Control {
     };
   }
   get id() { return this.attrs.id || ''; }
+  get options() { return this.querySelectorAll('option'); }
   setAttribute(name, value) { this.attrs[name] = String(value); }
   getAttribute(name) { return this.attrs[name] ?? null; }
   removeAttribute(name) { delete this.attrs[name]; }

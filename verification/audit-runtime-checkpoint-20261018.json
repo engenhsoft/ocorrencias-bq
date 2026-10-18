@@ -1,0 +1,108 @@
+{
+  "allCommittedRuntimeEqualWorkingTree": true,
+  "allRuntimeEqualTestedSnapshot": true,
+  "runtime": [
+    {
+      "path": "db.js",
+      "sha256": "c0e2f3137ea923e70fdfea61a9803b0340e1c6f5f51545941d77fd870f2487cd",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "occurrence-card.js",
+      "sha256": "8ac2ca42805d61dcc267c3d9aa8e04b13d47dd61ecc74c96118269d1c8d5b45f",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "core.js",
+      "sha256": "b307f6eb788d52915cf886e5389a11e27b8e8d0fd20a4f5bf376d3ee578b123e",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "fiscal-admin.js",
+      "sha256": "7e0ba54846dc1f67985cb98bb9b37a0a8aee33df42a45a089262792c825b5869",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "operational-features.js",
+      "sha256": "b4f23ea899c956d50f78f833b37df0ae350ec1b892c02f03a714273b813268c1",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "app.js",
+      "sha256": "3ce60fedd292eca9d4b0d37c32063cbd794a6270c8bfc2ca21a44235cb238794",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "fiscal-workspace.js",
+      "sha256": "2fc82abcdd6ae9a0aecf1a60d4646e69dee100da0d14c69eb7b1e5ff48a564fd",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "fiscal-drafts.js",
+      "sha256": "c9d0a31d44289c45cd8131ccb5f655714d34ebd174eef479373d24c5eab5a687",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "supervisor-financial.js",
+      "sha256": "02206c71d2f855ff3aa3b05aab35b944746112ea7918b2715cf3d2586a27c645",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "config.js",
+      "sha256": "6031c35af95b58098baa43a03c4d4b537f50c625885294e96592bb41633d53c6",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "supervisor-conformity.js",
+      "sha256": "cbda78bed2261e8c6786beee7d8b68c316cb6d6c065abe10f45fdd429af3ec1d",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "api.js",
+      "sha256": "04c8a05fa0d30b6751a5843cc56a190722844848c43639e2c77cdad52a857804",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "service-worker.js",
+      "sha256": "ed3889bb583f753f0114ce2b08d32f9a1004a2dda0f507e789387056396e2fe0",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "occurrence-pdf.js",
+      "sha256": "210761365bac73c78e5a2a29c54328af032cb91b74c5dcd234416fc198526414",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "occurrence-excel-worker.js",
+      "sha256": "f9acdd38519fc9598202dac79f095d34b54473726611760d3aefc4c9f922eaf0",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "occurrence-excel.js",
+      "sha256": "4f35bd2e421f2dbac3a9a0c1e36ac4a94323e1cb84932f4829fe50b1fd470832",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    },
+    {
+      "path": "index.html",
+      "sha256": "3a43735a27748b40afcd98691971646e356a7685490fc74a5c5c40b7048e28e1",
+      "equalsCommitted": true,
+      "equalsTestedSnapshot": true
+    }
+  ]
+}

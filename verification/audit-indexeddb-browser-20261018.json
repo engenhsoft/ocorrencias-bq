@@ -1,0 +1,192 @@
+{
+  "suite": "audit-indexeddb-browser-20261018",
+  "executedAt": "2026-10-18T14:00:56.553Z",
+  "isolation": "Native Chromium IndexedDB; fresh browser context per phase; localhost modules; synthetic records and Blobs only",
+  "productionWrites": 0,
+  "sources": {
+    "before": {
+      "db.js": "7c6fa572e444b02a95f0a861424ad51002d3fee5c4b5bbc528cfd014488e6939",
+      "fiscal-drafts.js": "8ecef6f931297d62243b808f137c2adaaffbd8df09534e3be8ef3aa6664fdc2e",
+      "core.js": "3918c94fff47a8c2a96d1da720996ed56f52e3147c6918ed9ddb38a94e888062"
+    },
+    "after": {
+      "db.js": "c0e2f3137ea923e70fdfea61a9803b0340e1c6f5f51545941d77fd870f2487cd",
+      "fiscal-drafts.js": "c9d0a31d44289c45cd8131ccb5f655714d34ebd174eef479373d24c5eab5a687",
+      "core.js": "b307f6eb788d52915cf886e5389a11e27b8e8d0fd20a4f5bf376d3ee578b123e"
+    }
+  },
+  "phases": [
+    {
+      "phase": "before",
+      "total": 14,
+      "passed": 3,
+      "failed": 11,
+      "tests": [
+        {
+          "name": "Fiscal stale photo preserves newer data/receipt and other slots",
+          "passed": false,
+          "error": "Newer correction fields overwritten by stale photo",
+          "elapsedMs": 60.8
+        },
+        {
+          "name": "Fiscal closed connection reopens and preserves existing Blob",
+          "passed": false,
+          "error": "Failed to execute 'transaction' on 'IDBDatabase': The database connection is closing.",
+          "elapsedMs": 5.5
+        },
+        {
+          "name": "Stale deletion preserves record and photo atomically",
+          "passed": false,
+          "error": "Stale deletion was not blocked: recordExists=false photoExists=false",
+          "elapsedMs": 11.3
+        },
+        {
+          "name": "Status guard prevents deletion of synchronized queue",
+          "passed": false,
+          "error": "Status guard did not preserve queue",
+          "elapsedMs": 2.7
+        },
+        {
+          "name": "Guarded deletion removes only exact UUID with all seven photo slots",
+          "passed": true,
+          "elapsedMs": 69.3
+        },
+        {
+          "name": "Campo delayed photo cannot resurrect a deleted draft or Blob",
+          "passed": false,
+          "error": "Deleted draft accepted a delayed photo",
+          "elapsedMs": 7.6
+        },
+        {
+          "name": "Campo delayed photo preserves a newer replacement in the same slot",
+          "passed": false,
+          "error": "Delayed replacement changed the current revision",
+          "elapsedMs": 9.1
+        },
+        {
+          "name": "Campo photo cannot modify a concurrently submitted draft",
+          "passed": false,
+          "error": "Photo changed the submitted snapshot",
+          "elapsedMs": 4.9
+        },
+        {
+          "name": "Campo simultaneous replacements commit one Blob with one matching slot key",
+          "passed": false,
+          "error": "Concurrent same-slot writes both committed or both failed",
+          "elapsedMs": 5
+        },
+        {
+          "name": "Campo simultaneous distinct slots preserve both Blobs and keys",
+          "passed": true,
+          "elapsedMs": 8.6
+        },
+        {
+          "name": "Fiscal delayed photo preserves a newer replacement in the same slot",
+          "passed": false,
+          "error": "Delayed replacement changed the current revision",
+          "elapsedMs": 8.9
+        },
+        {
+          "name": "Fiscal photo cannot modify a concurrently submitted draft",
+          "passed": false,
+          "error": "Photo changed the submitted snapshot",
+          "elapsedMs": 6.3
+        },
+        {
+          "name": "Fiscal simultaneous replacements commit one Blob with one matching slot key",
+          "passed": false,
+          "error": "Concurrent same-slot writes both committed or both failed",
+          "elapsedMs": 4.4
+        },
+        {
+          "name": "Fiscal simultaneous distinct slots preserve both Blobs and keys",
+          "passed": true,
+          "elapsedMs": 39
+        }
+      ]
+    },
+    {
+      "phase": "after",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Fiscal stale photo preserves newer data/receipt and other slots",
+          "passed": true,
+          "elapsedMs": 85
+        },
+        {
+          "name": "Fiscal closed connection reopens and preserves existing Blob",
+          "passed": true,
+          "elapsedMs": 18.8
+        },
+        {
+          "name": "Stale deletion preserves record and photo atomically",
+          "passed": true,
+          "elapsedMs": 54.3
+        },
+        {
+          "name": "Status guard prevents deletion of synchronized queue",
+          "passed": true,
+          "elapsedMs": 6.4
+        },
+        {
+          "name": "Guarded deletion removes only exact UUID with all seven photo slots",
+          "passed": true,
+          "elapsedMs": 87.7
+        },
+        {
+          "name": "Campo delayed photo cannot resurrect a deleted draft or Blob",
+          "passed": true,
+          "elapsedMs": 19.2
+        },
+        {
+          "name": "Campo delayed photo preserves a newer replacement in the same slot",
+          "passed": true,
+          "elapsedMs": 21.1
+        },
+        {
+          "name": "Campo photo cannot modify a concurrently submitted draft",
+          "passed": true,
+          "elapsedMs": 17
+        },
+        {
+          "name": "Campo simultaneous replacements commit one Blob with one matching slot key",
+          "passed": true,
+          "elapsedMs": 43.7
+        },
+        {
+          "name": "Campo simultaneous distinct slots preserve both Blobs and keys",
+          "passed": true,
+          "elapsedMs": 15.1
+        },
+        {
+          "name": "Fiscal delayed photo preserves a newer replacement in the same slot",
+          "passed": true,
+          "elapsedMs": 11.3
+        },
+        {
+          "name": "Fiscal photo cannot modify a concurrently submitted draft",
+          "passed": true,
+          "elapsedMs": 10.3
+        },
+        {
+          "name": "Fiscal simultaneous replacements commit one Blob with one matching slot key",
+          "passed": true,
+          "elapsedMs": 9.2
+        },
+        {
+          "name": "Fiscal simultaneous distinct slots preserve both Blobs and keys",
+          "passed": true,
+          "elapsedMs": 11.1
+        }
+      ]
+    }
+  ],
+  "browser": "154.0.8037.57",
+  "externalRequestsBlocked": 0,
+  "total": 14,
+  "passed": 14,
+  "failed": 0
+}

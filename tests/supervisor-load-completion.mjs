@@ -38,6 +38,7 @@ function harness(source = appSource) {
   const h = appHarness('supervisor', source), c = h.c;
   Object.assign(c, { cardMetadataMarkup, cardThumbnailsMarkup });
   c.supervisorLoadState = 'idle';
+  c.supervisorMutationVersion = 0;
   c.supervisorLastLoadedAt = '';
   c.supervisorFiltersByTab = Object.fromEntries(['occurrences', 'pending', 'published'].map(tab => [tab, { search: '', base: '', team: '', type: '', from: '', to: '', mode: 'period' }]));
   c.publishedDetailCache = new Map(); c.publishedVisibleLimit = 60; c.previewUrls = new Map();

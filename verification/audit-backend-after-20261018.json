@@ -1,0 +1,15 @@
+{
+  "scope": "public Apps Script modules with isolated service fixtures; no official router/token/publication coverage",
+  "total": 26,
+  "passed": 26,
+  "failed": 0,
+  "productionWrites": 0,
+  "measurements": [
+    {
+      "scenario": "25 fiscal correction records",
+      "accountPropertyReads": 3,
+      "sheetReads": 1
+    }
+  ],
+  "failures": []
+}
