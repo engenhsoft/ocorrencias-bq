@@ -1,5 +1,5 @@
-import { escapeHtml, formatDateTime } from './core.js?v=2026.10.15.5';
-import { api } from './api.js?v=2026.10.15.5';
+import { escapeHtml, formatDateTime } from './core.js?v=2026.10.18.1';
+import { api } from './api.js?v=2026.10.18.1';
 
 export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
   const $ = selector => document.querySelector(selector);
@@ -74,7 +74,7 @@ export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
     const currentPassword = $('#fiscalMasterCurrentPassword').value, newPassword = $('#fiscalMasterNewPassword').value;
     if (newPassword !== $('#fiscalMasterPasswordConfirm').value) { status('As novas senhas não correspondem.', 'error'); return; }
     const { token } = getSession(), revision = getRevision(), run = generation;
-    saving = true; for (const control of passwordForm.elements) control.disabled = true; passwordForm.reset();
+    saving = true; for (const control of passwordForm.elements) control.disabled = true; passwordForm.reset(); status('Alterando senha da conta mestra…');
     try {
       await api.changeFiscalMasterPassword(token, currentPassword, newPassword);
       if (current(revision, token, run)) { onLogout(); $('#loginMessage').textContent = 'Senha da conta mestra alterada. Entre novamente com a nova senha.'; }
