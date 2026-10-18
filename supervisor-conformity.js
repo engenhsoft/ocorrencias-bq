@@ -1,4 +1,4 @@
-import { escapeHtml, formatNumber, normalizeText, operationalDate, isUuid } from './core.js?v=2026.10.15.5';
+import { escapeHtml, formatNumber, normalizeText, operationalDate, isUuid } from './core.js?v=2026.10.18.1';
 
 export const CONFORMITY_CATEGORIES = Object.freeze({ approved: 'Aprovadas sem edição direta', corrected: 'Corrigidas pelo Supervisor', rejected: 'Rejeitadas', requested: 'Correção solicitada à equipe' });
 const list = value => Array.isArray(value) ? value : [];
@@ -37,7 +37,7 @@ export function conformityIdentity(record) {
 
 export function buildConformityComparison(records, { period = 'month', month = operationalDate().slice(0, 7), base = '', crewLeader = '', dimension = 'base' } = {}) {
   const byId = new Map();
-  for (const record of records || []) if (isUuid(record?.recordId)) byId.set(record.recordId, record);
+  for (const record of records || []) if (isUuid(record?.recordId)) byId.set(record.recordId.toLowerCase(), record);
   const groups = new Map(), totals = { approved: 0, corrected: 0, rejected: 0, requested: 0 };
   let insufficient = 0;
   for (const record of byId.values()) {

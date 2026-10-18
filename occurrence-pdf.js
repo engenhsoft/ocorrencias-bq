@@ -1,4 +1,4 @@
-import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.15.5';
+import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.18.1';
 
 function documentDateTime(value) {
   if (!value) return 'Não informada';
@@ -10,7 +10,10 @@ async function loadPdfLibrary() {
   if (globalThis.PDFLib) return globalThis.PDFLib;
   if (!pdfLibraryPromise) pdfLibraryPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script'); script.src = new URL('./vendor/pdf-lib-1.17.1.min.js', import.meta.url).href;
-    script.onload = () => globalThis.PDFLib ? resolve(globalThis.PDFLib) : reject(new Error('Biblioteca PDF indisponível.'));
+    script.onload = () => {
+      if (globalThis.PDFLib) resolve(globalThis.PDFLib);
+      else { pdfLibraryPromise = null; script.remove(); reject(new Error('Biblioteca PDF indisponível.')); }
+    };
     script.onerror = () => { pdfLibraryPromise = null; script.remove(); reject(new Error('Não foi possível carregar a geração de PDF. Tente novamente.')); };
     document.head.append(script);
   });
@@ -117,7 +120,14 @@ export async function createOccurrencePdf(record, { getPhoto = async () => ({ av
   table(['Código', 'Descrição', 'Unidade', 'Quantidade'], [70, 300, 60, 85], (record.materials || []).map(item => [item.code, item.description, item.unit, formatNumber(item.quantity)]));
   section('Conferência');
   fields([['Status atual', statusLabel(record.status)], ['Supervisor', record.supervisor], ['Data de revisão', record.reviewedAt ? documentDateTime(record.reviewedAt) : ''], ['Motivo / correção solicitada', record.reason], ['Observação do Supervisor', record.supervisorNote]]);
-  const slots = Array.isArray(record.photoSlots) ? record.photoSlots : Array.from({ length: (record.occurrenceTypes || []).includes('SUBSTITUIÇÃO DE TRAFO') ? 7 : 5 }, (_, index) => ({ photoIndex: index + 1, confirmed: false }));
+  const slotCount = (record.occurrenceTypes || []).includes('SUBSTITUIÇÃO DE TRAFO') ? 7 : 5;
+  const suppliedSlots = new Map((Array.isArray(record.photoSlots) ? record.photoSlots : [])
+    .filter(slot => Number.isInteger(slot?.photoIndex) && slot.photoIndex >= 1 && slot.photoIndex <= slotCount)
+    .map(slot => [slot.photoIndex, slot]));
+  const slots = Array.from({ length: slotCount }, (_, position) => {
+    const photoIndex = position + 1, supplied = suppliedSlots.get(photoIndex);
+    return { photoIndex, confirmed: supplied?.confirmed === true && (!supplied.recordId || supplied.recordId === record.recordId) };
+  });
   const photoResults = [];
   section('Fotografias e evidências');
   for (const slot of slots) {
