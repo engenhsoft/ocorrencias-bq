@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.15.5';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.10.18.1';
 
 const DB_NAME = 'ocorrencias-bq-db';
 const DB_VERSION = 1;
@@ -15,9 +15,8 @@ let connectionPromise;
 // drafts must never overwrite a Campo record or its UUID/slot photo keys.
 export async function updateFiscalCorrectionDraft(key, mutate) {
   if (!String(key).startsWith('fiscalCorrection:')) throw new Error('Identificador de rascunho fiscal inválido.');
-  const database = await openDatabase();
-  const transaction = database.transaction(STORE.meta, 'readwrite');
-  const done = transactionDone(transaction), store = transaction.objectStore(STORE.meta);
+  const { transaction, store: objectStore } = await storeTransaction([STORE.meta], 'readwrite');
+  const done = transactionDone(transaction), store = objectStore(STORE.meta);
   let result;
   const request = store.get(key);
   request.onsuccess = () => {
@@ -179,8 +178,15 @@ export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, met
   };
   const { transaction, store } = await storeTransaction([STORE.records, STORE.photos], 'readwrite');
   const done = transactionDone(transaction); const records = store(STORE.records); const request = records.get(record.recordId);
+  let conflict;
   request.onsuccess = () => {
     const current = request.result;
+    if ((Object.hasOwn(metadata, 'expectedUploadKey') || Object.hasOwn(metadata, 'expectedRecordStatus')) && (!current
+      || Object.hasOwn(metadata, 'expectedRecordStatus') && current.status !== metadata.expectedRecordStatus
+      || Object.hasOwn(metadata, 'expectedUploadKey') && String(current.photoStates?.[photoIndex - 1]?.uploadKey || '') !== metadata.expectedUploadKey)) {
+      conflict = Object.assign(new Error('Esta ocorrência ou foto foi alterada em outra aba. A versão atual foi preservada; reabra a ocorrência antes de continuar.'), { code: 'LOCAL_RECORD_CHANGED' });
+      return;
+    }
     if (current && current.updatedAt !== record.updatedAt) {
       const selectedState = record.photoStates?.[photoIndex - 1];
       Object.assign(nextRecord, current, { photoStates: Array.from({ length: 7 }, (_, index) => index === photoIndex - 1 ? selectedState : current.photoStates?.[index] || { photoIndex: index + 1 }) });
@@ -189,6 +195,7 @@ export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, met
     records.put(nextRecord); store(STORE.photos).put(photo);
   };
   await done;
+  if (conflict) throw conflict;
   return { record: nextRecord, photo };
 }
 
@@ -205,18 +212,34 @@ export async function getAllRecords() {
   }).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 }
 
-export async function deleteRecord(recordId) {
+export async function deleteRecord(recordId, options = {}) {
   const { transaction, store } = await storeTransaction([STORE.records, STORE.photos], 'readwrite');
-  store(STORE.records).delete(recordId);
-  const index = store(STORE.photos).index('recordId');
-  const cursorRequest = index.openCursor(IDBKeyRange.only(recordId));
-  cursorRequest.onsuccess = () => {
-    const cursor = cursorRequest.result;
-    if (!cursor) return;
-    cursor.delete();
-    cursor.continue();
+  const done = transactionDone(transaction);
+  const records = store(STORE.records);
+  let conflict;
+  const remove = () => {
+    records.delete(recordId);
+    const index = store(STORE.photos).index('recordId');
+    const cursorRequest = index.openCursor(IDBKeyRange.only(recordId));
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      cursor.delete();
+      cursor.continue();
+    };
   };
-  await transactionDone(transaction);
+  if (typeof options.expectedUpdatedAt === 'string' || typeof options.expectedStatus === 'string') {
+    const request = records.get(recordId);
+    request.onsuccess = () => {
+      const current = request.result;
+      if (!current || typeof options.expectedUpdatedAt === 'string' && String(current.updatedAt || '') !== options.expectedUpdatedAt
+        || typeof options.expectedStatus === 'string' && current.status !== options.expectedStatus) {
+        conflict = Object.assign(new Error('Esta ocorrência mudou neste aparelho. A exclusão foi cancelada; confira a versão atual.'), { code: 'LOCAL_RECORD_CHANGED' });
+      } else remove();
+    };
+  } else remove();
+  await done;
+  if (conflict) throw conflict;
 }
 
 export async function putPhoto(recordId, photoIndex, blob, uploadKey, metadata = {}) {

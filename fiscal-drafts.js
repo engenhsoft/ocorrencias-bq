@@ -1,5 +1,5 @@
-import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.10.15.5';
-import { normalizeText } from './core.js?v=2026.10.15.5';
+import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.10.18.1';
+import { normalizeText } from './core.js?v=2026.10.18.1';
 
 export function fiscalDraftKey(user, recordId, route, aclRevision = '') {
   if (!user || !recordId || route?.routingVersion !== 'FISCAL_ASSIGNED' || !route.routingRequestId || !route.assignmentRevision) throw new Error('Solicitação fiscal incompleta. Atualize a lista.');
@@ -23,8 +23,15 @@ export function fiscalDraftStorage(key) {
     getPhotosForRecord: async () => Object.values((await getMeta(key))?.photos || {}),
     putPhotoAndRecord: async (record, photoIndex, blob, uploadKey, details = {}) => {
       const saved = await update(draft => {
-        const states = record.photoStates.map((state, index) => index === photoIndex - 1 ? state : draft.record?.photoStates?.[index] || state);
-        return { record: { ...record, photoStates: states, fiscalDraftKey: key, updatedAt: stamp(draft.record?.updatedAt) },
+        if ((Object.hasOwn(details, 'expectedUploadKey') || Object.hasOwn(details, 'expectedRecordStatus')) && (!draft.record
+          || Object.hasOwn(details, 'expectedRecordStatus') && draft.record.status !== details.expectedRecordStatus
+          || Object.hasOwn(details, 'expectedUploadKey') && String(draft.record.photoStates?.[photoIndex - 1]?.uploadKey || '') !== details.expectedUploadKey)) throw conflict();
+        const current = draft.record;
+        // A photo may finish after another tab has saved newer correction data.
+        // Merge only this slot in that case, as the Campo transaction does.
+        const next = current && current.updatedAt !== record.updatedAt ? current : record;
+        const states = record.photoStates.map((state, index) => index === photoIndex - 1 ? state : current?.photoStates?.[index] || state);
+        return { record: { ...next, photoStates: states, fiscalDraftKey: key, updatedAt: stamp(current?.updatedAt) },
           photos: { ...draft.photos, [photoIndex]: { ...details, recordId: record.recordId, photoIndex, blob, uploadKey } } };
       });
       return { record: saved.record, photo: saved.photos[photoIndex] };
