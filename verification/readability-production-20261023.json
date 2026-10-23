@@ -1,65 +1,65 @@
 {
-  "checkedAt": "2026-10-23T04:13:55.689820+00:00",
-  "frontendRelease": "2026.10.23.1",
-  "sourceCommit": "5685860bda8d5938b80ec633149e48f2060dabc7",
+  "checkedAt": "2026-10-23T09:11:31.560595+00:00",
+  "frontendRelease": "2026.10.23.2",
+  "sourceCommit": "7e97ccd767cff6ae738a5a8f09ad7d6bc6d4134c",
   "workflow": {
-    "id": 39898951684,
+    "id": 39929529717,
     "conclusion": "success",
-    "url": "https://github.com/engenhsoft/ocorrencias-bq/actions/runs/39898951684"
+    "url": "https://github.com/engenhsoft/ocorrencias-bq/actions/runs/39929529717"
   },
   "assets": [
     {
       "path": "index.html",
       "status": 200,
-      "sha256": "9f03cae7b3d0aa063151d8f88cfdf36dbd5cf4ae5d057d358ccceff4c073cf05",
-      "equalsCommit": true
-    },
-    {
-      "path": "app.js",
-      "status": 200,
-      "sha256": "067d62984f7726f48aacff73deec40de42236cd42bf5aec96d7b5d2c4bed6cd2",
+      "sha256": "bc42038cc3d7829c3c4956459c54e63f3eb171d69e752a73cce45ac8e99cd0f6",
       "equalsCommit": true
     },
     {
       "path": "core.js",
       "status": 200,
-      "sha256": "e59ff63ca56667ddeb621f3681ca91fe667818c6bf123621a9c76b602cee2f27",
+      "sha256": "49bd2d94d723c745230e9eaddaea7454c05577be9b97c124ccf9040397d30cbe",
+      "equalsCommit": true
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "sha256": "df16bc81cd5fd64723671638c8b7d51dd2ad7a98bedde22bc4544f25554b1037",
       "equalsCommit": true
     },
     {
       "path": "styles.css",
       "status": 200,
-      "sha256": "12c464dc3049c3c6ac31330c985ec44576426c6cadb3447ecfb618e5a081ca2c",
+      "sha256": "c73ba592de1b14db56c2c13b82c1c5f3f983de7206acd7595729212383146c51",
       "equalsCommit": true
     },
     {
       "path": "service-worker.js",
       "status": 200,
-      "sha256": "20448092e6404148507090e41baa6c3638fddbcc480c12a5009d7a75992bf557",
+      "sha256": "5da32dc55c577a7e9b6cff80fce5309cc74f0ea115bf05f7ad01b43c6b392418",
       "equalsCommit": true
     },
     {
       "path": "occurrence-excel.js",
       "status": 200,
-      "sha256": "9dd0b1e6481f2ea2d5ed15d6ca1580c76b3c4846267e52fa2130e1dd93ce0c25",
+      "sha256": "86231e418ed79fd179a5f2f223ef2350b34240448392a862c31fde237dc8cdba",
       "equalsCommit": true
     },
     {
       "path": "occurrence-pdf.js",
       "status": 200,
-      "sha256": "9d23f561b2e26dea1d9c9f9347e5ad9e9fe34f6b6195bf5f6cd8e01a1daecad4",
+      "sha256": "4777f994b34b650c3a5a430879d65e2e4ce20092d812ff9572207bc612e0db2c",
       "equalsCommit": true
     },
     {
       "path": "supervisor-conformity.js",
       "status": 200,
-      "sha256": "2bede27feba8c0f794e97fafed3db257fa7b637d02df4587d7fd5bc95d003c26",
+      "sha256": "24d7c1d6115bf214535ade50e786c1beb5f1c28a3b952c739f5eafe99ae9bfd1",
       "equalsCommit": true
     },
     {
       "path": "supervisor-financial.js",
       "status": 200,
-      "sha256": "051c2691d72f05575d29daa97dc4b8487dff8c64db1a529dc6ab9893e1e7c26a",
+      "sha256": "90ea8e5cdae449054cc07f6d34c82cfaba2707f5bc169fae5a06f0f4696db5df",
       "equalsCommit": true
     }
   ],
@@ -70,7 +70,7 @@
     "service": "OCORRÊNCIAS B&Q",
     "version": "2026.10.18.1",
     "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
-    "timestamp": "2026-10-23T01:13:55-03:00"
+    "timestamp": "2026-10-23T06:11:30-03:00"
   },
   "backendChanged": false,
   "productionWrites": 0
