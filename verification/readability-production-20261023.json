@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-10-23T09:11:31.560595+00:00",
+  "checkedAt": "2026-10-23T09:22:10.060570+00:00",
   "frontendRelease": "2026.10.23.2",
   "sourceCommit": "7e97ccd767cff6ae738a5a8f09ad7d6bc6d4134c",
   "workflow": {
@@ -9,15 +9,9 @@
   },
   "assets": [
     {
-      "path": "index.html",
+      "path": "api.js",
       "status": 200,
-      "sha256": "bc42038cc3d7829c3c4956459c54e63f3eb171d69e752a73cce45ac8e99cd0f6",
-      "equalsCommit": true
-    },
-    {
-      "path": "core.js",
-      "status": 200,
-      "sha256": "49bd2d94d723c745230e9eaddaea7454c05577be9b97c124ccf9040397d30cbe",
+      "sha256": "73245b62557cd54c0ecad52eb6cfd58cf3237692fd3d3cb8716e9a5f3abbe252",
       "equalsCommit": true
     },
     {
@@ -27,15 +21,51 @@
       "equalsCommit": true
     },
     {
-      "path": "styles.css",
+      "path": "config.js",
       "status": 200,
-      "sha256": "c73ba592de1b14db56c2c13b82c1c5f3f983de7206acd7595729212383146c51",
+      "sha256": "6031c35af95b58098baa43a03c4d4b537f50c625885294e96592bb41633d53c6",
       "equalsCommit": true
     },
     {
-      "path": "service-worker.js",
+      "path": "core.js",
       "status": 200,
-      "sha256": "5da32dc55c577a7e9b6cff80fce5309cc74f0ea115bf05f7ad01b43c6b392418",
+      "sha256": "49bd2d94d723c745230e9eaddaea7454c05577be9b97c124ccf9040397d30cbe",
+      "equalsCommit": true
+    },
+    {
+      "path": "db.js",
+      "status": 200,
+      "sha256": "e506c088116f185acf3afc2ef3090c24e1095d1970ca085295e28bcb1261b29c",
+      "equalsCommit": true
+    },
+    {
+      "path": "fiscal-admin.js",
+      "status": 200,
+      "sha256": "1c6522f4ec4b79f3c4f32422ac46636d9a833c139bba3853a0283e7c56175c0f",
+      "equalsCommit": true
+    },
+    {
+      "path": "fiscal-drafts.js",
+      "status": 200,
+      "sha256": "80809d4b92de6698ae1ee118583ef0e19c1025581a1a4576e00cdaa41320be7d",
+      "equalsCommit": true
+    },
+    {
+      "path": "fiscal-workspace.js",
+      "status": 200,
+      "sha256": "b8dd0b2686f04dc7689aa375f2b395f2f44974fbecd38b3d46cf676efe1adabf",
+      "equalsCommit": true
+    },
+    {
+      "path": "occurrence-card.js",
+      "status": 200,
+      "sha256": "986e2360a4315fa1746d85adb7c9751e922b3b84474b6a47135bea13de762384",
+      "equalsCommit": true
+    },
+    {
+      "path": "occurrence-excel-worker.js",
+      "status": 200,
+      "sha256": "68720f17c93a06b29368dbb82bbadc758878877c74f9af3a26660466c86a15ce",
       "equalsCommit": true
     },
     {
@@ -51,6 +81,18 @@
       "equalsCommit": true
     },
     {
+      "path": "operational-features.js",
+      "status": 200,
+      "sha256": "1f82cdf155f48178515f93d98c14f6fab0db849b1c2d7236fe1a341c013d6b0e",
+      "equalsCommit": true
+    },
+    {
+      "path": "service-worker.js",
+      "status": 200,
+      "sha256": "5da32dc55c577a7e9b6cff80fce5309cc74f0ea115bf05f7ad01b43c6b392418",
+      "equalsCommit": true
+    },
+    {
       "path": "supervisor-conformity.js",
       "status": 200,
       "sha256": "24d7c1d6115bf214535ade50e786c1beb5f1c28a3b952c739f5eafe99ae9bfd1",
@@ -60,6 +102,24 @@
       "path": "supervisor-financial.js",
       "status": 200,
       "sha256": "90ea8e5cdae449054cc07f6d34c82cfaba2707f5bc169fae5a06f0f4696db5df",
+      "equalsCommit": true
+    },
+    {
+      "path": "index.html",
+      "status": 200,
+      "sha256": "bc42038cc3d7829c3c4956459c54e63f3eb171d69e752a73cce45ac8e99cd0f6",
+      "equalsCommit": true
+    },
+    {
+      "path": "styles.css",
+      "status": 200,
+      "sha256": "c73ba592de1b14db56c2c13b82c1c5f3f983de7206acd7595729212383146c51",
+      "equalsCommit": true
+    },
+    {
+      "path": "manifest.webmanifest",
+      "status": 200,
+      "sha256": "4f91c427c20f3b19e3708322586015165aea66a0467a881d0a58b47e669f4542",
       "equalsCommit": true
     }
   ],
