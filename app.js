@@ -1,6 +1,6 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.23.2';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.23.2';
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.23.2';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.23.3';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.23.3';
+import { createOperationalFeatures } from './operational-features.js?v=2026.10.23.3';
 import {
   dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -9,14 +9,14 @@ import {
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
-  statusLabel, statusTone, tokenExpiry, validateOccurrence
-} from './core.js?v=2026.10.23.2';
+  statusLabel, statusTone, tokenExpiry, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
+} from './core.js?v=2026.10.23.3';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.23.2';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.23.2';
+} from './db.js?v=2026.10.23.3';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.23.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -49,6 +49,8 @@ const elements = {
   crewLeader: $('#crewLeader'), teamDirectoryHint: $('#teamDirectoryHint'), retryTeamDirectory: $('#retryTeamDirectory'),
   occurrenceNumber: $('#occurrenceNumber'), occurrenceTypes: $('#occurrenceTypes'),
   otherTypeSection: $('#otherTypeSection'), otherOccurrenceType: $('#otherOccurrenceType'),
+  keysSection: $('#keysSection'), keysHint: $('#keysHint'),
+  pgKeyRemoved: $('#pgKeyRemoved'), btoKeyRemoved: $('#btoKeyRemoved'), pgKeyInstalled: $('#pgKeyInstalled'), btoKeyInstalled: $('#btoKeyInstalled'),
   pgPostSection: $('#pgPostSection'), pgConductorSection: $('#pgConductorSection'),
   pgPostRemoved: $('#pgPostRemoved'), pgPostInstalled: $('#pgPostInstalled'),
   pgConductorStart: $('#pgConductorStart'), pgConductorEnd: $('#pgConductorEnd'), transformerSection: $('#transformerSection'),
@@ -101,6 +103,8 @@ const elements = {
   supervisorEditDialog: $('#supervisorEditDialog'), supervisorEditForm: $('#supervisorEditForm'), supervisorEditTitle: $('#supervisorEditTitle'),
   editOperationBase: $('#editOperationBase'), editOperationContract: $('#editOperationContract'), editTeam: $('#editTeam'), editCrewLeader: $('#editCrewLeader'), editTeamDirectoryHint: $('#editTeamDirectoryHint'), editRetryTeamDirectory: $('#editRetryTeamDirectory'), editOccurrenceNumber: $('#editOccurrenceNumber'), editOccurrenceTypes: $('#editOccurrenceTypes'),
   editOtherTypeSection: $('#editOtherTypeSection'), editOtherOccurrenceType: $('#editOtherOccurrenceType'),
+  editKeysSection: $('#editKeysSection'),
+  editPgKeyRemoved: $('#editPgKeyRemoved'), editBtoKeyRemoved: $('#editBtoKeyRemoved'), editPgKeyInstalled: $('#editPgKeyInstalled'), editBtoKeyInstalled: $('#editBtoKeyInstalled'),
   editPgPostSection: $('#editPgPostSection'), editPgConductorSection: $('#editPgConductorSection'),
   editPgPostRemoved: $('#editPgPostRemoved'), editPgPostInstalled: $('#editPgPostInstalled'),
   editPgConductorStart: $('#editPgConductorStart'), editPgConductorEnd: $('#editPgConductorEnd'), editTransformerSection: $('#editTransformerSection'),
@@ -447,6 +451,7 @@ function bindEvents() {
   });
   $$('[data-nav].brand-lockup').forEach((button) => button.addEventListener('click', () => navigate(session?.role === 'supervisor' ? 'supervisor' : button.dataset.nav)));
   [elements.occurrenceNumber, elements.otherOccurrenceType,
+    ...CHAVES_FIELDS.map(key => elements[key]),
     elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd,
     elements.removedTransformerCode, elements.removedTransformerCia, elements.newTransformerCode,
     elements.removedTransformerBto, elements.newTransformerCia, elements.newTransformerBto,
@@ -781,7 +786,8 @@ function blankRecord() {
   const now = new Date().toISOString();
   return {
     recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
-    operationalDate: operationalDate(),
+    operationalDate: operationalDate(), formVersion: OCCURRENCE_FORM_VERSION,
+    pgKeyRemoved: '', btoKeyRemoved: '', pgKeyInstalled: '', btoKeyInstalled: '',
     base: '', contract: '', team: '', crewLeader: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '',
     pgPostRemoved: '', pgPostInstalled: '', pgConductorStart: '', pgConductorEnd: '',
     transformer: { removedCode: '', removedCia: '', removedBto: '', newCode: '', newCia: '', newBto: '' },
@@ -824,6 +830,17 @@ function syncFormToRecord() {
   activeRecord.crewLeader = elements.crewLeader.value.trim();
   activeRecord.occurrenceNumber = elements.occurrenceNumber.value.trim();
   activeRecord.occurrenceTypes = selectedTypes();
+  const hasKeys = activeRecord.occurrenceTypes.includes('CHAVES');
+  elements.keysSection.hidden = !hasKeys;
+  elements.keysHint.textContent = chavesRequired(activeRecord) ? 'Informe os quatro códigos das chaves.' : 'Dados opcionais para esta ocorrência histórica.';
+  activeRecord.chavesDraft = {};
+  CHAVES_FIELDS.forEach(key => {
+    activeRecord.chavesDraft[key] = elements[key].value;
+    activeRecord[key] = hasKeys ? elements[key].value.trim() : '';
+    elements[key].disabled = !hasKeys;
+    elements[key].required = chavesRequired(activeRecord);
+  });
+  $$('[data-keys-required]', elements.keysSection).forEach(mark => { mark.hidden = !chavesRequired(activeRecord); });
   activeRecord.otherOccurrenceType = activeRecord.occurrenceTypes.includes(TYPE_OTHER) ? elements.otherOccurrenceType.value.trim() : '';
   activeRecord.pgPostRemoved = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST)) ? elements.pgPostRemoved.value.trim() : '';
   activeRecord.pgPostInstalled = (activeRecord.correctionMode || activeRecord.occurrenceTypes.includes(TYPE_POST)) ? elements.pgPostInstalled.value.trim() : '';
@@ -1469,10 +1486,11 @@ function occurrenceDetails(record, includePhotos = true) {
   const transformer = (occurrenceTypes.includes(TYPE_TRAFO) || Object.values(record.transformer || {}).some(value => String(value ?? '').trim())) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Série: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Série: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
   const pgPost = (occurrenceTypes.includes(TYPE_POST) || record.pgPostRemoved || record.pgPostInstalled) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
   const pgConductor = (occurrenceTypes.includes(TYPE_CONDUCTOR) || record.pgConductorStart || record.pgConductorEnd) ? `<div class="detail-section"><h4>PG do Condutor</h4><div class="review-data__grid"><div><dt>PG inicial</dt><dd>${escapeHtml(record.pgConductorStart || '—')}</dd></div><div><dt>PG final</dt><dd>${escapeHtml(record.pgConductorEnd || '—')}</dd></div></div></div>` : '';
+  const keys = (occurrenceTypes.includes('CHAVES') || CHAVES_FIELDS.some(key => record[key])) ? `<div class="detail-section"><h4>Dados das chaves</h4><div class="review-data__grid"><div><dt>Chave retirada</dt><dd>PG: ${escapeHtml(record.pgKeyRemoved || '—')}<br>BTO: ${escapeHtml(record.btoKeyRemoved || '—')}</dd></div><div><dt>Chave instalada</dt><dd>PG: ${escapeHtml(record.pgKeyInstalled || '—')}<br>BTO: ${escapeHtml(record.btoKeyInstalled || '—')}</dd></div></div></div>` : '';
   const otherType = occurrenceTypes.includes(TYPE_OTHER) ? `<div><dt>Tipo avulso</dt><dd>${escapeHtml(record.otherOccurrenceType || '—')}</dd></div>` : '';
   const photos = includePhotos ? photoMarkup(record) : '';
   const status = record.status || record.serverStatus || RECORD_STATUS.DRAFT;
-  return `${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}${correctionRequestMarkup(record)}${record.fiscalView ? '' : dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div>${status === RECORD_STATUS.PUBLISHED ? `<div><dt>Publicada em</dt><dd>${escapeHtml(formatDateTime(record.publishedAt || record.approvedAt || record.reviewedAt))}</dd></div>` : ''}</div>${transformer}${pgPost}${pgConductor}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
+  return `${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}${correctionRequestMarkup(record)}${record.fiscalView ? '' : dailyDetailMarkup(record)}${auditMarkup(record)}<dl class="review-data"><div class="review-data__grid"><div><dt>UUID</dt><dd>${escapeHtml(record.recordId || '—')}</dd></div><div><dt>Enviado por</dt><dd>${escapeHtml(record.user || '—')}</dd></div><div><dt>Sub-base</dt><dd>${escapeHtml(record.base || '—')}</dd></div><div><dt>Contrato</dt><dd>${escapeHtml(record.contract || '—')}</dd></div><div><dt>Equipe</dt><dd>${escapeHtml(record.team)}</dd></div><div><dt>Chefe de turma</dt><dd>${escapeHtml(record.crewLeader || '—')}</dd></div><div><dt>Nº ocorrência</dt><dd>${escapeHtml(record.occurrenceNumber)}</dd></div><div><dt>Tipo(s)</dt><dd>${escapeHtml(occurrenceTypesText(record))}</dd></div>${otherType}<div><dt>Total dos serviços</dt><dd>${escapeHtml(formatCurrency(total))}</dd></div><div><dt>Status</dt><dd>${escapeHtml(statusLabel(status, countConfirmedPhotos(record)))}</dd></div><div><dt>Registrado em</dt><dd>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</dd></div><div><dt>Atualizado em</dt><dd>${escapeHtml(formatDateTime(record.updatedAt))}</dd></div>${status === RECORD_STATUS.PUBLISHED ? `<div><dt>Publicada em</dt><dd>${escapeHtml(formatDateTime(record.publishedAt || record.approvedAt || record.reviewedAt))}</dd></div>` : ''}</div>${transformer}${pgPost}${pgConductor}${keys}<div><dt>Observação</dt><dd>${escapeHtml(record.observation || '—')}</dd></div></dl>${serviceTable(record.services)}${materialTable(record.materials)}${photos}`;
 }
 
 function renderReview() { if (activeRecord) { syncFormToRecord(); activeRecord.dailyProduction = { ...dailyProduction, totalSent: Number(dailyProduction.totalExcludingRecord) || 0 }; elements.reviewSummary.innerHTML = occurrenceDetails(activeRecord); } }
@@ -1603,7 +1621,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       next.correctionPayloadSignature = signature;
       if (!Object.hasOwn(next, 'correctionRequestedAt')) next.correctionRequestedAt = correctionRequest(next).lastRequestedAt || correctionRequest(next).requestedAt || '';
       await save();
-      correctionPayload = { ...correctionFields(next), recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt, supersedesRequestId: next.supersedesRequestId || '',
+      correctionPayload = { ...correctionFields(next), formVersion: Number(next.formVersion) || 0, recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt, supersedesRequestId: next.supersedesRequestId || '',
         ...(next.correctionOriginal ? { expectedPatch: next.expectedPatch, beforePatch: next.beforePatch } : {}), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} };
     }
     if (next.serverConfirmed || next.attempts > 1) {
@@ -1640,6 +1658,8 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
         pgPostRemoved: next.pgPostRemoved, pgPostInstalled: next.pgPostInstalled,
         pgConductorStart: next.pgConductorStart, pgConductorEnd: next.pgConductorEnd,
+        formVersion: Number(next.formVersion) || 0,
+        ...Object.fromEntries(CHAVES_FIELDS.map(key => [key, normalizeOccurrenceTypes(next.occurrenceTypes).includes('CHAVES') ? String(next[key] ?? '') : ''])),
         transformer: next.transformer, services: serializeServicesForBackend(next.services), materials: serializeMaterialsForBackend(next.materials),
         totalServices: correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services), goalPercentage: dailyGoalProjection(dailyTotalExcludingRecord, correctionPayload ? Number(next.totalServices) : occurrenceTotal(next.services)).percentage,
         observation: next.observation
@@ -2136,6 +2156,7 @@ async function loadRecordIntoForm(record) {
   updateContractOutput(elements.operationContract, elements.operationBase.value);
   elements.operationBase.value = activeRecord.base || ''; updateContractOutput(elements.operationContract, elements.operationBase.value); renderAssignmentControls(false, activeRecord); elements.occurrenceNumber.value = activeRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.occurrenceTypes).forEach((input) => { input.checked = activeRecord.occurrenceTypes.includes(input.value); });
+  CHAVES_FIELDS.forEach(key => { elements[key].value = activeRecord.chavesDraft?.[key] ?? activeRecord[key] ?? ''; });
   elements.otherOccurrenceType.value = activeRecord.otherOccurrenceType || '';
   elements.pgPostRemoved.value = activeRecord.pgPostRemoved || activeRecord.pg1 || ''; elements.pgPostInstalled.value = activeRecord.pgPostInstalled || activeRecord.pg2 || '';
   elements.pgConductorStart.value = activeRecord.pgConductorStart || activeRecord.pg1 || ''; elements.pgConductorEnd.value = activeRecord.pgConductorEnd || activeRecord.pg2 || '';
@@ -2167,6 +2188,7 @@ function resetForm({ preserveTeam = false } = {}) {
   loadRecordIntoForm.loadId = (loadRecordIntoForm.loadId || 0) + 1;
   const team = preserveTeam ? (activeRecord?.team || localStorage.getItem(LAST_TEAM_KEY) || '') : '';
   catalogSearchRequestId += 1; materialSearchRequestId += 1; clearTimeout(catalogSearchTimer); clearTimeout(materialSearchTimer); clearPreviewUrls(); activeRecord = null; currentStep = 1;
+  CHAVES_FIELDS.forEach(key => { elements[key].value = ''; elements[key].disabled = true; elements[key].required = false; }); elements.keysSection.hidden = true;
   [elements.operationBase, elements.team, elements.crewLeader, elements.occurrenceNumber, elements.otherOccurrenceType, elements.pgPostRemoved, elements.pgPostInstalled, elements.pgConductorStart, elements.pgConductorEnd, elements.removedTransformerCode, elements.removedTransformerCia, elements.removedTransformerBto, elements.newTransformerCode, elements.newTransformerCia, elements.newTransformerBto, elements.serviceSearch, elements.materialSearch, elements.observation].forEach((input) => { input.value = ''; });
   fieldAssignmentSnapshot = null;
   for (const option of elements.operationBase.options) { option.hidden = false; option.disabled = false; }
@@ -2624,6 +2646,7 @@ function openSupervisorEditor() {
   supervisorAssignmentSnapshot = { base: supervisorEditRecord.base, team: supervisorEditRecord.team, crewLeader: supervisorEditRecord.crewLeader };
   elements.editOperationBase.value = supervisorEditRecord.base || ''; updateContractOutput(elements.editOperationContract, supervisorEditRecord.base); renderAssignmentControls(true, supervisorEditRecord); elements.editOccurrenceNumber.value = supervisorEditRecord.occurrenceNumber || '';
   $$('input[type="checkbox"]', elements.editOccurrenceTypes).forEach((input) => { input.checked = supervisorEditRecord.occurrenceTypes?.includes(input.value); });
+  CHAVES_FIELDS.forEach(key => { elements['edit' + key[0].toUpperCase() + key.slice(1)].value = supervisorEditRecord[key] || ''; });
   elements.editOtherOccurrenceType.value = supervisorEditRecord.otherOccurrenceType || '';
   elements.editPgPostRemoved.value = supervisorEditRecord.pgPostRemoved || supervisorEditRecord.pg1 || ''; elements.editPgPostInstalled.value = supervisorEditRecord.pgPostInstalled || supervisorEditRecord.pg2 || '';
   elements.editPgConductorStart.value = supervisorEditRecord.pgConductorStart || supervisorEditRecord.pg1 || ''; elements.editPgConductorEnd.value = supervisorEditRecord.pgConductorEnd || supervisorEditRecord.pg2 || '';
@@ -2654,6 +2677,13 @@ function syncSupervisorEditorFromForm() {
   const hasTransformer = occurrenceTypes.includes(TYPE_TRAFO) || Object.values(supervisorEditRecord.transformer || {}).some(value => String(value ?? '').trim()); elements.editTransformerSection.hidden = !hasTransformer;
   const hasPost = occurrenceTypes.includes(TYPE_POST) || Boolean(supervisorEditRecord.pgPostRemoved || supervisorEditRecord.pgPostInstalled); elements.editPgPostSection.hidden = !hasPost;
   const hasConductor = occurrenceTypes.includes(TYPE_CONDUCTOR) || Boolean(supervisorEditRecord.pgConductorStart || supervisorEditRecord.pgConductorEnd); elements.editPgConductorSection.hidden = !hasConductor;
+  const hasKeys = occurrenceTypes.includes('CHAVES'); elements.editKeysSection.hidden = !hasKeys;
+  CHAVES_FIELDS.forEach(key => {
+    const input = elements['edit' + key[0].toUpperCase() + key.slice(1)];
+    input.disabled = !hasKeys; input.required = hasKeys && Number(supervisorEditRecord.formVersion) >= OCCURRENCE_FORM_VERSION;
+    supervisorEditRecord[key] = hasKeys ? input.value.trim() : '';
+  });
+  $$('[data-keys-required]', elements.editKeysSection).forEach(mark => { mark.hidden = !hasKeys || Number(supervisorEditRecord.formVersion) < OCCURRENCE_FORM_VERSION; });
   const hasOther = occurrenceTypes.includes(TYPE_OTHER); elements.editOtherTypeSection.hidden = !hasOther;
   supervisorEditRecord = {
     ...supervisorEditRecord, base: elements.editOperationBase.value, contract: elements.editOperationBase.value === activeSupervisorRecord?.base ? (activeSupervisorRecord.contract || contractForBase(elements.editOperationBase.value)) : contractForBase(elements.editOperationBase.value), team: elements.editTeam.value.trim(), crewLeader: elements.editCrewLeader.value.trim(), occurrenceNumber: elements.editOccurrenceNumber.value.trim(), occurrenceTypes,
