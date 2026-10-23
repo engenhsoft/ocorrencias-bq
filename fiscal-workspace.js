@@ -1,8 +1,8 @@
-import { getFiscalCorrectionDrafts } from './db.js?v=2026.10.23.1';
-import { api, ApiError } from './api.js?v=2026.10.23.1';
-import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.10.23.1';
-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.10.23.1';
-import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.10.23.1';
+import { getFiscalCorrectionDrafts } from './db.js?v=2026.10.23.3';
+import { api, ApiError } from './api.js?v=2026.10.23.3';
+import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.10.23.3';
+import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.10.23.3';
+import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.10.23.3';
 
 const text = value => escapeHtml(String(value ?? ''));
 export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, topThreeMarkup, barsMarkup }) {

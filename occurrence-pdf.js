@@ -1,4 +1,4 @@
-import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.23.1';
+import { formatCurrency, formatNumber, statusLabel } from './core.js?v=2026.10.23.3';
 
 function documentDateTime(value) {
   if (!value) return 'Não informada';
@@ -110,6 +110,7 @@ export async function createOccurrencePdf(record, { getPhoto = async () => ({ av
   fields([['Número', record.occurrenceNumber], ['UUID', record.recordId], ['Status', statusLabel(record.status)], ['Responsável', record.user], ['Base', record.base], ['Contrato', record.contract], ['Equipe', record.team], ['Chefe de turma', record.crewLeader], ['Registro', documentDateTime(record.registeredAt)], ['Última atualização', documentDateTime(record.updatedAt)], ['Aprovação / publicação', record.publishedAt ? documentDateTime(record.publishedAt) : '']]);
   section('Dados operacionais');
   fields([['Tipos', (record.occurrenceTypes || []).join(' / ')], ['Tipo OUTRO', record.otherOccurrenceType], ['PG do poste retirado', record.pgPostRemoved], ['PG do poste instalado', record.pgPostInstalled], ['PG do condutor inicial', record.pgConductorStart], ['PG do condutor final', record.pgConductorEnd]]);
+  if ((record.occurrenceTypes || []).includes('CHAVES') || ['pgKeyRemoved', 'btoKeyRemoved', 'pgKeyInstalled', 'btoKeyInstalled'].some(key => record[key])) fields([['PG chave retirada', record.pgKeyRemoved], ['BTO chave retirada', record.btoKeyRemoved], ['PG chave instalada', record.pgKeyInstalled], ['BTO chave instalada', record.btoKeyInstalled]]);
   const transformer = record.transformer || {};
   if (Object.values(transformer).some(Boolean)) fields([['Trafo retirado - Série', transformer.removedCode], ['Trafo retirado - CIA', transformer.removedCia], ['Trafo retirado - BTO', transformer.removedBto], ['Trafo instalado - Série', transformer.newCode], ['Trafo instalado - CIA', transformer.newCia], ['Trafo instalado - BTO', transformer.newBto]]);
   paragraph(`Observação: ${record.observation || 'Não informada.'}`);

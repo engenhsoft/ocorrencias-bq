@@ -59,6 +59,9 @@ jobs:
           node tests/stability-audit.mjs
           node tests/stability-sweep.mjs
           node tests/supervisor-load-completion.mjs
+      - name: Validar CHAVES e compatibilidade histórica
+        timeout-minutes: 2
+        run: node tests/chaves-core.mjs
       - name: Validar release PWA
         timeout-minutes: 2
         run: node tests/pwa-release.mjs

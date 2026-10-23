@@ -1,0 +1,291 @@
+{
+  "recordedAt": "2026-10-23T09:33:18.338718+00:00",
+  "repository": "engenhsoft/ocorrencias-bq",
+  "initialHead": "53435123a6834283188c26e1799d93bbff88fe99",
+  "visualRelease": "2026.10.23.2",
+  "visualCodeCommit": "7e97ccd767cff6ae738a5a8f09ad7d6bc6d4134c",
+  "candidateRelease": "2026.10.23.3",
+  "candidateBranch": "feat/chaves-20261023",
+  "backendObserved": "2026.10.18.1",
+  "backendContract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+  "backendPublished": false,
+  "frontendChavesPublished": false,
+  "officialScriptId": "1S65w-vU8SNGI3XsrWjZl609yEu4uQRhRrnQrlnI1bSWg1Gyy_xvup94z",
+  "officialSpreadsheetId": "1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0",
+  "deploymentId": "AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f",
+  "backendBaselineSha256": "ae8411d5082269c682a879c067d730fe4cdd7467fe75a1e630bb15a47b892ce2",
+  "backendCandidateSha256": "308c889b166e57cb5d4afede1ed122b72cfb6acf3853a9f68c8d390f884a7c1a",
+  "patchAppliesToOfficialBaseline": true,
+  "newCoreTests": {
+    "total": 16,
+    "passed": 16,
+    "failed": 0,
+    "failures": [],
+    "productionWrites": 0
+  },
+  "newBackendTests": {
+    "total": 19,
+    "passed": 19,
+    "failed": 0,
+    "failures": [],
+    "productionWrites": 0
+  },
+  "backendRegressions": [
+    {
+      "suite": "fiscal-corrections",
+      "passed": true
+    },
+    {
+      "suite": "fiscal-admin",
+      "passed": true
+    },
+    {
+      "suite": "operational-features",
+      "passed": true
+    },
+    {
+      "suite": "correction-persistence",
+      "passed": true
+    },
+    {
+      "suite": "field-historical-correction",
+      "passed": true
+    },
+    {
+      "suite": "publication-reconciliation",
+      "passed": true
+    },
+    {
+      "suite": "hotfix-sync-publication",
+      "passed": true
+    },
+    {
+      "suite": "service-snapshot-approval",
+      "passed": true
+    }
+  ],
+  "frontendRegressions": {
+    "scope": "isolated fixtures; public backend modules; no production record mutations",
+    "total": 125,
+    "passed": 125,
+    "failed": 0,
+    "suites": 9,
+    "failedSuites": 0,
+    "results": [
+      {
+        "suite": "audit-sync-20261018.mjs",
+        "passed": true,
+        "total": 28,
+        "approved": 28,
+        "failed": 0,
+        "durationMs": 3967
+      },
+      {
+        "suite": "audit-offline-20261018.mjs",
+        "passed": true,
+        "total": 10,
+        "approved": 10,
+        "failed": 0,
+        "durationMs": 2088
+      },
+      {
+        "suite": "audit-deletion-20261018.mjs",
+        "passed": true,
+        "total": 9,
+        "approved": 9,
+        "failed": 0,
+        "durationMs": 1451
+      },
+      {
+        "suite": "audit-session-20261018.mjs",
+        "passed": true,
+        "total": 9,
+        "approved": 9,
+        "failed": 0,
+        "durationMs": 783
+      },
+      {
+        "suite": "audit-mine-session-20261018.mjs",
+        "passed": true,
+        "total": 9,
+        "approved": 9,
+        "failed": 0,
+        "durationMs": 1771
+      },
+      {
+        "suite": "audit-fiscal-ui-20261018.mjs",
+        "passed": true,
+        "total": 11,
+        "approved": 11,
+        "failed": 0,
+        "durationMs": 2010
+      },
+      {
+        "suite": "audit-merge-20261018.mjs",
+        "passed": true,
+        "total": 13,
+        "approved": 13,
+        "failed": 0,
+        "durationMs": 1784
+      },
+      {
+        "suite": "audit-exports-20261018.mjs",
+        "passed": true,
+        "total": 10,
+        "approved": 10,
+        "failed": 0,
+        "durationMs": 15749
+      },
+      {
+        "suite": "audit-backend-20261018.mjs",
+        "passed": true,
+        "total": 26,
+        "approved": 26,
+        "failed": 0,
+        "durationMs": 3205
+      }
+    ]
+  },
+  "browsers": {
+    "chromium": {
+      "photoPreparation": "file chooser UI and native IndexedDB Blobs",
+      "storage": "fresh isolated context",
+      "checks": [
+        {
+          "viewport": "desktop",
+          "offlineDraft": true,
+          "sameUuid": true,
+          "dataThenPhotos": true,
+          "synchronization": true,
+          "supervisorDetail": true,
+          "fiscalCorrection": true,
+          "fiscalLocalConfirmation": true,
+          "existingTypeCorrection": true,
+          "pdfText": true,
+          "excelText": true,
+          "pageOverflow": false
+        },
+        {
+          "viewport": "mobile",
+          "offlineDraft": true,
+          "sameUuid": true,
+          "dataThenPhotos": true,
+          "synchronization": true,
+          "supervisorDetail": true,
+          "fiscalCorrection": true,
+          "fiscalLocalConfirmation": true,
+          "existingTypeCorrection": true,
+          "pdfText": true,
+          "excelText": true,
+          "pageOverflow": false
+        },
+        {
+          "viewport": "narrow",
+          "offlineDraft": true,
+          "sameUuid": true,
+          "dataThenPhotos": true,
+          "synchronization": true,
+          "supervisorDetail": true,
+          "fiscalCorrection": true,
+          "fiscalLocalConfirmation": true,
+          "existingTypeCorrection": true,
+          "pdfText": true,
+          "excelText": true,
+          "pageOverflow": false
+        }
+      ],
+      "errors": [],
+      "productionWrites": 0,
+      "operationalLogins": 0
+    },
+    "webkit": {
+      "photoPreparation": "file chooser UI and native IndexedDB Blobs",
+      "storage": "fresh persistent profile",
+      "checks": [
+        {
+          "viewport": "desktop",
+          "offlineDraft": true,
+          "sameUuid": true,
+          "dataThenPhotos": true,
+          "synchronization": true,
+          "supervisorDetail": true,
+          "fiscalCorrection": true,
+          "fiscalLocalConfirmation": true,
+          "existingTypeCorrection": true,
+          "pdfText": true,
+          "excelText": true,
+          "pageOverflow": false
+        },
+        {
+          "viewport": "mobile",
+          "offlineDraft": true,
+          "sameUuid": true,
+          "dataThenPhotos": true,
+          "synchronization": true,
+          "supervisorDetail": true,
+          "fiscalCorrection": true,
+          "fiscalLocalConfirmation": true,
+          "existingTypeCorrection": true,
+          "pdfText": true,
+          "excelText": true,
+          "pageOverflow": false
+        },
+        {
+          "viewport": "narrow",
+          "offlineDraft": true,
+          "sameUuid": true,
+          "dataThenPhotos": true,
+          "synchronization": true,
+          "supervisorDetail": true,
+          "fiscalCorrection": true,
+          "fiscalLocalConfirmation": true,
+          "existingTypeCorrection": true,
+          "pdfText": true,
+          "excelText": true,
+          "pageOverflow": false
+        }
+      ],
+      "errors": [],
+      "productionWrites": 0,
+      "operationalLogins": 0
+    }
+  },
+  "webkitStorageControl": [
+    {
+      "engine": "chromium",
+      "nativeBlobStorage": true
+    },
+    {
+      "engine": "webkit-ephemeral",
+      "nativeBlobStorage": false,
+      "error": "UnknownError: Error preparing Blob/File data to be stored in object store"
+    },
+    {
+      "engine": "webkit-persistent",
+      "nativeBlobStorage": true
+    }
+  ],
+  "files": {
+    "core.js": "1b02d2cd40702f0913108d2ff5f458b7ffc6325203750e52b9d2016b8519e08f",
+    "app.js": "8424681f6f5adc1720f98dde2d4fa07e91fb2677a4d745f2d77be5fbc69895ce",
+    "index.html": "ae08d68b5cbedbdb924b7bf1b7666cbd8e0de8008fd3fa97c04277de432d8a4b",
+    "styles.css": "c73ba592de1b14db56c2c13b82c1c5f3f983de7206acd7595729212383146c51",
+    "occurrence-pdf.js": "632838e06fca8a9e2904c139a690167e962063b09c886ead01ce91b0439ed5b5",
+    "occurrence-excel.js": "1a9ca1035170d44ec519af9d8f145e74012b150542422efaead4c47a574642dc",
+    "service-worker.js": "7159118d80fd5a0709c866bd3cbf22f48800cdf2e89470132bd7fd35832615c5",
+    "tests/chaves-ui.mjs": "fbd3170c418ae87cafc63b47694976141d1daf73c673a2ac05ec0a0c25f75090",
+    "patches/backend-chaves-20261023.patch": "e2a3138cbe047500f1c8b40ce3663ad46b65437ac7a3737d032e2a0e0fb54fc9"
+  },
+  "excludedArchivedNegativeReproductionSuites": [
+    "identifier-readback.mjs: requires its historical baseline",
+    "create-photo-commit.mjs: requires baseline 2026.10.07.1"
+  ],
+  "productionWrites": 0,
+  "operationalLogins": 0,
+  "deploymentBlocker": "No Apps Script deployment tool or configured runtime credential; Drive export available. Existing deployment must be updated before merging CHAVES frontend.",
+  "browserEmulation": {
+    "chromium": "Desktop / Pixel 7 user agent, 390px and 320px",
+    "webkit": "Desktop / iPhone 13 user agent, 390px and 320px; persistent profiles",
+    "physicalDevicesUsed": false
+  }
+}

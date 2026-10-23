@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.23.1';
-export const APP_BUILD = '2026-10-23-readability-charts';
+export const APP_VERSION = '2026.10.23.3';
+export const APP_BUILD = '2026-10-23-chaves';
 
 export const TEAM_GOAL = 6000;
 
@@ -10,8 +10,15 @@ export const OCCURRENCE_TYPES = Object.freeze([
   'PODA',
   'LINHA VIVA',
   'CAVA & ROCHA',
-  'OUTRO'
+  'OUTRO',
+  'CHAVES'
 ]);
+
+export const OCCURRENCE_FORM_VERSION = 1;
+export const CHAVES_FIELDS = Object.freeze(['pgKeyRemoved', 'btoKeyRemoved', 'pgKeyInstalled', 'btoKeyInstalled']);
+export function chavesRequired(record = {}) {
+  return Number(record.formVersion) >= OCCURRENCE_FORM_VERSION && normalizeOccurrenceTypes(record.occurrenceTypes).includes('CHAVES');
+}
 
 export const OPERATION_BASES = Object.freeze([
   'ASSÚ', 'CAICÓ', 'CARAÚBAS', 'CURRAIS NOVOS', 'MOSSORÓ', 'PAU DOS FERROS'
@@ -132,7 +139,7 @@ export function correctedAfterResend(record) {
   return resent;
 }
 
-const EDITABLE_CORRECTION_FIELDS = ['base', 'contract', 'team', 'crewLeader', 'occurrenceNumber', 'occurrenceTypes', 'otherOccurrenceType', 'pgPostRemoved', 'pgPostInstalled', 'pgConductorStart', 'pgConductorEnd', 'transformer', 'services', 'materials', 'totalServices', 'observation'];
+const EDITABLE_CORRECTION_FIELDS = ['base', 'contract', 'team', 'crewLeader', 'occurrenceNumber', 'occurrenceTypes', 'otherOccurrenceType', 'pgPostRemoved', 'pgPostInstalled', 'pgConductorStart', 'pgConductorEnd', ...CHAVES_FIELDS, 'transformer', 'services', 'materials', 'totalServices', 'observation'];
 export function correctionFields(record) {
   return Object.fromEntries(EDITABLE_CORRECTION_FIELDS.filter(key => Object.hasOwn(record || {}, key)).map(key => [key, record[key]]));
 }
@@ -141,7 +148,10 @@ export function correctionFields(record) {
 export function correctionDataSnapshot(record = {}) {
   const text = value => String(value ?? '').trim();
   const result = {};
-  for (const key of EDITABLE_CORRECTION_FIELDS.filter(key => !['occurrenceTypes', 'transformer', 'services', 'materials', 'totalServices'].includes(key))) result[key] = text(record[key]);
+  const includeKeys = Number(record.formVersion) >= OCCURRENCE_FORM_VERSION || normalizeOccurrenceTypes(record.occurrenceTypes).includes('CHAVES') || CHAVES_FIELDS.some(key => text(record[key]));
+  for (const key of EDITABLE_CORRECTION_FIELDS.filter(key => !['occurrenceTypes', 'transformer', 'services', 'materials', 'totalServices'].includes(key))) {
+    if (!CHAVES_FIELDS.includes(key) || includeKeys) result[key] = text(record[key]);
+  }
   result.occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
   result.transformer = Object.fromEntries(['removedCode', 'removedCia', 'removedBto', 'newCode', 'newCia', 'newBto'].map(key => [key, text(record.transformer?.[key])]));
   result.services = normalizeServices(record.services).map(service => ({ ...Object.fromEntries(['catalogKey', 'code', 'catalogText', 'unit', 'group', 'contract', 'origin'].map(key => [key, text(service[key])])), quantity: parseServiceQuantity(service.quantity), referenceValue: Number(service.referenceValue), totalValue: Number(service.totalValue) }));
@@ -167,8 +177,10 @@ export function correctionDelta(original, current = {}) {
   const after = correctionDataSnapshot(current);
   const expectedPatch = {}, beforePatch = {}, photoPatch = {}, evidencePatch = {};
   for (const key of EDITABLE_CORRECTION_FIELDS) {
-    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
-      expectedPatch[key] = after[key]; beforePatch[key] = before[key];
+    const previous = CHAVES_FIELDS.includes(key) ? (before[key] ?? '') : before[key];
+    const next = CHAVES_FIELDS.includes(key) ? (after[key] ?? '') : after[key];
+    if (JSON.stringify(previous) !== JSON.stringify(next)) {
+      expectedPatch[key] = next; beforePatch[key] = previous;
     }
   }
   for (const photo of normalizePhotoStates(current.photoStates)) {
@@ -550,6 +562,9 @@ export function normalizeOccurrenceRecord(value, label = 'record') {
   if (source !== value && value != null && value !== '') globalThis.console?.warn?.(`[Contrato] ${label} deveria ser Object; usando objeto vazio.`, { type: typeof value });
   const record = {
     ...source,
+    // Missing version is always historical; opening/editing never upgrades it.
+    formVersion: Number(source.formVersion) || 0,
+    ...Object.fromEntries(CHAVES_FIELDS.map(key => [key, String(source[key] ?? '')])),
     occurrenceTypes: normalizeOccurrenceTypes(source.occurrenceTypes),
     services: normalizeServices(source.services, `${label}.services`),
     materials: normalizeMaterials(source.materials, `${label}.materials`),
@@ -759,6 +774,14 @@ export function validateOccurrence(record = {}, { historicalServices = false, or
     if (!String(record.pgConductorStart || '').trim()) errors.push('Informe o PG inicial da substituição do condutor.');
     if (!String(record.pgConductorEnd || '').trim()) errors.push('Informe o PG final da substituição do condutor.');
   }
+  if (types.includes('CHAVES')) {
+    CHAVES_FIELDS.forEach((key, index) => {
+      const label = ['PG da chave retirada', 'BTO da chave retirada', 'PG da chave instalada', 'BTO da chave instalada'][index];
+      const value = String(record[key] ?? '').trim();
+      if (chavesRequired(record) && !value) errors.push(`Informe o ${label}.`);
+      if (value.length > 80) errors.push(`O ${label} deve ter até 80 caracteres.`);
+    });
+  }
   if (types.includes('SUBSTITUIÇÃO DE TRAFO')) {
     if (!String(record.transformer?.removedCode || '').trim()) errors.push('Informe a série do transformador retirado ou 999999.');
     if (!String(record.transformer?.removedCia || '').trim()) errors.push('Informe a CIA do trafo retirado.');
@@ -898,6 +921,7 @@ export function supervisorCorrectionChanges(before = {}, after = {}) {
   add('PG do poste instalado', before.pgPostInstalled, after.pgPostInstalled);
   add('PG inicial do condutor', before.pgConductorStart, after.pgConductorStart);
   add('PG final do condutor', before.pgConductorEnd, after.pgConductorEnd);
+  CHAVES_FIELDS.forEach((key, index) => add(['PG da chave retirada', 'BTO da chave retirada', 'PG da chave instalada', 'BTO da chave instalada'][index], String(before[key] ?? ''), String(after[key] ?? '')));
   add('Transformador retirado', before.transformer ? { code: before.transformer.removedCode, cia: before.transformer.removedCia, bto: before.transformer.removedBto } : {}, after.transformer ? { code: after.transformer.removedCode, cia: after.transformer.removedCia, bto: after.transformer.removedBto } : {});
   add('Transformador instalado', before.transformer ? { code: before.transformer.newCode, cia: before.transformer.newCia, bto: before.transformer.newBto } : {}, after.transformer ? { code: after.transformer.newCode, cia: after.transformer.newCia, bto: after.transformer.newBto } : {});
   add('Serviços selecionados', normalizeServices(before.services).map(({ catalogKey, code, quantity, referenceValue, contract }) => ({ catalogKey, code, quantity, referenceValue, contract })), normalizeServices(after.services).map(({ catalogKey, code, quantity, referenceValue, contract }) => ({ catalogKey, code, quantity, referenceValue, contract })));

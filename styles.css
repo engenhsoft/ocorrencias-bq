@@ -599,7 +599,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .goal-card__values span { color: var(--muted); font-size: var(--text-micro); text-transform: uppercase; }
 .goal-card__values strong { color: var(--navy-900); font-size: clamp(0.85rem,2vw,1.12rem); }
 .goal-track { height: 13px; margin: 0.9rem 0 0.65rem; border-radius: 999px; overflow: hidden; background: #dceaf1; }
-.goal-track span { height: 100%; display: block; border-radius: inherit; background: linear-gradient(90deg,var(--blue-600),var(--teal-500)); transition: width 220ms ease; }
+.goal-track span { height: 100%; display: block; border-radius: inherit; background: var(--chart-primary); transition: width 220ms ease; }
 .goal-card.is-achieved .goal-track span { background: linear-gradient(90deg,var(--teal-500),var(--green-600)); }
 .goal-card.is-exceeded .goal-track span { background: linear-gradient(90deg,var(--green-600),#d19b18); }
 .goal-status { color: #765612; font-size: var(--text-small); letter-spacing: 0.04em; }
@@ -873,5 +873,5 @@ a.programacao-access { text-decoration: none; }
 .button, .nav-item { overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .page-heading { flex-wrap: wrap; }
-  .panel-actions .button { flex: 1 1 12rem; }
+  .panel-actions .button { flex: 1 1 auto; }
 }

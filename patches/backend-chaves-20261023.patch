@@ -1,0 +1,242 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.10.18.1',
++  version: '2026.10.23.3',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -37,7 +37,8 @@
+   REMOVED_BTO: 36, NEW_BTO: 37, OTHER_TYPE: 38,
+   PG_CONDUCTOR_END: 39, BASE: 40, CREW_LEADER: 41,
+   TRAFO_REMOVED_PHOTO: 42, TRAFO_INSTALLED_PHOTO: 43,
+-  TRAFO_REMOVED_UPLOAD_KEY: 44, TRAFO_INSTALLED_UPLOAD_KEY: 45, CONTRACT: 46, WIDTH: 46
++  TRAFO_REMOVED_UPLOAD_KEY: 44, TRAFO_INSTALLED_UPLOAD_KEY: 45, CONTRACT: 46,
++  PG_KEY_REMOVED: 47, BTO_KEY_REMOVED: 48, PG_KEY_INSTALLED: 49, BTO_KEY_INSTALLED: 50, FORM_VERSION: 51, WIDTH: 51
+ });
+ 
+ const STATUS = Object.freeze({
+@@ -47,7 +48,7 @@
+   REJECTED: 'REPROVADA', APPROVED: 'APROVADA', PUBLISHED: 'PUBLICADA'
+ });
+ 
+-const TYPES = Object.freeze(['SUBSTITUIÇÃO DE TRAFO', 'SUBSTITUIÇÃO DE POSTE', 'SUBSTITUIÇÃO DE CONDUTOR', 'PODA', 'LINHA VIVA', 'CAVA & ROCHA', 'OUTRO']);
++const TYPES = Object.freeze(['SUBSTITUIÇÃO DE TRAFO', 'SUBSTITUIÇÃO DE POSTE', 'SUBSTITUIÇÃO DE CONDUTOR', 'PODA', 'LINHA VIVA', 'CAVA & ROCHA', 'OUTRO', 'CHAVES']);
+ 
+ const MAIN_HEADERS = Object.freeze([
+   'ID', 'REGISTRADO EM', 'USUÁRIO', 'EQUIPE', 'Nº OCORRÊNCIA', 'TIPO(S) DA OCORRÊNCIA',
+@@ -59,7 +60,8 @@
+   'FOTO 3 UPLOAD KEY', 'FOTO 4 UPLOAD KEY', 'FOTO 5 UPLOAD KEY',
+   'BTO TRAFO RETIRADO', 'BTO TRAFO INSTALADO', 'TIPO DE OCORRÊNCIA AVULSO',
+   'PG CONDUTOR FINAL', 'BASE', 'CHEFE DE TURMA', 'FOTO TRAFO RETIRADO', 'FOTO TRAFO INSTALADO',
+-  'FOTO TRAFO RETIRADO UPLOAD KEY', 'FOTO TRAFO INSTALADO UPLOAD KEY', 'CONTRATO'
++  'FOTO TRAFO RETIRADO UPLOAD KEY', 'FOTO TRAFO INSTALADO UPLOAD KEY', 'CONTRATO',
++  'PG CHAVE RETIRADA', 'BTO CHAVE RETIRADA', 'PG CHAVE INSTALADA', 'BTO CHAVE INSTALADA', 'VERSÃO DO FORMULÁRIO'
+ ]);
+ const SERVICE_HEADERS = Object.freeze(['ID OCORRÊNCIA', 'CÓDIGO', 'DESCRIÇÃO', 'UNIDADE', 'QTD', 'VALOR UNITÁRIO', 'VALOR TOTAL', 'GRUPO', 'CATALOG_KEY', 'ATUALIZADO EM']);
+ const MATERIAL_HEADERS = Object.freeze(['ID OCORRÊNCIA', 'MATERIAL', 'QUANTIDADE', 'ATUALIZADO EM', 'CÓDIGO DO MATERIAL', 'DESCRIÇÃO / TEXTO BREVE', 'UNIDADE', 'Nº OCORRÊNCIA']);
+@@ -294,7 +296,7 @@
+     const row = buildMainRow_(model, found ? existing[COL.USER - 1] : auth.user, registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, receipt ? STATUS.CORRECTION_REQUESTED : status, existing[COL.REASON - 1], existing[COL.SUPERVISOR_NOTE - 1], existing[COL.SUPERVISOR - 1], existing[COL.REVIEWED_AT - 1], audit);
+     let persisted;
+     if (found) persisted = writeAndReadCorrection_(pending, found.row, row, receipt ? 'CORRECTION_RESUBMIT' : 'CREATE_DATA');
+-    else { pending.appendRow(row); flushSheets_(); persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA'); }
++    else { formatChavesRow_(pending, pending.getLastRow() + 1, 1); pending.appendRow(row); flushSheets_(); persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA'); }
+     if (receipt) {
+       const confirmedAudit = safeJson_(persisted.values[COL.AUDIT - 1], {});
+       confirmedAudit.lastCorrectionSubmission.phase = 'DATA_VERIFIED';
+@@ -335,11 +337,11 @@
+ function correctionDataFromValues_(values) {
+   const audit = safeJson_(values[COL.AUDIT - 1], {}); const base = String(values[COL.BASE - 1] || '');
+   const contract = String(values[COL.CONTRACT - 1] || contractForBase_(base));
+-  return { recordId: String(values[COL.ID - 1]), base: base, contract: contract, team: String(values[COL.TEAM - 1] || ''), crewLeader: String(values[COL.CREW_LEADER - 1] || ''), occurrenceNumber: String(values[COL.OCCURRENCE_NUMBER - 1] || ''),
++  return Object.assign({ recordId: String(values[COL.ID - 1]), base: base, contract: contract, team: String(values[COL.TEAM - 1] || ''), crewLeader: String(values[COL.CREW_LEADER - 1] || ''), occurrenceNumber: String(values[COL.OCCURRENCE_NUMBER - 1] || ''),
+     occurrenceTypes: String(values[COL.TYPES - 1] || '').split(' | ').filter(Boolean), otherOccurrenceType: String(values[COL.OTHER_TYPE - 1] || ''),
+     pgPostRemoved: String(values[COL.PG_POST_REMOVED - 1] || ''), pgPostInstalled: String(values[COL.PG_POST_INSTALLED - 1] || ''), pgConductorStart: String(values[COL.PG_CONDUCTOR_START - 1] || ''), pgConductorEnd: String(values[COL.PG_CONDUCTOR_END - 1] || ''),
+     transformer: { removedCode: String(values[COL.REMOVED_CODE - 1] || ''), removedCia: String(values[COL.REMOVED_CIA - 1] || ''), removedBto: String(values[COL.REMOVED_BTO - 1] || ''), newCode: String(values[COL.NEW_CODE - 1] || ''), newCia: String(values[COL.NEW_CIA - 1] || ''), newBto: String(values[COL.NEW_BTO - 1] || '') },
+-    services: pendingServicesFromRow_(values, audit, contract), materials: pendingMaterialsFromRow_(values, audit), totalServices: Number(values[COL.TOTAL - 1]), observation: String(values[COL.OBSERVATION - 1] || '') };
++    services: pendingServicesFromRow_(values, audit, contract), materials: pendingMaterialsFromRow_(values, audit), totalServices: Number(values[COL.TOTAL - 1]), observation: String(values[COL.OBSERVATION - 1] || '') }, chavesFieldsFromValues_(values));
+ }
+ 
+ function mergeCorrectionPatch_(original, patch) {
+@@ -355,13 +357,13 @@
+ function correctionModelData_(model) {
+   const result = {};
+   Object.keys(correctionDataFromValues_(emptyRow_())).forEach(function (key) { result[key] = model[key]; });
+-  return result;
++  return Object.assign(result, chavesModelFields_(model));
+ }
+ function correctionFingerprint_(model) { return sha256_(publicationJson_(correctionModelData_(model))); }
+ 
+ function correctionPatchedValues_(values, model, patch, audit) {
+   const next = values.slice();
+-  const columns = { base: COL.BASE, contract: COL.CONTRACT, team: COL.TEAM, crewLeader: COL.CREW_LEADER, occurrenceNumber: COL.OCCURRENCE_NUMBER, otherOccurrenceType: COL.OTHER_TYPE, pgPostRemoved: COL.PG_POST_REMOVED, pgPostInstalled: COL.PG_POST_INSTALLED, pgConductorStart: COL.PG_CONDUCTOR_START, pgConductorEnd: COL.PG_CONDUCTOR_END, observation: COL.OBSERVATION };
++  const columns = { base: COL.BASE, contract: COL.CONTRACT, team: COL.TEAM, crewLeader: COL.CREW_LEADER, occurrenceNumber: COL.OCCURRENCE_NUMBER, otherOccurrenceType: COL.OTHER_TYPE, pgPostRemoved: COL.PG_POST_REMOVED, pgPostInstalled: COL.PG_POST_INSTALLED, pgConductorStart: COL.PG_CONDUCTOR_START, pgKeyRemoved: COL.PG_KEY_REMOVED, btoKeyRemoved: COL.BTO_KEY_REMOVED, pgKeyInstalled: COL.PG_KEY_INSTALLED, btoKeyInstalled: COL.BTO_KEY_INSTALLED, pgConductorEnd: COL.PG_CONDUCTOR_END, observation: COL.OBSERVATION };
+   Object.keys(columns).forEach(function (key) { if (Object.prototype.hasOwnProperty.call(patch, key)) next[columns[key] - 1] = model[key]; });
+   if (Object.prototype.hasOwnProperty.call(patch, 'base')) next[COL.CONTRACT - 1] = model.contract;
+   if (Object.prototype.hasOwnProperty.call(patch, 'occurrenceTypes')) next[COL.TYPES - 1] = model.occurrenceTypes.join(' | ');
+@@ -393,7 +395,7 @@
+     if (!correctionReceiptHasChanges_(values, previous, previous.phase === 'COMPLETE')) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
+     return Object.assign({}, previous);
+   }
+-  const before = correctionDataFromValues_(values); const after = correctionModelData_(model); const expectedPatch = {}; const beforePatch = {};
++  const before = Object.assign({ pgKeyRemoved: '', btoKeyRemoved: '', pgKeyInstalled: '', btoKeyInstalled: '' }, correctionDataFromValues_(values)); const after = Object.assign({ pgKeyRemoved: '', btoKeyRemoved: '', pgKeyInstalled: '', btoKeyInstalled: '' }, correctionModelData_(model)); const expectedPatch = {}; const beforePatch = {};
+   if (submitted.supersedesRequestId) {
+     if (!previous || previous.requestId !== submitted.supersedesRequestId || previous.requestedAt !== requestedAt
+       || previous.phase !== 'DATA_VERIFIED' || !previous.dataVerifiedAt || !sameUser_(previous.actor, actor)
+@@ -446,7 +448,7 @@
+ function correctionReceiptHasChanges_(values, receipt, complete) {
+   if (!receipt) return false;
+   const audit = safeJson_(values[COL.AUDIT - 1], {});
+-  const allowed = correctionDataFromValues_(emptyRow_());
++  const allowed = Object.assign(correctionDataFromValues_(emptyRow_()), { pgKeyRemoved: '', btoKeyRemoved: '', pgKeyInstalled: '', btoKeyInstalled: '' });
+   const dataChanged = Object.keys(receipt.expectedPatch || {}).some(function (key) { return key !== 'recordId' && Object.prototype.hasOwnProperty.call(allowed, key) && Object.prototype.hasOwnProperty.call(receipt.beforePatch || {}, key) && publicationJson_(correctionComparableValue_(key, receipt.expectedPatch[key])) !== publicationJson_(correctionComparableValue_(key, receipt.beforePatch[key])); });
+   const declared = Object.assign({}, receipt.photoPatch || {}, receipt.evidencePatch || {});
+   const verified = function (slot) {
+@@ -475,7 +477,8 @@
+   // String conserva o valor exato: "000123" continua diferente de 123.
+   [COL.CONTRACT, COL.OCCURRENCE_NUMBER, COL.PG_POST_REMOVED, COL.PG_POST_INSTALLED,
+     COL.PG_CONDUCTOR_START, COL.PG_CONDUCTOR_END, COL.REMOVED_CODE, COL.REMOVED_CIA,
+-    COL.REMOVED_BTO, COL.NEW_CODE, COL.NEW_CIA, COL.NEW_BTO].forEach(function (column) {
++    COL.REMOVED_BTO, COL.NEW_CODE, COL.NEW_CIA, COL.NEW_BTO,
++    COL.PG_KEY_REMOVED, COL.BTO_KEY_REMOVED, COL.PG_KEY_INSTALLED, COL.BTO_KEY_INSTALLED].forEach(function (column) {
+     snapshot[column - 1] = String(snapshot[column - 1] == null ? '' : snapshot[column - 1]);
+   });
+   return publicationJson_(snapshot);
+@@ -497,6 +500,7 @@
+   throw apiError_(code, message, { recordId: recordId, operation: operation || 'CORRECTION_RESUBMIT' });
+ }
+ function writeAndReadCorrection_(sheet, row, values, operation) {
++  formatChavesRow_(sheet, row, 1);
+   sheet.getRange(row, 1, 1, COL.WIDTH).setValues([values]); flushSheets_();
+   return assertCorrectionRow_(sheet, values, operation, row);
+ }
+@@ -866,6 +870,7 @@
+     }
+     appendAuditTimeline_(audit, 'CORRIGIDA_PELO_SUPERVISOR', auth.user, correctedAt, changes.length + ' alteração(ões)');
+     const row = buildMainRow_(model, original.user, original.registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, nextStatus, found.values[COL.REASON - 1], found.values[COL.SUPERVISOR_NOTE - 1], auth.user, correctedAt, audit);
++    formatChavesRow_(pending, found.row, 1);
+     pending.getRange(found.row, 1, 1, COL.WIDTH).setValues([row]);
+     const corrected = recordFromRow_(row, singletonServicesMap_(recordId, model.services), singletonMaterialsMap_(recordId, model.materials));
+     appendHistory_(corrected, auth.user, 'CORRIGIDA_PELO_SUPERVISOR', previousStatus, nextStatus, 'Correção direta pelo supervisor', JSON.stringify(changes));
+@@ -1058,6 +1063,10 @@
+   add('Tipo de ocorrência avulso', before.otherOccurrenceType, after.otherOccurrenceType);
+   add('PG do poste retirado', before.pgPostRemoved, after.pgPostRemoved); add('PG do poste instalado', before.pgPostInstalled, after.pgPostInstalled);
+   add('PG inicial do condutor', before.pgConductorStart, after.pgConductorStart); add('PG final do condutor', before.pgConductorEnd, after.pgConductorEnd);
++  add('PG da chave retirada', String(before.pgKeyRemoved == null ? '' : before.pgKeyRemoved), String(after.pgKeyRemoved == null ? '' : after.pgKeyRemoved));
++  add('BTO da chave retirada', String(before.btoKeyRemoved == null ? '' : before.btoKeyRemoved), String(after.btoKeyRemoved == null ? '' : after.btoKeyRemoved));
++  add('PG da chave instalada', String(before.pgKeyInstalled == null ? '' : before.pgKeyInstalled), String(after.pgKeyInstalled == null ? '' : after.pgKeyInstalled));
++  add('BTO da chave instalada', String(before.btoKeyInstalled == null ? '' : before.btoKeyInstalled), String(after.btoKeyInstalled == null ? '' : after.btoKeyInstalled));
+   add('Série do transformador retirado', before.transformer && before.transformer.removedCode, after.transformer && after.transformer.removedCode);
+   add('CIA do Trafo retirado', before.transformer && before.transformer.removedCia, after.transformer && after.transformer.removedCia);
+   add('BTO do Trafo retirado', before.transformer && before.transformer.removedBto, after.transformer && after.transformer.removedBto);
+@@ -1091,6 +1100,9 @@
+ function validateAndNormalizeRecord_(record, options) {
+   options = options || {};
+   const model = {
++    formVersion: options.original ? Number(options.original.formVersion || 0) : (Object.prototype.hasOwnProperty.call(record, 'formVersion') && Number(record.formVersion) === 0 ? 0 : (Number(record.formVersion) === 1 || (record.occurrenceTypes || []).indexOf('CHAVES') >= 0 ? 1 : 0)),
++    pgKeyRemoved: cleanText_(record.pgKeyRemoved, 80), btoKeyRemoved: cleanText_(record.btoKeyRemoved, 80),
++    pgKeyInstalled: cleanText_(record.pgKeyInstalled, 80), btoKeyInstalled: cleanText_(record.btoKeyInstalled, 80),
+     recordId: requireUuid_(record.recordId), base: cleanText_(record.base, 80), team: cleanText_(record.team, 120), crewLeader: cleanText_(record.crewLeader, 160), occurrenceNumber: cleanText_(record.occurrenceNumber, 120),
+     occurrenceTypes: Array.isArray(record.occurrenceTypes) ? record.occurrenceTypes.map(function (value) { return cleanText_(value, 80); }) : [],
+     otherOccurrenceType: cleanText_(record.otherOccurrenceType, 200),
+@@ -1119,6 +1131,15 @@
+     if (!model.pgConductorStart) throw apiError_('PG_CONDUCTOR_START_REQUIRED', 'Informe o PG inicial da substituição do condutor.');
+     if (!model.pgConductorEnd) throw apiError_('PG_CONDUCTOR_END_REQUIRED', 'Informe o PG final da substituição do condutor.');
+   } else if (!options.original) { model.pgConductorStart = ''; model.pgConductorEnd = ''; }
++  const hasKeys = model.occurrenceTypes.indexOf('CHAVES') >= 0;
++  ['pgKeyRemoved', 'btoKeyRemoved', 'pgKeyInstalled', 'btoKeyInstalled'].forEach(function (key, index) {
++    const label = ['PG da chave retirada', 'BTO da chave retirada', 'PG da chave instalada', 'BTO da chave instalada'][index];
++    if (!hasKeys) model[key] = '';
++    else {
++      if (model.formVersion >= 1 && !model[key]) throw apiError_('CHAVES_FIELD_REQUIRED', 'Informe o ' + label + '.');
++      if (String(record[key] == null ? '' : record[key]).trim().length > 80) throw apiError_('CHAVES_FIELD_TOO_LONG', 'O ' + label + ' deve ter até 80 caracteres.');
++    }
++  });
+   if (model.occurrenceTypes.indexOf(TYPES[0]) >= 0) {
+     if (!model.transformer.removedCode) throw apiError_('REMOVED_TRANSFORMER_CODE_REQUIRED', 'Informe a série do transformador retirado ou 999999.');
+     if (!model.transformer.removedCia) throw apiError_('REMOVED_TRANSFORMER_CIA_REQUIRED', 'Informe a CIA do trafo retirado.');
+@@ -1223,7 +1244,7 @@
+ 
+ function buildMainRow_(model, user, registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, status, reason, supervisorNote, supervisor, reviewedAt, audit) {
+   return [model.recordId, registeredAt, user, model.team, model.occurrenceNumber, model.occurrenceTypes.join(' | '), model.pgPostRemoved, model.pgPostInstalled, model.pgConductorStart, model.transformer.removedCode, model.transformer.removedCia, model.transformer.newCode, model.transformer.newCia, serviceSummary_(model.services), model.totalServices, model.goalPercentage, materialSummary_(model.materials), model.observation]
+-    .concat(padArray_(photoUrls, 5)).concat([status, reason || '', supervisorNote || '', supervisor || '', reviewedAt || '', JSON.stringify(audit || {}), nowIso_()]).concat(padArray_(uploadKeys, 5)).concat([model.transformer.removedBto, model.transformer.newBto, model.otherOccurrenceType, model.pgConductorEnd, model.base, model.crewLeader]).concat(padArray_(transformerPhotoUrls, 2)).concat(padArray_(transformerUploadKeys, 2)).concat([model.contract]);
++    .concat(padArray_(photoUrls, 5)).concat([status, reason || '', supervisorNote || '', supervisor || '', reviewedAt || '', JSON.stringify(audit || {}), nowIso_()]).concat(padArray_(uploadKeys, 5)).concat([model.transformer.removedBto, model.transformer.newBto, model.otherOccurrenceType, model.pgConductorEnd, model.base, model.crewLeader]).concat(padArray_(transformerPhotoUrls, 2)).concat(padArray_(transformerUploadKeys, 2)).concat([model.contract, model.pgKeyRemoved || '', model.btoKeyRemoved || '', model.pgKeyInstalled || '', model.btoKeyInstalled || '', model.formVersion || '']);
+ }
+ 
+ function serviceSummary_(services) { return services.map(function (service) { return service.code + ' — ' + service.catalogText + ' | ' + service.quantity + ' ' + service.unit + ' | ' + formatMoney_(service.totalValue); }).join('\n'); }
+@@ -1407,7 +1428,7 @@
+   const materials = status === STATUS.PUBLISHED ? (materialsMap[id] || []) : pendingMaterialsFromRow_(values, audit);
+   const photoStates = photos.map(function (url, index) { return { photoIndex: index + 1, confirmed: Boolean(url) && photoSlotConfirmed_(values, audit, index + 1), url: url, serverUrl: url, uploadKey: uploadKeys[index] || '' }; });
+   [transformerPhotos.removed, transformerPhotos.installed].forEach(function (url, index) { photoStates.push({ photoIndex: index + 6, confirmed: Boolean(url) && photoSlotConfirmed_(values, audit, index + 6), url: url, serverUrl: url, uploadKey: transformerUploadKeys[index] || '' }); });
+-  return {
++  return Object.assign({
+     recordId: id, registeredAt: isoValue_(values[COL.REGISTERED_AT - 1]), updatedAt: isoValue_(values[COL.UPDATED_AT - 1]), user: String(values[COL.USER - 1] || ''),
+     base: base, contract: contract, team: String(values[COL.TEAM - 1] || ''), crewLeader: String(values[COL.CREW_LEADER - 1] || ''), occurrenceNumber: String(values[COL.OCCURRENCE_NUMBER - 1] || ''),
+     occurrenceTypes: String(values[COL.TYPES - 1] || '').split(' | ').filter(Boolean), otherOccurrenceType: String(values[COL.OTHER_TYPE - 1] || ''),
+@@ -1415,7 +1436,7 @@
+     transformer: { removedCode: String(values[COL.REMOVED_CODE - 1] || ''), removedCia: String(values[COL.REMOVED_CIA - 1] || ''), removedBto: String(values[COL.REMOVED_BTO - 1] || ''), newCode: String(values[COL.NEW_CODE - 1] || ''), newCia: String(values[COL.NEW_CIA - 1] || ''), newBto: String(values[COL.NEW_BTO - 1] || '') },
+     transformerPhotos: transformerPhotos, services: services, materials: materials, totalServices: Number(values[COL.TOTAL - 1]) || 0, goalPercentage: Number(values[COL.GOAL_PERCENTAGE - 1]) || 0, observation: String(values[COL.OBSERVATION - 1] || ''),
+     photos: photos, photoCount: photos.filter(Boolean).length, photoStates: photoStates, status: status, reason: String(values[COL.REASON - 1] || ''), supervisorNote: String(values[COL.SUPERVISOR_NOTE - 1] || ''), supervisor: String(values[COL.SUPERVISOR - 1] || ''), reviewedAt: isoValue_(values[COL.REVIEWED_AT - 1]), audit: audit
+-  };
++  }, chavesFieldsFromValues_(values));
+ }
+ 
+ function pendingServicesFromRow_(values, audit, contract) {
+@@ -2015,6 +2036,7 @@
+   const start = sheet.getLastRow() + 1;
+   if (typeof sheet.getMaxRows === 'function' && start + rows.length - 1 > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), start + rows.length - 1 - sheet.getMaxRows());
+   (textColumns || []).forEach(function (column) { const range = sheet.getRange(start, column, rows.length, 1); if (typeof range.setNumberFormat === 'function') range.setNumberFormat('@'); });
++  if ([APP.pendingSheet, APP.officialSheet].indexOf(sheet.getName()) >= 0) formatChavesRow_(sheet, start, rows.length);
+   sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
+   flushSheets_();
+ }
+@@ -2679,3 +2701,46 @@
+   const ids = {}; allowed.forEach(function (row) { ids[String(row[COL.ID - 1])] = true; });
+   return { rows: allowed, history: history.filter(function (event) { return ids[String(event[0])]; }) };
+ }
++
++// Additive CHAVES schema. Run once in the EXISTING project before updating its deployment.
++// Preflight every target before any write; never rewrite historical operational rows.
++function installChavesSchema_() {
++  const lock = LockService.getScriptLock(); lock.waitLock(30000);
++  try {
++    const targets = [sheet_(APP.pendingSheet), sheet_(APP.officialSheet)];
++    targets.forEach(function (sheet) {
++      const prefix = sheet.getRange(1, 1, 1, 46).getDisplayValues()[0];
++      if (publicationJson_(prefix) !== publicationJson_(MAIN_HEADERS.slice(0, 46))) throw apiError_('CHAVES_SCHEMA_CONFLICT', 'Cabeçalhos existentes divergentes: ' + sheet.getName());
++      const available = Math.max(0, Math.min(5, sheet.getMaxColumns() - 46));
++      if (!available) return;
++      const rows = sheet.getRange(1, 47, Math.max(1, sheet.getLastRow()), available).getValues();
++      const header = rows[0].map(String);
++      if (available === 5 && publicationJson_(header) === publicationJson_(MAIN_HEADERS.slice(46))) return;
++      if (rows.some(function (row) { return row.some(function (value) { return value !== '' && value != null; }); })) throw apiError_('CHAVES_SCHEMA_CONFLICT', 'As novas colunas já contêm dados: ' + sheet.getName());
++    });
++    targets.forEach(function (sheet) {
++      if (sheet.getMaxColumns() < COL.WIDTH) sheet.insertColumnsAfter(sheet.getMaxColumns(), COL.WIDTH - sheet.getMaxColumns());
++      const current = sheet.getRange(1, 47, 1, 5).getDisplayValues()[0];
++      if (publicationJson_(current) !== publicationJson_(MAIN_HEADERS.slice(46))) sheet.getRange(1, 47, 1, 5).setValues([MAIN_HEADERS.slice(46)]);
++    });
++    flushSheets_(); assertCorrectionHeaders_();
++    return { ok: true, columnsAdded: [47, 48, 49, 50, 51], historicalRecordWrites: 0 };
++  } finally { lock.releaseLock(); }
++}
++function chavesModelFields_(model) {
++  const fields = ['pgKeyRemoved', 'btoKeyRemoved', 'pgKeyInstalled', 'btoKeyInstalled'];
++  if (!Number(model.formVersion) && !fields.some(function (key) { return String(model[key] || '').trim(); })) return {};
++  const result = {};
++  fields.forEach(function (key) { result[key] = String(model[key] == null ? '' : model[key]); });
++  if (Number(model.formVersion)) result.formVersion = Number(model.formVersion);
++  return result;
++}
++function chavesFieldsFromValues_(values) {
++  return chavesModelFields_({ pgKeyRemoved: values[COL.PG_KEY_REMOVED - 1], btoKeyRemoved: values[COL.BTO_KEY_REMOVED - 1],
++    pgKeyInstalled: values[COL.PG_KEY_INSTALLED - 1], btoKeyInstalled: values[COL.BTO_KEY_INSTALLED - 1], formVersion: values[COL.FORM_VERSION - 1] });
++}
++function formatChavesRow_(sheet, row, height) {
++  if (typeof sheet.getMaxRows === 'function' && row + height - 1 > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), row + height - 1 - sheet.getMaxRows());
++  const range = sheet.getRange(row, COL.PG_KEY_REMOVED, height, 4);
++  if (typeof range.setNumberFormat === 'function') range.setNumberFormat('@');
++}

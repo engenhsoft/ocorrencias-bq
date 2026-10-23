@@ -1,4 +1,4 @@
-import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.23.1';
+import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.23.3';
 
 const moneyFormat = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
 const decimalFormat = '#,##0.###';
@@ -14,7 +14,7 @@ const cancelled = () => Object.assign(new Error('Exportação cancelada.'), { co
 // Explicit projection: no tokens, upload keys, fingerprints or private audit payloads.
 export function excelRecordData(record) {
   const data = {};
-  for (const field of ['recordId', 'occurrenceNumber', 'status', 'project', 'base', 'contract', 'team', 'crewLeader', 'user', 'registeredAt', 'updatedAt', 'reviewedAt', 'publishedAt', 'otherOccurrenceType', 'pgPostRemoved', 'pgPostInstalled', 'pgConductorStart', 'pgConductorEnd', 'observation', 'supervisor', 'reason', 'supervisorNote']) data[field] = string(record[field]);
+  for (const field of ['recordId', 'occurrenceNumber', 'status', 'project', 'base', 'contract', 'team', 'crewLeader', 'user', 'registeredAt', 'updatedAt', 'reviewedAt', 'publishedAt', 'otherOccurrenceType', 'pgPostRemoved', 'pgPostInstalled', 'pgConductorStart', 'pgConductorEnd', 'pgKeyRemoved', 'btoKeyRemoved', 'pgKeyInstalled', 'btoKeyInstalled', 'observation', 'supervisor', 'reason', 'supervisorNote']) data[field] = string(record[field]);
   data.totalServices = number(record.totalServices);
   data.occurrenceTypes = (Array.isArray(record.occurrenceTypes) ? record.occurrenceTypes : []).map(string);
   data.transformer = {};
@@ -98,7 +98,7 @@ export async function buildOccurrenceWorkbook(entries, { ExcelJS = globalThis.Ex
   if (!ExcelJS?.Workbook) throw new Error('Biblioteca Excel indisponível. Atualize o aplicativo.');
   const workbook = new ExcelJS.Workbook(); workbook.creator = 'Ocorrências B&Q';
   const hasProject = entries.some(entry => entry.record.project);
-  const occurrenceColumns = [['Número', 20, '@'], ['UUID', 39, '@'], ['Status', 28], ...(hasProject ? [['Projeto', 24, '@']] : []), ['Sub-base', 20], ['Contrato', 20, '@'], ['Equipe', 22], ['Chefe de turma', 28], ['Usuário', 28], ['Data', 24], ['Tipos', 36], ['Tipo avulso', 26], ['PG poste retirado', 22, '@'], ['PG poste instalado', 22, '@'], ['PG condutor inicial', 22, '@'], ['PG condutor final', 22, '@'], ['Série retirado', 20, '@'], ['CIA retirado', 20, '@'], ['BTO retirado', 20, '@'], ['Série instalado', 20, '@'], ['CIA instalado', 20, '@'], ['BTO instalado', 20, '@'], ['Observação', 55], ['Valor total', 22, moneyFormat], ['Supervisor', 28], ['Conferência em', 24], ['Publicada em', 24], ['Última atualização', 24], ['Motivo / correção solicitada', 50], ['Observação do Supervisor', 50]];
+  const occurrenceColumns = [['Número', 20, '@'], ['UUID', 39, '@'], ['Status', 28], ...(hasProject ? [['Projeto', 24, '@']] : []), ['Sub-base', 20], ['Contrato', 20, '@'], ['Equipe', 22], ['Chefe de turma', 28], ['Usuário', 28], ['Data', 24], ['Tipos', 36], ['Tipo avulso', 26], ['PG poste retirado', 22, '@'], ['PG poste instalado', 22, '@'], ['PG condutor inicial', 22, '@'], ['PG condutor final', 22, '@'], ['Série retirado', 20, '@'], ['CIA retirado', 20, '@'], ['BTO retirado', 20, '@'], ['Série instalado', 20, '@'], ['CIA instalado', 20, '@'], ['BTO instalado', 20, '@'], ['Observação', 55], ['Valor total', 22, moneyFormat], ['Supervisor', 28], ['Conferência em', 24], ['Publicada em', 24], ['Última atualização', 24], ['Motivo / correção solicitada', 50], ['Observação do Supervisor', 50], ['PG chave retirada', 22, '@'], ['BTO chave retirada', 22, '@'], ['PG chave instalada', 22, '@'], ['BTO chave instalada', 22, '@']];
   const occurrences = sheet(workbook, 'OCORRÊNCIAS', occurrenceColumns);
   const services = sheet(workbook, 'SERVIÇOS', [['Ocorrência', 20, '@'], ['UUID', 39, '@'], ['Código', 22, '@'], ['Descrição', 60], ['Unidade', 12, '@'], ['Quantidade', 16, decimalFormat], ['Preço unitário', 22, moneyFormat], ['Total', 22, moneyFormat], ['Contrato', 20, '@']]);
   const materials = sheet(workbook, 'MATERIAIS', [['Ocorrência', 20, '@'], ['UUID', 39, '@'], ['Código', 22, '@'], ['Descrição', 60], ['Unidade', 12, '@'], ['Quantidade', 16, decimalFormat]]);
@@ -108,7 +108,7 @@ export async function buildOccurrenceWorkbook(entries, { ExcelJS = globalThis.Ex
     const record = entry.record, id = record.recordId;
     if (!isUuid(id) || seen.has(id.toLowerCase())) continue; seen.add(id.toLowerCase());
     const transformer = record.transformer || {};
-    occurrences.addRow([record.occurrenceNumber, id, statusLabel(record.status), ...(hasProject ? [record.project] : []), record.base, record.contract, record.team, record.crewLeader, record.user, date(record.registeredAt), (record.occurrenceTypes || []).join(' / '), record.otherOccurrenceType, record.pgPostRemoved, record.pgPostInstalled, record.pgConductorStart, record.pgConductorEnd, transformer.removedCode, transformer.removedCia, transformer.removedBto, transformer.newCode, transformer.newCia, transformer.newBto, record.observation, record.totalServices, record.supervisor, date(record.reviewedAt), date(record.publishedAt), date(record.updatedAt), record.reason, record.supervisorNote]);
+    occurrences.addRow([record.occurrenceNumber, id, statusLabel(record.status), ...(hasProject ? [record.project] : []), record.base, record.contract, record.team, record.crewLeader, record.user, date(record.registeredAt), (record.occurrenceTypes || []).join(' / '), record.otherOccurrenceType, record.pgPostRemoved, record.pgPostInstalled, record.pgConductorStart, record.pgConductorEnd, transformer.removedCode, transformer.removedCia, transformer.removedBto, transformer.newCode, transformer.newCia, transformer.newBto, record.observation, record.totalServices, record.supervisor, date(record.reviewedAt), date(record.publishedAt), date(record.updatedAt), record.reason, record.supervisorNote, string(record.pgKeyRemoved), string(record.btoKeyRemoved), string(record.pgKeyInstalled), string(record.btoKeyInstalled)]);
     for (const item of record.services || []) services.addRow([record.occurrenceNumber, id, string(item.code), item.description, string(item.unit), number(item.quantity), number(item.referenceValue), number(item.totalValue), string(item.contract || record.contract)]);
     for (const item of record.materials || []) materials.addRow([record.occurrenceNumber, id, string(item.code), item.description, string(item.unit), number(item.quantity)]);
     for (const photo of entry.photos || []) {
@@ -139,7 +139,7 @@ export function writeExcelInWorker(entries, { onProgress = () => {}, signal } = 
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(cancelled()); return; }
     let worker;
-    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.23.1', import.meta.url)); }
+    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.23.3', import.meta.url)); }
     catch { reject(new Error('Não foi possível iniciar o Excel. Atualize o aplicativo e tente novamente.')); return; }
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); worker.terminate(); };
     const abort = () => { cleanup(); reject(cancelled()); };
