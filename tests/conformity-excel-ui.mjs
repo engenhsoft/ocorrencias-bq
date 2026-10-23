@@ -67,11 +67,12 @@ try {
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: true, success: true, ...result }) });
     });
     const page = await context.newPage(); page.on('pageerror', error => pageErrors.push({ viewport: name, message: error.message })); await page.goto(origin);
+    await page.addLocatorHandler(page.locator('#releaseNoticeDialog[open]'), async () => { await page.locator('#releaseNoticeAcknowledge').evaluate(el => el.click()); });
     assert.equal(await page.locator('#loginUser').evaluate(el => getComputedStyle(el).fontSize), '16px');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, name + ' login overflow');
     const login = async role => {
       await page.locator(`input[name="role"][value="${role}"]`).check(); await page.locator('#loginUser').fill(role === 'field' ? 'Campo FICTÍCIO' : 'Perfil FICTÍCIO'); await page.locator('#loginPassword').fill('fixture-only'); await page.locator('#loginButton').click(); await page.locator('#appShell').waitFor({ state: 'visible' });
-      if (await page.locator('#releaseNoticeDialog').isVisible()) await page.locator('#releaseNoticeAcknowledge').click();
+
     };
     await login('supervisor');
     await page.locator('#rateChart .comparison-legend').waitFor(); await page.locator('#supervisorList [data-export-excel]').first().waitFor();
@@ -100,7 +101,7 @@ try {
     await page.locator('#fiscal-base').selectOption('CAICÓ'); await page.locator('#fiscalList [data-export-excel]').first().click(); await page.locator('#excelDialog').waitFor({ state: 'visible' });
     assert.match(await page.locator('#excelFilterCount').innerText(), /61/); assert.equal((await page.locator('#excelRecordList').innerText()).includes('MOSSORÓ'), false); assert.ok(calls.some(call => call.viewport === name && call.action === 'listFiscalRecords' && call.offset === 60 && call.filters.base === 'CAICÓ'));
     await page.locator('#excelSearch').fill('FIXTURE-1'); await page.locator('#excelSelectAll').check(); assert.match(await page.locator('#excelSelectedCount').innerText(), /ocorrências selecionadas/); await page.locator('[data-excel-close]').first().click();
-    await page.locator('#logoutButton').click(); await login('field'); await page.locator('[data-nav="mine"]').click(); await page.locator('#mineFilters [data-filter="all"]').click(); await page.locator('#mineList [data-export-excel]').first().waitFor(); assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
+    await page.locator('#logoutButton').click(); await login('field'); assert.ok(await page.locator('#continueToPhotosButton').evaluate(el => { const height = el.getBoundingClientRect().height; return height >= 44 && height <= 90; }), 'action button keeps comfortable, moderate height'); await page.locator('[data-nav="mine"]').click(); await page.locator('#mineFilters [data-filter="all"]').click(); await page.locator('#mineList [data-export-excel]').first().waitFor(); assert.equal(await page.locator('#nonconformitySection').isVisible(), false);
     await page.locator('#mineList [data-export-excel]').first().click(); await page.locator('#excelDialog').waitFor({ state: 'visible' }); assert.match(await page.locator('#excelFilterCount').innerText(), /2/); assert.equal(await page.locator('#excelRecordList input').count(), 2);
     await page.locator('[data-excel-close]').first().click(); await page.locator('#logoutButton').click(); assert.equal(await page.locator('#excelRecordList').innerText(), '');
     checks.push({ viewport: name, passed: true, charts: true, consolidatedExcelPhotos: 12, pdfIndividual: true, fiscalPaginationAndAcl: true, fieldAcl: true, duplicateClicksBlocked: true, pageOverflow: false }); await context.close();

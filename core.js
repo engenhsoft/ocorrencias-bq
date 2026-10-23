@@ -1,4 +1,4 @@
-export const APP_VERSION = '2026.10.23.1';
+export const APP_VERSION = '2026.10.23.2';
 export const APP_BUILD = '2026-10-23-readability-charts';
 
 export const TEAM_GOAL = 6000;

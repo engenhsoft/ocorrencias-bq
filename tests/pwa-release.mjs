@@ -8,7 +8,7 @@ const [core, html, app, api, db, worker] = await Promise.all([
 ]);
 
 const version = core.match(/APP_VERSION = '([^']+)'/)?.[1];
-assert.equal(version, '2026.10.23.1');
+assert.equal(version, '2026.10.23.2');
 assert.match(core, /APP_BUILD = '2026-10-23-readability-charts'/);
 assert.ok(worker.includes(`WORKER_VERSION = '${version}'`));
 assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}\$\{WORKER_VERSION\}`/);

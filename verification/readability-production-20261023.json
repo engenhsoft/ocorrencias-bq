@@ -1,0 +1,77 @@
+{
+  "checkedAt": "2026-10-23T04:13:55.689820+00:00",
+  "frontendRelease": "2026.10.23.1",
+  "sourceCommit": "5685860bda8d5938b80ec633149e48f2060dabc7",
+  "workflow": {
+    "id": 39898951684,
+    "conclusion": "success",
+    "url": "https://github.com/engenhsoft/ocorrencias-bq/actions/runs/39898951684"
+  },
+  "assets": [
+    {
+      "path": "index.html",
+      "status": 200,
+      "sha256": "9f03cae7b3d0aa063151d8f88cfdf36dbd5cf4ae5d057d358ccceff4c073cf05",
+      "equalsCommit": true
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "sha256": "067d62984f7726f48aacff73deec40de42236cd42bf5aec96d7b5d2c4bed6cd2",
+      "equalsCommit": true
+    },
+    {
+      "path": "core.js",
+      "status": 200,
+      "sha256": "e59ff63ca56667ddeb621f3681ca91fe667818c6bf123621a9c76b602cee2f27",
+      "equalsCommit": true
+    },
+    {
+      "path": "styles.css",
+      "status": 200,
+      "sha256": "12c464dc3049c3c6ac31330c985ec44576426c6cadb3447ecfb618e5a081ca2c",
+      "equalsCommit": true
+    },
+    {
+      "path": "service-worker.js",
+      "status": 200,
+      "sha256": "20448092e6404148507090e41baa6c3638fddbcc480c12a5009d7a75992bf557",
+      "equalsCommit": true
+    },
+    {
+      "path": "occurrence-excel.js",
+      "status": 200,
+      "sha256": "9dd0b1e6481f2ea2d5ed15d6ca1580c76b3c4846267e52fa2130e1dd93ce0c25",
+      "equalsCommit": true
+    },
+    {
+      "path": "occurrence-pdf.js",
+      "status": 200,
+      "sha256": "9d23f561b2e26dea1d9c9f9347e5ad9e9fe34f6b6195bf5f6cd8e01a1daecad4",
+      "equalsCommit": true
+    },
+    {
+      "path": "supervisor-conformity.js",
+      "status": 200,
+      "sha256": "2bede27feba8c0f794e97fafed3db257fa7b637d02df4587d7fd5bc95d003c26",
+      "equalsCommit": true
+    },
+    {
+      "path": "supervisor-financial.js",
+      "status": 200,
+      "sha256": "051c2691d72f05575d29daa97dc4b8487dff8c64db1a529dc6ab9893e1e7c26a",
+      "equalsCommit": true
+    }
+  ],
+  "allHashesMatch": true,
+  "backend": {
+    "ok": true,
+    "success": true,
+    "service": "OCORRÊNCIAS B&Q",
+    "version": "2026.10.18.1",
+    "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+    "timestamp": "2026-10-23T01:13:55-03:00"
+  },
+  "backendChanged": false,
+  "productionWrites": 0
+}
