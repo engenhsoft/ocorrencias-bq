@@ -1,4 +1,4 @@
-import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.18.1';
+import { statusLabel, operationalDate, isUuid } from './core.js?v=2026.10.23.1';
 
 const moneyFormat = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
 const decimalFormat = '#,##0.###';
@@ -139,7 +139,7 @@ export function writeExcelInWorker(entries, { onProgress = () => {}, signal } = 
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(cancelled()); return; }
     let worker;
-    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.18.1', import.meta.url)); }
+    try { worker = new Worker(new URL('./occurrence-excel-worker.js?v=2026.10.23.1', import.meta.url)); }
     catch { reject(new Error('Não foi possível iniciar o Excel. Atualize o aplicativo e tente novamente.')); return; }
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); worker.terminate(); };
     const abort = () => { cleanup(); reject(cancelled()); };

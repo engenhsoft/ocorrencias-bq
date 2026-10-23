@@ -4,9 +4,11 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { assertReadable } from './readability-check.mjs';
 
-const require = createRequire(import.meta.url), { chromium } = require('playwright'), sharp = require('sharp'), ExcelJS = require('../vendor/exceljs-4.4.0.min.js');
-const root = path.resolve(new URL('../', import.meta.url).pathname), evidence = path.resolve(root, '../evidence/evolution'); await mkdir(evidence, { recursive: true });
+const require = createRequire(import.meta.url), { chromium, webkit } = require('playwright'), sharp = require('sharp'), ExcelJS = require('../vendor/exceljs-4.4.0.min.js');
+const browserName = process.env.OCCBQ_BROWSER || 'chromium';
+const root = path.resolve(new URL('../', import.meta.url).pathname), evidence = path.resolve(root, '../evidence/evolution-' + browserName); await mkdir(evidence, { recursive: true });
 const uuid = n => `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
 const at = '2026-10-14T12:00:00-03:00';
 const photoA = 'data:image/png;base64,' + (await sharp({ create: { width: 600, height: 300, channels: 3, background: '#237eb3' } }).png().toBuffer()).toString('base64');
@@ -37,8 +39,8 @@ try {
   const packedModule = process.env.OCCBQ_CHROMIUM_PACKAGE ? require(process.env.OCCBQ_CHROMIUM_PACKAGE) : null;
   const packed = packedModule?.default || packedModule;
   if (packed) packed.setGraphicsMode = false;
-  browser = await chromium.launch(packed ? { executablePath: process.env.OCCBQ_CHROMIUM_EXECUTABLE || await packed.executablePath(), args: packed.args.filter(arg => arg !== '--single-process'), headless: true } : process.env.OCCBQ_CHROMIUM_EXECUTABLE ? { executablePath: process.env.OCCBQ_CHROMIUM_EXECUTABLE, headless: true } : { headless: true });
-  for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
+  browser = browserName === 'webkit' ? await webkit.launch({ headless: true }) : await chromium.launch(packed ? { executablePath: process.env.OCCBQ_CHROMIUM_EXECUTABLE || await packed.executablePath(), args: packed.args.filter(arg => arg !== '--single-process'), headless: true } : process.env.OCCBQ_CHROMIUM_EXECUTABLE ? { executablePath: process.env.OCCBQ_CHROMIUM_EXECUTABLE, headless: true } : { headless: true });
+  for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }], ['narrow', { width: 320, height: 700 }], ['zoom-200', { width: 720, height: 500 }]]) {
     const context = await browser.newContext({ viewport, acceptDownloads: true, locale: 'pt-BR', timezoneId: 'America/Bahia', serviceWorkers: 'block' });
     await context.route('**/*', async route => {
       const request = route.request(), url = request.url(); if (url.startsWith(origin)) return route.continue();
@@ -65,6 +67,8 @@ try {
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: true, success: true, ...result }) });
     });
     const page = await context.newPage(); page.on('pageerror', error => pageErrors.push({ viewport: name, message: error.message })); await page.goto(origin);
+    assert.equal(await page.locator('#loginUser').evaluate(el => getComputedStyle(el).fontSize), '16px');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, name + ' login overflow');
     const login = async role => {
       await page.locator(`input[name="role"][value="${role}"]`).check(); await page.locator('#loginUser').fill(role === 'field' ? 'Campo FICTÍCIO' : 'Perfil FICTÍCIO'); await page.locator('#loginPassword').fill('fixture-only'); await page.locator('#loginButton').click(); await page.locator('#appShell').waitFor({ state: 'visible' });
       if (await page.locator('#releaseNoticeDialog').isVisible()) await page.locator('#releaseNoticeAcknowledge').click();
@@ -73,6 +77,10 @@ try {
     await page.locator('#rateChart .comparison-legend').waitFor(); await page.locator('#supervisorList [data-export-excel]').first().waitFor();
     assert.match(await page.locator('#rateChart').innerText(), /Aprovadas sem edição direta · 1/); assert.match(await page.locator('#rateChart').innerText(), /Corrigidas pelo Supervisor · 1/);
     const originalBaseChart = await page.locator('#baseChart').innerHTML();
+    await assertReadable(page);
+    assert.equal(await page.locator('#baseChart .bar-chart__track > span').first().evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(35, 59, 120)');
+    assert.equal(await page.locator('#rateChart .comparison-fill--corrected').first().evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(215, 134, 79)');
+    assert.ok(await page.locator('#rateChart .bar-chart__label').first().evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 14));
     await page.locator('#rateShowRejected').check(); await page.locator('#rateShowRequested').check(); assert.match(await page.locator('#rateChart').innerText(), /Rejeitadas · 1/); assert.match(await page.locator('#rateChart').innerText(), /Correção solicitada à equipe · 1/);
     await page.locator('#rateChartBase').selectOption('CAICÓ'); await page.locator('#rateChartLeader').selectOption('Chefe FICTÍCIO'); await page.locator('#rateChartPeriod').selectOption('all'); await page.locator('#rateChartDimension').selectOption('crewLeader');
     assert.match(await page.locator('#rateChart').innerText(), /Rejeitadas · 0/); assert.equal(await page.locator('#rateChartPeriod').inputValue(), 'all'); assert.equal(await page.locator('#baseChart').innerHTML(), originalBaseChart);

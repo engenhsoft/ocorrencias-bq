@@ -1,10 +1,10 @@
-import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.18.1';
-import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.18.1';
-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.18.1';
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.18.1';
-import { api, ApiError } from './api.js?v=2026.10.18.1';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.18.1';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.18.1';
+import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.23.1';
+import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.23.1';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.23.1';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.23.1';
+import { api, ApiError } from './api.js?v=2026.10.23.1';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.23.1';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.23.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -246,7 +246,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.18.1');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.23.1');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -307,7 +307,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.18.1');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.23.1');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;

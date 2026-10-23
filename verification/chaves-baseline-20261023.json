@@ -1,0 +1,57 @@
+{
+  "checkedAt": "2026-10-23T03:57:52.432349+00:00",
+  "initialHead": "5343512",
+  "assets": [
+    {
+      "path": "index.html",
+      "status": 200,
+      "sha256": "3a43735a27748b40afcd98691971646e356a7685490fc74a5c5c40b7048e28e1",
+      "equalsHead": true
+    },
+    {
+      "path": "core.js",
+      "status": 200,
+      "sha256": "b307f6eb788d52915cf886e5389a11e27b8e8d0fd20a4f5bf376d3ee578b123e",
+      "equalsHead": true
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "sha256": "3ce60fedd292eca9d4b0d37c32063cbd794a6270c8bfc2ca21a44235cb238794",
+      "equalsHead": true
+    },
+    {
+      "path": "api.js",
+      "status": 200,
+      "sha256": "04c8a05fa0d30b6751a5843cc56a190722844848c43639e2c77cdad52a857804",
+      "equalsHead": true
+    },
+    {
+      "path": "styles.css",
+      "status": 200,
+      "sha256": "c0bf2cafb54d3dbc860b316e40c7d38fa2304201216eea16b4424428cc9bab41",
+      "equalsHead": true
+    },
+    {
+      "path": "config.js",
+      "status": 200,
+      "sha256": "6031c35af95b58098baa43a03c4d4b537f50c625885294e96592bb41633d53c6",
+      "equalsHead": true
+    },
+    {
+      "path": "service-worker.js",
+      "status": 200,
+      "sha256": "ed3889bb583f753f0114ce2b08d32f9a1004a2dda0f507e789387056396e2fe0",
+      "equalsHead": true
+    }
+  ],
+  "health": {
+    "ok": true,
+    "success": true,
+    "service": "OCORRÊNCIAS B&Q",
+    "version": "2026.10.18.1",
+    "contract": "OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12",
+    "timestamp": "2026-10-23T00:57:51-03:00"
+  },
+  "productionWrites": 0
+}

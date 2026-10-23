@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.10.18.1';
+import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.10.23.1';
 
 const list = value => Array.isArray(value) ? value : [];
 const text = value => escapeHtml(String(value ?? ''));

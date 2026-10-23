@@ -1,0 +1,216 @@
+{
+  "checkedAt": "2026-10-23T04:09:57.156836+00:00",
+  "release": "2026.10.23.1",
+  "isolatedFixtures": true,
+  "productionWrites": 0,
+  "regression": {
+    "scope": "isolated fixtures; public backend modules; no production record mutations",
+    "total": 125,
+    "passed": 125,
+    "failed": 0,
+    "suites": 9,
+    "failedSuites": 0,
+    "results": [
+      {
+        "suite": "audit-sync-20261018.mjs",
+        "passed": true,
+        "total": 28,
+        "approved": 28,
+        "failed": 0,
+        "durationMs": 3017
+      },
+      {
+        "suite": "audit-offline-20261018.mjs",
+        "passed": true,
+        "total": 10,
+        "approved": 10,
+        "failed": 0,
+        "durationMs": 477
+      },
+      {
+        "suite": "audit-deletion-20261018.mjs",
+        "passed": true,
+        "total": 9,
+        "approved": 9,
+        "failed": 0,
+        "durationMs": 612
+      },
+      {
+        "suite": "audit-session-20261018.mjs",
+        "passed": true,
+        "total": 9,
+        "approved": 9,
+        "failed": 0,
+        "durationMs": 320
+      },
+      {
+        "suite": "audit-mine-session-20261018.mjs",
+        "passed": true,
+        "total": 9,
+        "approved": 9,
+        "failed": 0,
+        "durationMs": 1058
+      },
+      {
+        "suite": "audit-fiscal-ui-20261018.mjs",
+        "passed": true,
+        "total": 11,
+        "approved": 11,
+        "failed": 0,
+        "durationMs": 734
+      },
+      {
+        "suite": "audit-merge-20261018.mjs",
+        "passed": true,
+        "total": 13,
+        "approved": 13,
+        "failed": 0,
+        "durationMs": 385
+      },
+      {
+        "suite": "audit-exports-20261018.mjs",
+        "passed": true,
+        "total": 10,
+        "approved": 10,
+        "failed": 0,
+        "durationMs": 1581
+      },
+      {
+        "suite": "audit-backend-20261018.mjs",
+        "passed": true,
+        "total": 26,
+        "approved": 26,
+        "failed": 0,
+        "durationMs": 374
+      }
+    ]
+  },
+  "additionalSuites": [
+    {
+      "suite": "fiscal-photo-resume",
+      "passed": true
+    },
+    {
+      "suite": "audit-regression",
+      "passed": true
+    },
+    {
+      "suite": "stage-validation",
+      "passed": true
+    },
+    {
+      "suite": "operational-stability",
+      "passed": true
+    },
+    {
+      "suite": "contract-pricing",
+      "passed": true
+    },
+    {
+      "suite": "material-catalog",
+      "passed": true
+    },
+    {
+      "suite": "stability-audit",
+      "passed": true
+    },
+    {
+      "suite": "stability-sweep",
+      "passed": true
+    },
+    {
+      "suite": "supervisor-load-completion",
+      "passed": true
+    },
+    {
+      "suite": "pwa-release",
+      "passed": true
+    },
+    {
+      "suite": "static-audit",
+      "passed": true
+    },
+    {
+      "suite": "supervisor-financial",
+      "passed": true
+    },
+    {
+      "suite": "conformity-excel",
+      "passed": true
+    },
+    {
+      "suite": "occurrence-pdf",
+      "passed": true
+    }
+  ],
+  "chromium": {
+    "checks": [
+      {
+        "viewport": "desktop",
+        "passed": true,
+        "charts": true,
+        "consolidatedExcelPhotos": 12,
+        "pdfIndividual": true,
+        "fiscalPaginationAndAcl": true,
+        "fieldAcl": true,
+        "duplicateClicksBlocked": true,
+        "pageOverflow": false
+      },
+      {
+        "viewport": "mobile",
+        "passed": true,
+        "charts": true,
+        "consolidatedExcelPhotos": 12,
+        "pdfIndividual": true,
+        "fiscalPaginationAndAcl": true,
+        "fieldAcl": true,
+        "duplicateClicksBlocked": true,
+        "pageOverflow": false
+      },
+      {
+        "viewport": "narrow",
+        "passed": true,
+        "charts": true,
+        "consolidatedExcelPhotos": 12,
+        "pdfIndividual": true,
+        "fiscalPaginationAndAcl": true,
+        "fieldAcl": true,
+        "duplicateClicksBlocked": true,
+        "pageOverflow": false
+      },
+      {
+        "viewport": "zoom-200",
+        "passed": true,
+        "charts": true,
+        "consolidatedExcelPhotos": 12,
+        "pdfIndividual": true,
+        "fiscalPaginationAndAcl": true,
+        "fieldAcl": true,
+        "duplicateClicksBlocked": true,
+        "pageOverflow": false
+      }
+    ],
+    "pageErrors": [],
+    "operationalLogins": 0,
+    "productionWrites": 0
+  },
+  "palette": [
+    "#233B78",
+    "#D7864F",
+    "#55B7D5"
+  ],
+  "readability": {
+    "auxiliaryOperationalTextPx": 14,
+    "formControlsPx": 16,
+    "renderedOperationalTextWcagAA": true,
+    "viewportWidths": [
+      1440,
+      390,
+      320,
+      720
+    ],
+    "zoomEquivalent": "200% (1440px -> 720 CSS px)"
+  },
+  "backendChanged": false,
+  "chavesDependentRelease": "pending backend deployment; separate branch"
+}

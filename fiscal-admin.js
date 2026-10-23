@@ -1,5 +1,5 @@
-import { escapeHtml, formatDateTime } from './core.js?v=2026.10.18.1';
-import { api } from './api.js?v=2026.10.18.1';
+import { escapeHtml, formatDateTime } from './core.js?v=2026.10.23.1';
+import { api } from './api.js?v=2026.10.23.1';
 
 export function createFiscalAdmin({ getSession, getRevision, onLogout }) {
   const $ = selector => document.querySelector(selector);
