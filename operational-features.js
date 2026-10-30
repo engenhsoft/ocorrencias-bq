@@ -1,10 +1,10 @@
-import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.23.3';
-import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.23.3';
-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.23.3';
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.23.3';
-import { api, ApiError } from './api.js?v=2026.10.23.3';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.23.3';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.23.3';
+import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.10.30.1';
+import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.10.30.1';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.10.30.1';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.10.30.1';
+import { api, ApiError } from './api.js?v=2026.10.30.1';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.10.30.1';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.10.30.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -20,7 +20,7 @@ export function entryPendingRecords(records, user) {
 
 export function topThreeMarkup(summary) {
   const leaders = summary?.top3 || [];
-  return `<section class="insight-card"><header class="insight-heading"><div><p class="eyebrow">Produção do mês · ${text(summary?.month || '')}</p><h3>TOP 3 mensal</h3></div><span class="insight-tag">Chefes de turma</span></header><div class="top-three">${leaders.length ? leaders.map((leader, index) => `<article class="ranking-place ranking-place--${index + 1}"><span class="ranking-avatar" aria-hidden="true">${text(leader.crewLeader.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join(''))}</span><span class="ranking-position">${index + 1}º lugar</span><h4>${text(leader.crewLeader)}</h4><p>${text(leader.team)}<br>${text(leader.base)}</p><strong>${text(formatNumber(leader.count))} ${leader.count === 1 ? 'ocorrência' : 'ocorrências'}</strong>${leader.totalServices == null ? '' : `<small>${text(formatCurrency(leader.totalServices))}</small>`}</article>`).join('') : '<p class="insight-empty">Ainda não há ocorrências elegíveis neste mês.</p>'}</div><p class="insight-note">Aguardando conferência e aprovadas/publicadas, pela data original de registro no fuso Bahia. Quantidade por UUID, com desempate pelo nome.</p><small class="insight-updated">Atualizado em ${text(formatDateTime(summary?.calculatedAt))}</small></section>`;
+  return `<section class="insight-card"><header class="insight-heading"><div><p class="eyebrow">Produção do mês · ${text(summary?.month || '')}</p><h3>TOP 3 mensal</h3></div><span class="insight-tag">Chefes de turma</span></header><div class="top-three">${leaders.length ? leaders.map((leader, index) => `<article class="ranking-place ranking-place--${index + 1}"><span class="ranking-avatar" aria-hidden="true">${text(leader.crewLeader.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join(''))}</span><span class="ranking-position">${index + 1}º lugar</span><h4>${text(leader.crewLeader)}</h4><p>${text(leader.team)}<br>${text(leader.base)}</p><strong>${Number.isFinite(leader.totalServices) && leader.totalServices >= 0 ? text(formatCurrency(leader.totalServices)) : 'Valor indisponível'}</strong><small>${text(formatNumber(leader.count))} ${leader.count === 1 ? 'ocorrência' : 'ocorrências'}</small></article>`).join('') : '<p class="insight-empty">Ainda não há ocorrências elegíveis neste mês.</p>'}</div><p class="insight-note">Ranking por valor total dos serviços. Aguardando conferência e aprovadas/publicadas, pela data original de registro no fuso Bahia. Quantidade por UUID; desempate por quantidade e nome.</p><small class="insight-updated">Atualizado em ${text(formatDateTime(summary?.calculatedAt))}</small></section>`;
 }
 
 export function barsMarkup(items, nonconformity = false) {
@@ -246,7 +246,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.23.3');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.10.30.1');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -307,7 +307,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.23.3');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.10.30.1');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;

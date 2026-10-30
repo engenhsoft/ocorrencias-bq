@@ -60,12 +60,17 @@ function buildOperationalSummary_(rows, history, month, supervisor, authorizedBa
     const key = normalize_(identity.crewLeader);
     const leader = ranking[key] || (ranking[key] = { crewLeader: identity.crewLeader, teams: {}, bases: {}, count: 0, totalServices: 0, valueAvailable: true });
     leader.teams[identity.team] = true; leader.bases[identity.base] = true; leader.count++;
-    const total = Number(row[COL.TOTAL - 1]);
+    const rawTotal = row[COL.TOTAL - 1];
+    const total = (typeof rawTotal === 'number' || (typeof rawTotal === 'string' && rawTotal.trim() !== '')) ? Number(rawTotal) : NaN;
     if (Number.isFinite(total) && total >= 0) leader.totalServices = roundMoney_(leader.totalServices + total); else leader.valueAvailable = false;
   });
   const leaders = Object.keys(ranking).map(function (key) {
     const item = ranking[key]; return { crewLeader: item.crewLeader, team: Object.keys(item.teams).filter(Boolean).sort().join(' / '), base: Object.keys(item.bases).filter(Boolean).sort().join(' / '), count: item.count, totalServices: item.valueAvailable ? item.totalServices : null };
-  }).sort(function (a, b) { return b.count - a.count || (normalize_(a.crewLeader) < normalize_(b.crewLeader) ? -1 : normalize_(a.crewLeader) > normalize_(b.crewLeader) ? 1 : 0); }).slice(0, 3);
+  }).sort(function (a, b) {
+    const aTotal = Number.isFinite(a.totalServices) && a.totalServices >= 0 ? a.totalServices : -1;
+    const bTotal = Number.isFinite(b.totalServices) && b.totalServices >= 0 ? b.totalServices : -1;
+    return bTotal - aTotal || b.count - a.count || (normalize_(a.crewLeader) < normalize_(b.crewLeader) ? -1 : normalize_(a.crewLeader) > normalize_(b.crewLeader) ? 1 : 0);
+  }).slice(0, 3);
   const result = { month: month, timeZone: APP.timeZone, top3: leaders, calculatedAt: nowIso_() };
   if (!supervisor) return result;
   result.conformityRecords = buildConformityRecords_(rows, history);

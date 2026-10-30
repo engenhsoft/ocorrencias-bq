@@ -52,6 +52,49 @@ test('TOP 3 Campo e Supervisor recebem regra idêntica sem dados pessoais de out
   assert.deepEqual(plain(h.summary(false).top3), plain(h.summary(true).top3));
   const field = h.summary(false); assert.equal(field.records, undefined); assert.equal(field.nonconformity, undefined); assert.equal(field.bases, undefined);
 });
+test('TOP 3 prioriza valor financeiro antes da quantidade e corta somente após ordenar', () => {
+  const h = harness(); h.add(1, { leader: 'João', total: 15000 });
+  h.add(2, { leader: 'Pedro', total: 6000 }); h.add(3, { leader: 'Pedro', total: 6000 });
+  for (const n of [4, 5, 6]) h.add(n, { leader: 'Lucas', total: 3000 });
+  for (const n of [7, 8, 9, 10]) h.add(n, { leader: 'Quarto', total: 100 });
+  assert.deepEqual(plain(h.summary(true).top3).map(x => [x.crewLeader, x.totalServices, x.count]), [['João', 15000, 1], ['Pedro', 12000, 2], ['Lucas', 9000, 3]]);
+});
+test('empate financeiro usa quantidade e depois nome normalizado, independentemente da entrada', () => {
+  const h = harness(); h.add(1, { leader: 'Zé', total: 100 }); h.add(2, { leader: 'Ana', total: 100 });
+  h.add(3, { leader: 'Breno', total: 50 }); h.add(4, { leader: 'Breno', total: 50 });
+  assert.deepEqual(plain(h.summary(true).top3).map(x => x.crewLeader), ['Breno', 'Ana', 'Zé']);
+});
+test('totais ausentes ou inválidos não superam zero válido nem exibem subtotal parcial', () => {
+  for (const invalid of [undefined, null, '', '   ', 'inválido', NaN, Infinity, -1, true, false, [], {}]) {
+    const h = harness(); h.add(1, { leader: 'Inválido', total: 100 }); h.add(2, { leader: 'Inválido' }); h.add(3, { leader: 'Zero', total: 0 });
+    const { COL, APP } = h.c.meta;
+    h.sheet(APP.pendingSheet).rows[2][COL.TOTAL - 1] = invalid;
+    assert.deepEqual(plain(h.summary(true).top3).map(x => [x.crewLeader, x.totalServices]), [['Zero', 0], ['Inválido', null]], String(invalid));
+  }
+});
+test('soma financeira mantém centavos e deduplicação por UUID sem escrever registros', () => {
+  const h = harness(); h.add(1, { total: 0.1 }); h.add(2, { total: 0.2 });
+  const { APP } = h.c.meta; h.sheet(APP.officialSheet).appendRow(h.sheet(APP.pendingSheet).rows[1].slice());
+  const before = JSON.stringify([h.sheet(APP.officialSheet).rows, h.sheet(APP.pendingSheet).rows]);
+  const result = h.summary(true).top3[0]; assert.equal(result.count, 2); assert.equal(result.totalServices, 0.3);
+  assert.equal(JSON.stringify([h.sheet(APP.officialSheet).rows, h.sheet(APP.pendingSheet).rows]), before);
+});
+test('TOP 3 financeiro do Fiscal ordena somente Bases autorizadas e mantém Campo/Supervisor globais', () => {
+  const h = harness(); h.grant(); h.add(1, { leader: 'Global', base: 'MOSSORÓ', total: 99999 });
+  h.add(2, { leader: 'Local maior', total: 300 }); h.add(3, { leader: 'Local menor', total: 100 }); h.add(4, { leader: 'Local menor', total: 100 });
+  const fiscal = h.c.getOperationalSummary_({ token: h.fiscal().token });
+  assert.deepEqual(plain(fiscal.top3).map(x => [x.crewLeader, x.totalServices, x.count]), [['Local maior', 300, 1], ['Local menor', 200, 2]]);
+  assert.equal(JSON.stringify(fiscal.top3).includes('MOSSORÓ'), false);
+  assert.equal(h.summary(false).top3[0].crewLeader, 'Global'); assert.deepEqual(plain(h.summary(false).top3), plain(h.summary(true).top3));
+});
+test('TOP 3 financeiro renova o mês pela data original no fuso Bahia', () => {
+  const h = harness(); h.add(1, { leader: 'Outubro', total: 1000, date: '2026-11-01T02:59:59Z' });
+  h.add(2, { leader: 'Novembro', total: 2000, date: '2026-11-01T03:00:00Z' });
+  assert.equal(h.summary(true).top3[0].crewLeader, 'Outubro');
+  h.c.todayOperational_ = () => '2026-11-01'; const result = h.summary(true);
+  assert.equal(result.month, '2026-11'); assert.equal(result.timeZone, 'America/Bahia');
+  assert.deepEqual(plain(result.top3).map(x => [x.crewLeader, x.totalServices]), [['Novembro', 2000]]);
+});
 test('virada mensal e anual usa America/Bahia mesmo em timestamps UTC', () => {
   const h = harness(); assert.equal(h.c.featureDate_('2026-11-01T01:00:00Z'), '2026-10-31'); assert.equal(h.c.featureDate_('2027-01-01T02:00:00Z'), '2026-12-31');
   h.add(1, { date: '2026-11-01T01:00:00Z' }); h.add(2, { date: '2026-10-01T02:00:00Z' }); assert.equal(h.summary(true).top3[0].count, 1);
@@ -181,6 +224,13 @@ test('correção resolvida não reabre aviso por um serverStatus local antigo', 
 test('TOP 3 e gráficos escapam texto e mostram SEM DADOS', () => {
   const html = fc.top({ month: '2026-10', top3: [{ crewLeader: '<script>Chefe</script>', team: 'LM', base: 'CAICÓ', count: 2, totalServices: 100 }] }); assert.equal(html.includes('<script>'), false);
   assert.match(fc.bars([{ label: 'CAICÓ', percentage: null, analysed: 0, nonconforming: 0 }], true), /SEM DADOS/);
+});
+test('cartões TOP 3 destacam reais, mantêm quantidade secundária e explicam o critério', () => {
+  const html = fc.top({ month: '2026-10', top3: [{ crewLeader: 'João', team: 'LM', base: 'CAICÓ', count: 8, totalServices: 15000 }] });
+  assert.ok(html.includes(`<strong>${core.formatCurrency(15000)}</strong><small>8 ocorrências</small>`));
+  assert.match(html, /Ranking por valor total dos serviços/); assert.match(html, /ranking-place--1/);
+  for (const totalServices of [null, undefined, NaN, Infinity, -1]) assert.match(fc.top({ top3: [{ crewLeader: 'A', count: 1, totalServices }] }), /<strong>Valor indisponível<\/strong><small>1 ocorrência<\/small>/);
+  assert.ok(fc.top({ top3: [{ crewLeader: 'A', count: 1, totalServices: 0 }] }).includes(`<strong>${core.formatCurrency(0)}</strong>`));
 });
 const failures = []; let passed = 0;
 for (const { name, run } of tests) { try { await run(); passed++; } catch (error) { failures.push({ name, error: error.stack }); } }

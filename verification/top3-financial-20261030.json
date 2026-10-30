@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-30",
+  "repository": "engenhsoft/ocorrencias-bq",
+  "baseCommit": "946294a46b96329bab50f3723da40599d1829913",
+  "frontendVersion": "2026.10.30.1",
+  "backendObservedVersion": "2026.10.23.3",
+  "backendCandidateVersion": "2026.10.30.1",
+  "backendPublished": false,
+  "backendBlocker": "Google account disconnected in browser; connected Drive supports read/export but no Apps Script deployment API; clasp not configured",
+  "backendBaselineSha256": "308c889b166e57cb5d4afede1ed122b72cfb6acf3853a9f68c8d390f884a7c1a",
+  "backendCandidateSha256": "ce372e139fc92c121b2c62677db62402c7ca788db4974786a8e9561e6a2e592b",
+  "officialSummaryMatchesRepositoryBaseline": true,
+  "officialPatchApplyCheck": true,
+  "baselineNewRegressionFailures": 3,
+  "candidateNewRegressionFailures": 0,
+  "productionRecordWrites": 0,
+  "tests": {
+    "fiscal-photo-resume": {
+      "total": 22,
+      "passed": 22,
+      "failed": 0
+    },
+    "audit-regression": {
+      "total": 80,
+      "passed": 80,
+      "failed": 0
+    },
+    "operational-stability": {
+      "total": 9,
+      "passed": 9,
+      "failed": 0
+    },
+    "contract-pricing": {
+      "total": 16,
+      "passed": 16,
+      "failed": 0
+    },
+    "material-catalog": {
+      "total": 28,
+      "passed": 28,
+      "failed": 0
+    },
+    "stability-audit": {
+      "total": 58,
+      "passed": 58,
+      "failed": 0
+    },
+    "stability-sweep": {
+      "total": 42,
+      "passed": 42,
+      "failed": 0,
+      "skipped": 0
+    },
+    "supervisor-load-completion": {
+      "passed": 26,
+      "failed": 0
+    },
+    "chaves-core": {
+      "total": 16,
+      "passed": 16,
+      "failed": 0
+    },
+    "stage-validation": {
+      "total": 60,
+      "passed": 60,
+      "failed": 0,
+      "skipped": 10
+    },
+    "audit-mandatory": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "suites": 9,
+      "failedSuites": 0
+    },
+    "operational-features": {
+      "total": 43,
+      "passed": 43,
+      "failed": 0,
+      "productionWrites": 0,
+      "failures": []
+    }
+  },
+  "pwaRelease": {
+    "passed": true
+  },
+  "staticAudit": {
+    "total": 51,
+    "passed": 51,
+    "failed": 0
+  },
+  "browserUITest": {
+    "status": "blocked",
+    "reason": "Chromium executable unavailable; official Playwright browser download returned incomplete archive. Frontend markup assertions passed."
+  }
+}
