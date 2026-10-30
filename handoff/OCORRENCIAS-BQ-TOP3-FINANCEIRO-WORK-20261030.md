@@ -1,39 +1,36 @@
-# TOP 3 por valor dos serviços — concluir no Work
+# TOP 3 por valor dos serviços — publicação concluída
 
-Escopo autorizado: somente mudar a classificação e apresentação do TOP 3 mensal de chefes de turma. O frontend candidato é `2026.10.30.1`; o backend observado em 30/10/2026 continua `2026.10.23.3`, contrato v12. A implantação do Apps Script não foi feita: o navegador mostra a conta Google desconectada, não há clasp configurado e o conector Drive permite exportar, mas não publicar deployments. Não solicitar senhas no chat.
+Concluído em 30/10/2026. O TOP 3 mensal agora usa valor total dos serviços em ordem decrescente; quantidade decrescente e nome normalizado crescente resolvem empates. O valor em reais aparece em destaque, com quantidade em tamanho secundário.
 
-## Alvos existentes
+## Versões e publicação
 
-- Repositório: https://github.com/engenhsoft/ocorrencias-bq .
-- Frontend: https://engenhsoft.github.io/ocorrencias-bq/ .
-- Projeto oficial: https://script.google.com/d/1S65w-vU8SNGI3XsrWjZl609yEu4uQRhRrnQrlnI1bSWg1Gyy_xvup94z/edit .
-- Deployment a preservar: `AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f`.
-- Endpoint: https://script.google.com/macros/s/AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f/exec .
-- Arquivo oficial: `ApprovalIntegrity20260911.gs`. A função do módulo público `backend/OperationalFeatures20261014.gs` já está incorporada nesse arquivo. Não instalar o módulo inteiro nem duplicar funções.
+- Código do hotfix: `af3a78a4d0fc088eaa52cff14efa83e44c762a28`.
+- Frontend: `2026.10.30.1`, publicado no [GitHub Pages](https://engenhsoft.github.io/ocorrencias-bq/).
+- [Workflow do código frontend: SUCCESS](https://github.com/engenhsoft/ocorrencias-bq/actions/runs/41028350212).
+- Apps Script oficial: **versão 43**, publicada em 30/10/2026 às 05:58, fuso Bahia. Versão anterior: 42.
+- Rótulo backend: `2026.10.30.1`; contrato mantido em `OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12`.
+- Mesmo deployment: `AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f`.
+- Mesmo [endpoint oficial](https://script.google.com/macros/s/AKfycbyq_gRMEPzN7xImFqrx-g2mrZt1PCcC4_8RFOinhqONsnpyj6_OmauIPeXe7NGrA31f/exec).
 
-## Patch preparado e verificado
+O acesso ao Google foi restabelecido pela autenticação segura. Foi editada a implantação existente; executor e acesso permaneceram iguais. O health público confirmou a nova versão em 30/10/2026 às 05:59:51, horário Bahia.
 
-`patches/backend-top3-financial-20261030.patch` contém somente a validação do total e o comparador do TOP 3 em `buildOperationalSummary_`, além do identificador `APP.version`.
+## Alterações e validação
 
-A ordem é total válido decrescente, quantidade decrescente e nome normalizado crescente. Total ausente, vazio, não numérico, infinito, negativo ou de tipo impróprio torna o valor do chefe indisponível, seguindo o comportamento anterior para totais inválidos; fica abaixo de qualquer valor válido, inclusive zero. A quantidade continua contando UUIDs elegíveis. A soma e o arredondamento financeiro existentes foram preservados.
+Mudanças funcionais restritas a `buildOperationalSummary_` em `backend/OperationalFeatures20261014.gs` e `topThreeMarkup` em `operational-features.js`. No projeto oficial, o delta foi aplicado ao arquivo existente `ApprovalIntegrity20260911.gs`, sem adicionar funções duplicadas. As demais mudanças de código são referências de versão coerentes com o cache do PWA.
 
-O fonte completo oficial foi exportado em modo somente leitura e mantido fora do repositório público. SHA-256 anterior: `308c889b166e57cb5d4afede1ed122b72cfb6acf3853a9f68c8d390f884a7c1a`. SHA-256 candidato: `ce372e139fc92c121b2c62677db62402c7ca788db4974786a8e9561e6a2e592b`.
+Totais ausentes ou inválidos ficam indisponíveis e abaixo de qualquer total válido, inclusive zero. Permaneceram intactos soma/arredondamento financeiro, mês/data original/Bahia, identidade dos chefes, elegibilidade, UUID, escopo de Bases do Fiscal e demais fluxos. Nenhuma gravação em registros operacionais ou alteração de cabeçalhos foi feita pelo hotfix.
 
-## Execução no Work
+Os **43 testes operacionais** passaram novamente sobre o fonte realmente salvo no Google. Eles cobrem valor antes da quantidade e corte TOP 3, desempates, totais inválidos, centavos/UUID, Bases do Fiscal, papéis e atualização mensal. Também passaram 51 verificações estáticas, a release PWA e todas as regressões obrigatórias do Pages. Os testes novos reproduziram três falhas no fonte anterior.
 
-1. Conectar a conta proprietária ao Google por interface segura e abrir o projeto oficial. Registrar número da versão atualmente implantada e opções de acesso. Exportar uma cópia privada atual antes de editar.
-2. Comparar o SHA-256 atual com o anterior acima. Se divergir, comparar a função atual e portar apenas este delta, preservando alterações posteriores e CHAVES. Não substituir o projeto pelo módulo público ou por um fonte histórico.
-3. No diretório privado com `ApprovalIntegrity20260911.gs`, executar `git apply --check /caminho/do/repositorio/patches/backend-top3-financial-20261030.patch` e depois aplicar o patch. Se já houver release posterior, manter um identificador novo e adequado em vez de regredir a versão.
-4. Validar o fonte candidato completo: `node tests/operational-features.mjs /privado/ApprovalIntegrity20260911.candidate.gs`. Os 43 testes devem passar, incluindo valor antes de quantidade e corte TOP 3, empates, totais inválidos, centavos/UUID, Bases do Fiscal e virada mensal Bahia. Revalidar PWA com `node tests/pwa-release.mjs` e integridade com `node tests/static-audit.mjs` caso o frontend também seja alterado.
-5. Salvar somente o delta no arquivo oficial existente. Nenhum instalador, migration, bootstrap ou gravação em planilhas é necessário. Preservar manifesto, propriedades, credenciais, arquivo auxiliar, fórmulas, cabeçalhos e registros.
-6. Criar uma nova versão e editar o MESMO deployment existente para essa versão, mantendo executor e acesso. Não criar endpoint paralelo.
-7. Consultar `/exec?action=health` em modo somente leitura. Confirmar versão candidata e contrato `OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12`; registrar o número real da versão Apps Script, deployment preservado e SHA-256 final. Não confundir o rótulo `APP.version` com o número de versão do Apps Script.
-8. Conferir o TOP 3 em Campo, Supervisor e Fiscal com acesso legítimo, sem ocorrências de QA produtivas. No Fiscal, confirmar que a ordenação usa somente suas Bases autorizadas. Registrar o commit e o run Pages da release frontend.
+O fonte salvo foi reexportado e corresponde byte a byte ao candidato testado. Manifesto e fonte auxiliar foram comparados com a cópia anterior e permaneceram iguais.
 
-## Estado e limites
+- SHA-256 anterior: `308c889b166e57cb5d4afede1ed122b72cfb6acf3853a9f68c8d390f884a7c1a`.
+- SHA-256 salvo/publicado: `ce372e139fc92c121b2c62677db62402c7ca788db4974786a8e9561e6a2e592b`.
+- Patch reproduzível: `patches/backend-top3-financial-20261030.patch`.
+- Evidências: `verification/top3-financial-20261030.json`.
 
-O frontend mostra reais em destaque, quantidade em tamanho secundário e a descrição solicitada, mantendo cartões e CSS. Suas referências de versão e cache foram atualizadas em conjunto porque o PWA rejeita assets de releases diferentes. Enquanto o backend oficial não receber este patch, ele continuará devolvendo o TOP 3 por quantidade; publicar somente o frontend não ativa a classificação financeira. Não tentar corrigir isso reordenando apenas os três líderes recebidos, pois um quarto chefe com maior valor continuaria excluído.
+O fonte integral privado e as cópias de segurança ficaram fora do repositório público. A conferência visual com sessões reais de Campo, Supervisor e Fiscal não foi executada; os papéis e a restrição por Base foram validados nos testes isolados do fonte oficial. O harness visual local Chromium ficou indisponível; a confirmação da implantação foi observada no navegador autenticado do Google.
 
-Evidências locais: `verification/top3-financial-20261030.json`. Os testes novos reproduziram três falhas no fonte anterior e passaram no candidato. As regressões do frontend, PWA e auditoria estática passaram. O harness visual Chromium não executou porque o binário está indisponível e o download retornou arquivo incompleto; os testes de markup verificaram destaque financeiro, quantidade secundária, texto, zero válido, indisponíveis e escape HTML.
+## Reversão
 
-Rollback backend: selecionar a versão anterior no mesmo deployment; não tocar em dados. Rollback frontend: nova release de cache com o código anterior, preservando IndexedDB e fotografias locais. Relatar separadamente o que foi publicado e o que continua pendente.
+Se necessária, selecionar a versão 42 no mesmo deployment. Reversão frontend exige uma nova versão de cache, preservando IndexedDB e fotografias locais. Não executar migrations, instaladores, bootstrap ou recuperação histórica para este hotfix.
