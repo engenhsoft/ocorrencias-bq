@@ -174,7 +174,7 @@ for (const fiscal of [false, true]) test(`${fiscal ? 'Fiscal' : 'Campo'} late ph
 class ApiError extends Error { constructor(message, code) { super(message); this.code = code; } }
 function photoRuntime(mismatch = {}, { fiscal = false } = {}) {
   let saved = { ...record(), status: core.RECORD_STATUS.PENDING, occurrenceTypes: ['PODA'], attempts: 0,
-    services: [], materials: [], photoStates: core.normalizePhotoStates(Array.from({ length: 3 }, (_, i) => ({ photoIndex: i + 1, uploadKey: 'slot-' + (i + 1), localReady: true }))) };
+    services: [], materials: [], totalServices: 0, photoStates: core.normalizePhotoStates(Array.from({ length: 3 }, (_, i) => ({ photoIndex: i + 1, uploadKey: 'slot-' + (i + 1), localReady: true }))) };
   const photos = new Map(Array.from({ length: 3 }, (_, i) => [i + 1, { recordId: UUID, photoIndex: i + 1, uploadKey: 'slot-' + (i + 1), blob: new Blob(['fixture'], { type: 'image/jpeg' }) }]));
   Object.assign(photos.get(1), mismatch);
   const uploaded = [], states = core.normalizePhotoStates([]); let clock = 0;

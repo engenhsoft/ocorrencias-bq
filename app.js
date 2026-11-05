@@ -1,8 +1,8 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.10.30.1';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.10.30.1';
-import { createOperationalFeatures } from './operational-features.js?v=2026.10.30.1';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.05.1';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.05.1';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.05.1';
 import {
-  dataCommitMatches, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
+  dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
@@ -10,13 +10,13 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.10.30.1';
+} from './core.js?v=2026.11.05.1';
 import {
   cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.10.30.1';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.10.30.1';
+} from './db.js?v=2026.11.05.1';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.11.05.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -520,6 +520,8 @@ function bindEvents() {
   elements.testConnectionButton.addEventListener('click', testConnection);
   elements.syncNowButton.addEventListener('click', () => syncAll(true));
   elements.syncQueueList.addEventListener('click', (event) => {
+    const review = event.target.closest('[data-review-sync-record]');
+    if (review) return void runLocalAction(reviewDataCommitConflict, review.dataset.reviewSyncRecord);
     const button = event.target.closest('[data-sync-record]');
     if (button) syncSingleRecord(button.dataset.syncRecord, true);
   });
@@ -1561,7 +1563,9 @@ async function syncSingleRecord(recordId, notify = true, fiscalKey = '') {
     if (notify) toast('Esta ocorrência já está sendo sincronizada.');
     return running;
   }
-  const task = performSyncSingleRecord(recordId, notify, fiscalKey);
+  const perform = () => revision === sessionRevision ? performSyncSingleRecord(recordId, notify, fiscalKey) : null;
+  const task = !fiscalKey && navigator.locks?.request
+    ? navigator.locks.request(`ocorrencias-bq-sync:${recordId}`, perform) : perform();
   recordSyncPromises.set(fiscalKey || recordId, task);
   try {
     const result = await task;
@@ -1588,10 +1592,26 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   }
   const dailyTotalExcludingRecord = Number(dailyProduction.totalExcludingRecord) || 0;
   let next = { ...record, attempts: (record.attempts || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: '', lastSyncError: null };
+  const fieldCreate = !fiscalKey && !record.correctionMode && !record.correctionRequestId;
+  const commitRecord = fieldCreate && !record.user ? { ...record, user: requestSession.user } : record;
+  let serverRecordSeen = fieldCreate && Boolean(record.syncProgress?.serverRecordSeen || record.syncProgress?.dataConfirmed
+    || record.serverConfirmed || record.serverStatus || record.status === RECORD_STATUS.SYNCING_PHOTOS || record.lastSyncError?.code === 'DATA_COMMIT_CONFLICT');
+  let dataConflictFields = [];
+  const verifyFieldCommit = state => {
+    if (state?.recordId !== recordId || state.record?.recordId !== recordId || !sameUser(commitRecord.user, state.record.user)) {
+      throw new ApiError('O servidor não confirmou a identidade desta ocorrência. O rascunho foi preservado.', 'INVALID_RECORD_STATE');
+    }
+    serverRecordSeen = true;
+    next.serverStatus = state.status;
+    if (dataCommitMatches(commitRecord, state)) return true;
+    dataConflictFields = dataCommitDifferences(record, state.record).map(({ field }) => field);
+    if (dataConflictFields.length) throw new ApiError('O rascunho difere dos dados gravados. Abra Revisar divergência para conferir os campos.', 'DATA_COMMIT_CONFLICT');
+    throw new ApiError('O servidor ainda não confirmou os slots previstos para estas fotos. Confira a ocorrência com o Supervisor. O rascunho foi preservado.', 'PHOTO_PLAN_UNCONFIRMED');
+  };
   let syncStage = 'prepare'; let syncPhotoIndex = 0;
   let localVersion = String(storedRecord.updatedAt || '');
   const save = async () => {
-    next.syncProgress = { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed };
+    next.syncProgress = { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed, ...(serverRecordSeen ? { serverRecordSeen } : {}) };
     const stored = await storage.putRecord(next, { expectedUpdatedAt: localVersion });
     localVersion = String(stored?.updatedAt || next.updatedAt || localVersion);
     if (stored) next = stored;
@@ -1624,22 +1644,27 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       correctionPayload = { ...correctionFields(next), formVersion: Number(next.formVersion) || 0, recordId: next.recordId, correctionRequestId: next.correctionRequestId, correctionRequestedAt: next.correctionRequestedAt, supersedesRequestId: next.supersedesRequestId || '',
         ...(next.correctionOriginal ? { expectedPatch: next.expectedPatch, beforePatch: next.beforePatch } : {}), photoPatch: next.photoPatch || {}, evidencePatch: next.evidencePatch || {} };
     }
-    if (next.serverConfirmed || next.attempts > 1) {
+    if (fieldCreate || next.serverConfirmed || next.attempts > 1) {
       syncStage = 'read_data';
       try {
         const serverState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
-        dataCommitConfirmed = dataCommitMatches(next, serverState);
-        if (!next.correctionMode && !dataCommitConfirmed
-          && JSON.stringify(correctionDataSnapshot(next)) !== JSON.stringify(correctionDataSnapshot(serverState.record))
-          && ![RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(serverState.status)) {
-          throw new ApiError('Os dados do servidor diferem deste envio. A edição local foi preservada; confira antes de tentar novamente.', 'DATA_COMMIT_CONFLICT');
-        }
-        next = reconcilePhotoStates(next, serverState); await save();
+        dataCommitConfirmed = fieldCreate ? verifyFieldCommit(serverState) : dataCommitMatches(next, serverState);
+        next = reconcilePhotoStates(next, serverState);
+        if (fieldCreate) next.status = RECORD_STATUS.SYNCING_PHOTOS;
+        await save();
       }
-      catch (error) { if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error; }
+      catch (error) {
+        if (!(error instanceof ApiError) || error.code !== 'RECORD_NOT_FOUND') throw error;
+        if (serverRecordSeen) {
+          throw new ApiError('Não foi possível reler a ocorrência já registrada. O rascunho e as fotos foram preservados.', 'DATA_COMMIT_UNCONFIRMED');
+        }
+      }
     }
-    if (next.serverConfirmed && !next.correctionMode && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(next.serverStatus)) {
-      if (next.serverStatus === RECORD_STATUS.WAITING_SUPERVISOR && next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Há uma foto local diferente da confirmação do servidor. Ela foi preservada; confira a ocorrência antes de tentar novamente.', 'PHOTO_CONFIRMATION_PENDING');
+    const fieldFinalStatuses = [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED];
+    if (fieldCreate) fieldFinalStatuses.push(RECORD_STATUS.APPROVED);
+    if (next.serverConfirmed && !next.correctionMode && fieldFinalStatuses.includes(next.serverStatus)) {
+      if ((fieldCreate || next.serverStatus === RECORD_STATUS.WAITING_SUPERVISOR) && next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Há uma foto local diferente da confirmação do servidor. Ela foi preservada; confira a ocorrência antes de tentar novamente.', 'PHOTO_CONFIRMATION_PENDING');
+      if (fieldCreate && next.serverStatus === RECORD_STATUS.WAITING_SUPERVISOR && !confirmedEvidenceReady(next)) throw new ApiError('O servidor ainda não confirmou todas as fotos previstas. Tente novamente.', 'PHOTO_CONFIRMATION_PENDING');
       next.status = next.serverStatus; next.syncPhase = 'confirmed'; next.lastError = ''; next.syncedAt = new Date().toISOString();
       await save(); markSynced(); cacheSummary(next.dailyProduction);
       if ([RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED].includes(next.status)) {
@@ -1648,6 +1673,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       return next;
     }
     if (!dataCommitConfirmed) {
+      if (fieldCreate && !stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
       syncStage = 'submit_data';
       next.status = RECORD_STATUS.SYNCING_DATA; next.syncPhase = 'sending'; await save();
       let submitResult;
@@ -1665,14 +1691,15 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         observation: next.observation
       }, APP_VERSION); }
       catch (error) {
-        if (!ambiguousMutationError(error)) throw error;
+        if (!ambiguousMutationError(error) && !(fieldCreate && error?.code === 'DATA_COMMIT_UNCONFIRMED')) throw error;
         next.syncPhase = 'confirming'; await save();
         try {
           const readback = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
-          if (dataCommitMatches(next, readback)) submitResult = readback;
+          if (fieldCreate || dataCommitMatches(next, readback)) submitResult = readback;
         } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
         if (!submitResult) throw error;
       }
+      if (fieldCreate) verifyFieldCommit(submitResult);
       if (correctionPayload && !correctionConfirmationMatches(correctionPayload, submitResult)) throw new ApiError('O servidor ainda não confirmou os campos corrigidos. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
       dataCommitConfirmed = true;
       next = reconcilePhotoStates(next, submitResult); cacheSummary(submitResult.dailyProduction || next.dailyProduction);
@@ -1687,7 +1714,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       syncStage = 'read_photo'; syncPhotoIndex = index; await save();
       const localPhoto = await storage.getPhoto(next.recordId, index);
       if (!localPhoto?.blob && index <= 5) {
-        if (state.localReady) throw new ApiError(`A Foto ${index} não está mais disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
+        if (state.localReady || (fieldCreate && next.audit?.expectedPhotoIndexes?.includes(index))) throw new ApiError(`A Foto ${index} não está mais disponível neste aparelho.`, 'LOCAL_PHOTO_MISSING');
         continue;
       }
       if (!localPhoto?.blob) throw new ApiError(index === 6 ? 'A evidência do transformador retirado não está disponível neste aparelho.' : 'A evidência do transformador instalado não está disponível neste aparelho.', 'LOCAL_PHOTO_MISSING');
@@ -1708,14 +1735,16 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
         if (!photoResult) throw error;
       }
+      if (fieldCreate) verifyFieldCommit(photoResult);
       if (fiscalKey && (photoResult?.recordId !== next.recordId || photoResult.record?.recordId !== next.recordId || !photoResult.photoStates?.some(photo => photo.photoIndex === index && photo.confirmed && photo.uploadKey === localPhoto.uploadKey && (photo.url || photo.serverUrl)))) throw new ApiError(`O servidor ainda não confirmou a nova Foto ${index}. Ela permanece neste aparelho.`, 'PHOTO_CONFIRMATION_PENDING');
       next.syncPhase = 'photos';
-      next = reconcilePhotoStates(next, photoResult); next.status = photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
+      next = reconcilePhotoStates(next, photoResult); next.status = fieldCreate ? RECORD_STATUS.SYNCING_PHOTOS : photoResult.status || RECORD_STATUS.SYNCING_PHOTOS; next.lastError = '';
       await save(); if (next.photoStates[index - 1]?.confirmed) await storage.deletePhoto(next.recordId, index, localPhoto.uploadKey); if (!fiscalKey) await updateQueueUi();
     }
-    syncStage = 'confirm_correction'; syncPhotoIndex = 0;
+    syncStage = fieldCreate ? 'confirm_record' : 'confirm_correction'; syncPhotoIndex = 0;
     next.syncPhase = 'confirming'; await save();
     const finalState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
+    if (fieldCreate) verifyFieldCommit(finalState);
     if (correctionPayload && !correctionConfirmationMatches(correctionPayload, finalState, true)) throw new ApiError('A releitura ainda não confirmou a correção completa. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
     next = reconcilePhotoStates(next, finalState);
     if (!confirmedEvidenceReady(next) || next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
@@ -1723,7 +1752,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       if (next.photoStates[index - 1]?.confirmed && !next.photoStates[index - 1]?.replacePending) await storage.deletePhoto(next.recordId, index, next.photoStates[index - 1].uploadKey || '').catch(() => {});
     }
     const confirmedStatus = String(finalState.status || '');
-    const acceptedStatuses = next.correctionMode ? [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.REJECTED] : [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED];
+    const acceptedStatuses = next.correctionMode ? [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.REJECTED] : fieldFinalStatuses;
     if (!acceptedStatuses.includes(confirmedStatus)) {
       throw new ApiError('O servidor ainda não confirmou o estado final. A fila foi preservada para nova tentativa.', 'SERVER_CONFIRMATION_PENDING');
     }
@@ -1732,10 +1761,15 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   } catch (error) {
     if (error?.code === 'LOCAL_RECORD_CHANGED') { if (notify) toast(friendlyError(error), 'error'); return storage.getRecord(recordId); }
     next.syncPhase = 'error';
-    next.lastSyncError = synchronizationDiagnostic(error, { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed });
+    if (dataConflictFields.length) {
+      dataCommitConfirmed = false;
+      next = { ...next, ...correctionFields(storedRecord), formVersion: storedRecord.formVersion };
+    }
+    next.lastSyncError = { ...synchronizationDiagnostic(error, { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed }),
+      ...(dataConflictFields.length ? { fields: dataConflictFields } : {}) };
     console.error('[Sincronização] Falha recuperável.', { recordId: next.recordId, ...next.lastSyncError });
     next.status = error?.code === 'NO_CORRECTION_CHANGES' ? RECORD_STATUS.CORRECTION_REQUESTED : RECORD_STATUS.ERROR;
-    next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING'].includes(error?.code)
+    next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING', 'DATA_COMMIT_CONFLICT', 'PHOTO_PLAN_UNCONFIRMED'].includes(error?.code)
       ? 'Não foi possível concluir a sincronização das fotos. Os dados e fotos locais pendentes foram preservados. Tente novamente.'
       : !next.correctionMode && error?.code === 'CORRECTION_PERSISTENCE_MISMATCH'
         ? 'O servidor ainda não confirmou os dados da ocorrência. Os dados locais foram preservados; tente novamente.' : friendlyError(error);
@@ -1758,7 +1792,7 @@ async function syncAll(notify = false) {
       if (session?.token !== requestSession.token) break;
       try {
         const result = await syncSingleRecord(record.recordId, false);
-        if (result && !result.lastError && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.PUBLISHED].includes(result.status)) completed += 1; else pending += 1;
+        if (result && !result.lastError && [RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(result.status)) completed += 1; else pending += 1;
       }
       catch (error) { pending += 1; console.error('[Fila] Falha local em uma ocorrência; os próximos itens continuam.', { recordId: record.recordId, code: error?.code || error?.name }); }
     }
@@ -1779,7 +1813,7 @@ async function updateQueueUi() {
 }
 
 function renderSyncQueue(records) {
-  elements.syncQueueList.innerHTML = records.length ? records.map((record) => recordCard(record, `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}">Tentar novamente</button>`)).join('') : emptyState('Fila em dia', 'Não há registros ou fotos aguardando envio.');
+  elements.syncQueueList.innerHTML = records.length ? records.map((record) => recordCard(record, `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}">${dataCommitPendingPhotos(record) ? 'Sincronizar fotos' : 'Tentar novamente'}</button>`)).join('') : emptyState('Fila em dia', 'Não há registros ou fotos aguardando envio.');
 }
 
 async function testConnection(notify = true) {
@@ -1910,7 +1944,7 @@ function renderMineList() {
     const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
     if (record.status === RECORD_STATUS.DRAFT) actions.push(`<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`);
     else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED && record.audit?.lastCorrectionRequest?.routingVersion !== 'FISCAL_ASSIGNED') actions.push(`<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`);
-    else if (SYNCABLE_STATUSES.has(record.status)) actions.push(`<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">Sincronizar agora</button>`);
+    else if (SYNCABLE_STATUSES.has(record.status)) actions.push(`<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">${dataCommitPendingPhotos(record) ? 'Sincronizar fotos' : 'Sincronizar agora'}</button>`);
     const action = `<div class="button-row">${actions.join('')}</div>`;
     return recordCard(record, action);
   }).join('');
@@ -2023,6 +2057,9 @@ function recordCard(record, actionHtml = '') {
   const photoSummary = localPhotoCount ? `${localPhotoCount}/5 fotos salvas neste aparelho · ${serverPhotoCount}/5 confirmadas no servidor${photoStates.some(photo => photo.localReady && (!photo.confirmed || photo.replacePending)) ? ' · Sincronização pendente' : ''}` : `${serverPhotoCount}/5 fotos gerais confirmadas no servidor`;
   const feedback = record.syncPhase ? synchronizationFeedback(record) : null;
   const sync = feedback ? `<p class="sync-feedback" role="status"><strong>${escapeHtml(feedback.label)}</strong><br>${escapeHtml(feedback.detail)}</p>` : '';
+  if (record.lastSyncError?.code === 'DATA_COMMIT_CONFLICT' && record.lastSyncError.fields?.length) {
+    actionHtml = `<button class="button button--warning button--small" type="button" data-review-sync-record="${escapeHtml(record.recordId)}">Revisar divergência</button>${actionHtml}`;
+  }
   const correction = record?.audit?.lastSupervisorCorrection;
   return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${sync}${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${escapeHtml(photoSummary)}</span>${actionHtml}${[RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.APPROVED].includes(status) ? `<button class="button button--ghost" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button>` : ''}</footer></article>`;
 }
@@ -2034,8 +2071,52 @@ function openScrollableDialog(dialog, body) {
   requestAnimationFrame(() => { body.scrollTop = 0; });
 }
 
+async function reviewDataCommitConflict(recordId) {
+  const requestSession = session, revision = sessionRevision;
+  if (requestSession?.role !== 'field') return;
+  const isCurrent = () => revision === sessionRevision && session?.token === requestSession.token;
+  const local = await getRecord(recordId);
+  if (!isCurrent() || !local || (local.user && !sameUser(local.user, requestSession.user)) || local.lastSyncError?.code !== 'DATA_COMMIT_CONFLICT') return;
+  const labels = {
+    base: 'Sub-base', contract: 'Contrato', team: 'Equipe', crewLeader: 'Chefe de turma', occurrenceNumber: 'Nº da ocorrência',
+    occurrenceTypes: 'Tipos da ocorrência', otherOccurrenceType: 'Tipo avulso', formVersion: 'Versão do formulário',
+    pgPostRemoved: 'PG do poste retirado', pgPostInstalled: 'PG do poste instalado', pgConductorStart: 'PG inicial do condutor', pgConductorEnd: 'PG final do condutor',
+    pgKeyRemoved: 'PG da chave retirada', btoKeyRemoved: 'BTO da chave retirada', pgKeyInstalled: 'PG da chave instalada', btoKeyInstalled: 'BTO da chave instalada',
+    removedCode: 'Código do trafo retirado', removedCia: 'CIA do trafo retirado', removedBto: 'BTO do trafo retirado',
+    newCode: 'Código do trafo instalado', newCia: 'CIA do trafo instalado', newBto: 'BTO do trafo instalado',
+    services: 'Serviços', materials: 'Materiais', length: 'Número de itens', code: 'Código', catalogKey: 'Referência no catálogo', catalogText: 'Descrição',
+    description: 'Descrição', quantity: 'Quantidade', referenceValue: 'Valor unitário', totalValue: 'Valor do item', unit: 'Unidade', group: 'Grupo',
+    origin: 'Origem', totalServices: 'Total dos serviços', observation: 'Observação'
+  };
+  const label = field => {
+    const line = /^(services|materials)(\.server)?\[(\d+)\](?:\.(\w+))?$/.exec(field);
+    if (line) return `${line[1] === 'services' ? 'Serviço' : 'Material'} ${line[3]}${line[2] ? ' no servidor' : ''}${line[4] ? ` · ${labels[line[4]]}` : ''}`;
+    return field.split('.').filter(part => part !== 'transformer').map(part => labels[part] || part).join(' · ');
+  };
+  const display = value => escapeHtml(value === '' ? 'Em branco' : value == null || Number.isNaN(value) ? 'Indisponível' : value);
+  let differences = normalizeArray(local.lastSyncError.fields).map(field => ({ field }));
+  let showValues = false;
+  let note = 'Conecte-se à internet para comparar os valores. O rascunho e as fotos continuam guardados.';
+  if (navigator.onLine) {
+    try {
+      const state = await api.getRecordState(requestSession.token, recordId);
+      if (!isCurrent()) return;
+      if (!sameUser(state.record.user, requestSession.user)) throw new ApiError('O servidor não confirmou a identidade desta ocorrência.', 'INVALID_RECORD_STATE');
+      differences = dataCommitDifferences(local, state.record);
+      showValues = true;
+      note = differences.length ? 'Confira os dois valores com o Supervisor antes de retomar. O rascunho e as fotos continuam guardados.' : 'Os dados da última leitura coincidem. Confira novamente na fila para retomar o envio.';
+    } catch (error) { note = friendlyError(error); }
+  }
+  if (!isCurrent()) return;
+  elements.mineDetailTitle.textContent = 'Divergência entre rascunho e servidor';
+  elements.mineDetailContent.innerHTML = `<p>${escapeHtml(note)}</p>${differences.map(({ field, localValue, serverValue }) => `<article class="audit-entry"><strong>${escapeHtml(label(field))}</strong>${showValues ? `<p>Rascunho neste aparelho · ${display(localValue)}</p><p>Servidor · ${display(serverValue)}</p>` : ''}</article>`).join('')}`;
+  openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent);
+}
+
 async function handleMineAction(event) {
   if (event.target.closest('[data-mine-retry]')) return refreshMine(true);
+  const review = event.target.closest('[data-review-sync-record]');
+  if (review) return runLocalAction(reviewDataCommitConflict, review.dataset.reviewSyncRecord);
   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
   const revision = sessionRevision, token = session?.token;
   const isCurrent = () => revision === sessionRevision && token === session?.token;

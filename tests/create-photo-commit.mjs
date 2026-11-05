@@ -124,10 +124,10 @@ test('UI distingue 5/5 locais de 0/5 servidor e 2/5 locais de 3/5 servidor',()=>
   const c=vm.createContext({...core,occurrenceTypesText:()=> 'OUTRO',correctionRequestMarkup:()=>''});vm.runInContext(extract(appSource,'recordCard'),c);const local=record();assert.match(c.recordCard(local),/5\/5 fotos salvas neste aparelho · 0\/5 confirmadas no servidor · Sincronização pendente/);
   for(let i=0;i<3;i++)local.photoStates[i]={...local.photoStates[i],confirmed:true,localReady:false,serverUrl:'https://fixture/'+i};assert.match(c.recordCard(local),/2\/5 fotos salvas neste aparelho · 3\/5 confirmadas no servidor/);
 });
-test('retry confirma metadados de slots antes de dispensar o data commit',async()=>{
+test('retry preserva os blobs quando o plano de slots persistido está incompleto',async()=>{
   const h=backendHarness(),ui=client(h);ui.fail(1);await ui.c.syncSingleRecord(UUID,false);
   const row=h.sheet(h.c.meta.APP.pendingSheet).rows[1],audit=JSON.parse(row[h.c.meta.COL.AUDIT-1]);audit.expectedPhotoIndexes=[1,2,3];row[h.c.meta.COL.AUDIT-1]=JSON.stringify(audit);
-  ui.fail(0);const result=await ui.c.syncSingleRecord(UUID,false);assert.equal(result.status,'AGUARDANDO_SUPERVISOR');assert.equal(ui.submitted.length,2);assert.deepEqual(plain(h.state().record.audit.expectedPhotoIndexes),[1,2,3,4,5]);
+  ui.fail(0);const result=await ui.c.syncSingleRecord(UUID,false);assert.equal(result.lastSyncError.code,'PHOTO_PLAN_UNCONFIRMED');assert.equal(ui.submitted.length,1);assert.equal(ui.photos.size,5);assert.deepEqual(plain(h.state().record.audit.expectedPhotoIndexes),[1,2,3]);
 });
 test('correcao com contrato numerico mantem releitura, fingerprint e receipt COMPLETE',()=>{
   const h=backendHarness(),before=record();h.seed(before,{status:h.c.meta.STATUS.CORRECTION_REQUESTED});

@@ -2,6 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const suites = ['audit-sync', 'audit-offline', 'audit-deletion', 'audit-session', 'audit-mine-session', 'audit-fiscal-ui', 'audit-merge', 'audit-exports', 'audit-backend'].map(name => name + '-20261018.mjs');
+suites.push('data-commit-reconciliation.mjs');
 const results = [];
 for (const suite of suites) {
   const started = performance.now();

@@ -55,7 +55,7 @@ test('foto local com FileReader preso termina em erro sem apagar o blob', async 
 });
 // getRecordState returns persisted record data and the submitted photo intent.
 // An identity-only record is a conflicting payload under the current contract.
-const syncState = (id = 'a', extra = {}) => ({ ok: true, recordId: id, record: { recordId: id, user: 'Campo FICTÍCIO', occurrenceTypes: ['PODA'], services: [], materials: [], audit: { expectedPhotoIndexes: [1, 2, 3] } }, status: core.RECORD_STATUS.WAITING_SUPERVISOR,
+const syncState = (id = 'a', extra = {}) => ({ ok: true, recordId: id, record: { recordId: id, user: 'Campo FICTÍCIO', occurrenceTypes: ['PODA'], services: [], materials: [], totalServices: 0, audit: { expectedPhotoIndexes: [1, 2, 3] } }, status: core.RECORD_STATUS.WAITING_SUPERVISOR,
   photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: index < 3, url: index < 3 ? 'foto-' + index : '', uploadKey: 'k' + index })), ...extra });
 for (const [name, change] of [
   ['sem identidade', value => { delete value.recordId; }], ['outro UUID', value => { value.recordId = 'outro'; }],
@@ -241,9 +241,10 @@ test('cache secundário indisponível não converte confirmação real em falha 
 });
 test('sincronizar tudo completa dois UUIDs e preserva o item sem foto local', async () => {
   const records = ['a', 'b', 'c'].map(id => ({ ...syncRecord(id), photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, localReady: index < 3, uploadKey: id + '-' + index })) }));
-  const h = syncHarness(records); const confirmed = new Map();
+  const h = syncHarness(records); const confirmed = new Map(), recorded = new Set();
   const response = id => { const keys = confirmed.get(id) || new Map(); return syncState(id, { status: keys.size >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: keys.has(index + 1), url: keys.has(index + 1) ? 'foto-' + index : '', uploadKey: keys.get(index + 1) || '' })) }); };
-  h.c.api.submitRecord = async (_token, record) => response(record.recordId); h.c.api.getRecordState = async (_token, id) => response(id);
+  h.c.api.submitRecord = async (_token, record) => { recorded.add(record.recordId); return response(record.recordId); };
+  h.c.api.getRecordState = async (_token, id) => { if (!recorded.has(id)) throw new h.c.ApiError('Não encontrado', 'RECORD_NOT_FOUND'); return response(id); };
   h.c.api.uploadPhoto = async (_token, photo) => { if (!confirmed.has(photo.recordId)) confirmed.set(photo.recordId, new Map()); confirmed.get(photo.recordId).set(photo.photoIndex, photo.uploadKey); return response(photo.recordId); };
   for (const record of records.filter(r => r.recordId !== 'b')) for (let index = 1; index <= 3; index++) h.photos.set(record.recordId + ':' + index, { recordId: record.recordId, photoIndex: index, uploadKey: record.recordId + '-' + (index - 1), blob: new Blob(['foto']) });
   await h.c.syncAll(false); assert.equal(h.saved.get('a').status, core.RECORD_STATUS.WAITING_SUPERVISOR); assert.equal(h.saved.get('c').status, core.RECORD_STATUS.WAITING_SUPERVISOR); assert.equal(h.saved.get('b').status, core.RECORD_STATUS.ERROR); assert.match(h.saved.get('b').lastError, /não está mais disponível/); assert.equal(h.saved.size, 3);
@@ -254,6 +255,7 @@ test('perda de conexão no upload mantém blob e a reconexão recupera a mesma c
   const response = () => syncState('a', { status: uploaded.size >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: uploaded.has(index + 1), url: uploaded.has(index + 1) ? 'foto-' + index : '', uploadKey: uploaded.get(index + 1) || '' })) });
   h.c.api.submitRecord = async () => { submissions++; return response(); }; h.c.api.getRecordState = async () => {
     if (!h.c.navigator.onLine) throw new h.c.ApiError('sem conexão', 'NETWORK_ERROR');
+    if (!submissions) throw new h.c.ApiError('Não encontrado', 'RECORD_NOT_FOUND');
     return response();
   };
   h.c.api.uploadPhoto = async (_token, photo) => { uploaded.set(photo.photoIndex, photo.uploadKey); if (!failed) { failed = true; h.c.navigator.onLine = false; throw new h.c.ApiError('resposta perdida', 'NETWORK_ERROR'); } return response(); };

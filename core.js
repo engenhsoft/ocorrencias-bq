@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.10.30.1';
-export const APP_BUILD = '2026-10-30-top3-financeiro';
+export const APP_VERSION = '2026.11.05.1';
+export const APP_BUILD = '2026-11-05-reconciliacao-fotos';
 
 export const TEAM_GOAL = 6000;
 
@@ -219,13 +219,97 @@ export function correctionConfirmationMatches(submitted, state, complete = false
     && JSON.stringify(correctionDataSnapshot(submitted)) === JSON.stringify(correctionDataSnapshot(state.record));
 }
 
+function dataCommitAmount(value) {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 0) return NaN;
+    const cents = Math.round(value * 100);
+    // A binary representation artifact is equivalent to its cent value.
+    return Number.isSafeInteger(cents) && Math.abs(value - cents / 100) <= Number.EPSILON * value ? cents / 100 : value;
+  }
+  if (typeof value !== 'string') return NaN;
+  const text = value.trim().replace(/^R\$\s*/, '');
+  const grouped = /^\d{1,3}(?:\.\d{3})+,\d+$/.test(text);
+  if (!grouped && !/^\d+(?:[.,]\d+)?$/.test(text)) return NaN;
+  const number = Number((grouped ? text.replace(/\./g, '') : text).replace(',', '.'));
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function dataCommitSnapshot(record, local = false) {
+  const snapshot = correctionDataSnapshot(record);
+  for (const field of CHAVES_FIELDS) snapshot[field] ??= '';
+  snapshot.occurrenceTypes.sort();
+  snapshot.observation = snapshot.observation.replace(/\r\n?/g, '\n');
+  normalizeServices(record.services).forEach((service, index) => {
+    snapshot.services[index].referenceValue = dataCommitAmount(service.referenceValue);
+    snapshot.services[index].totalValue = dataCommitAmount(service.totalValue);
+  });
+  for (const line of [...snapshot.services, ...snapshot.materials]) {
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) line.quantity = NaN;
+  }
+  snapshot.totalServices = dataCommitAmount(record.totalServices ?? (local ? occurrenceSnapshotTotal(record.services) : undefined));
+  return snapshot;
+}
+
+// The field create receipt is compared independently of the correction fingerprint.
+// Paths are generated here. Values are only used for the signed-in owner's review.
+export function dataCommitDifferences(local = {}, server = {}) {
+  const before = dataCommitSnapshot(local, true), after = dataCommitSnapshot(server);
+  const differences = [];
+  const compare = (field, localValue, serverValue) => {
+    if (localValue !== serverValue) differences.push({ field, localValue, serverValue });
+  };
+  for (const field of Object.keys(before)) {
+    if (['occurrenceTypes', 'transformer', 'services', 'materials'].includes(field)) continue;
+    compare(field, before[field], after[field]);
+  }
+  compare('occurrenceTypes', before.occurrenceTypes.join(' | '), after.occurrenceTypes.join(' | '));
+  if ([before, after].some(snapshot => snapshot.occurrenceTypes.includes('CHAVES') || CHAVES_FIELDS.some(field => snapshot[field]))) {
+    compare('formVersion', Number(local.formVersion ?? 0), Number(server.formVersion ?? 0));
+  }
+  for (const field of Object.keys(before.transformer)) compare(`transformer.${field}`, before.transformer[field], after.transformer[field]);
+  for (const key of ['services', 'materials']) {
+    const left = before[key], right = after[key];
+    if (!Array.isArray(local[key]) || !Array.isArray(server[key]) || local[key].length !== left.length || server[key].length !== right.length) {
+      differences.push({ field: key });
+      continue;
+    }
+    compare(`${key}.length`, left.length, right.length);
+    const available = new Set(right.keys());
+    const unmatched = left.map((line, index) => {
+      const match = [...available].find(position => Object.keys(line).every(field => line[field] === right[position][field]));
+      if (match === undefined) return index;
+      available.delete(match);
+      return -1;
+    }).filter(index => index >= 0);
+    for (const index of unmatched) {
+      const line = left[index];
+      const lineId = local[key][index].lineId;
+      const match = [...available].find(position => lineId && lineId === server[key][position].lineId)
+        ?? [...available].find(position => line.catalogKey && line.catalogKey === right[position].catalogKey)
+        ?? [...available].find(position => line.code && line.code === right[position].code);
+      const path = `${key}[${index + 1}]`;
+      if (match === undefined) { compare(path, line.code || line.description, undefined); continue; }
+      available.delete(match);
+      for (const field of Object.keys(line)) compare(`${path}.${field}`, line[field], right[match][field]);
+    }
+    for (const index of available) compare(`${key}.server[${index + 1}]`, undefined, right[index].code || right[index].description);
+  }
+  return differences;
+}
+
 export function dataCommitMatches(record, state) {
   if (record?.correctionMode || record?.correctionRequestId) return correctionConfirmationMatches(record, state);
-  return state?.recordId === record?.recordId && sameUser(record.user, state.record?.user)
-    && Array.isArray(state.record?.audit?.expectedPhotoIndexes)
-    && normalizePhotoStates(record.photoStates).filter(photo => photo.localReady || photo.confirmed)
-      .every(photo => state.record.audit.expectedPhotoIndexes.includes(photo.photoIndex))
-    && JSON.stringify(correctionDataSnapshot(record)) === JSON.stringify(correctionDataSnapshot(state.record));
+  if (!record?.recordId || state?.recordId !== record.recordId || state.record?.recordId !== record.recordId || !sameUser(record.user, state.record.user)) return false;
+  const photos = normalizePhotoStates(record.photoStates);
+  const expected = state.record.audit?.expectedPhotoIndexes;
+  const lastIndex = normalizeOccurrenceTypes(record.occurrenceTypes).includes('SUBSTITUIÇÃO DE TRAFO') ? 7 : 5;
+  const validPlan = Array.isArray(expected) && new Set(expected).size === expected.length
+    && expected.every(index => Number.isInteger(index) && index >= 1 && index <= lastIndex)
+    && expected.filter(index => index <= 5).length >= 3 && (lastIndex === 5 || [6, 7].every(index => expected.includes(index)))
+    && photos.filter(photo => photo.localReady || photo.confirmed || photo.replacePending).every(photo => expected.includes(photo.photoIndex));
+  const reviewed = [RECORD_STATUS.CORRECTION_REQUESTED, RECORD_STATUS.REJECTED, RECORD_STATUS.APPROVED, RECORD_STATUS.PUBLISHED].includes(state.status)
+    && !photos.some(photo => photo.localReady || photo.replacePending);
+  return (validPlan || reviewed) && !dataCommitDifferences(record, state.record).length;
 }
 
 export function confirmedEvidenceReady(record) {
@@ -251,14 +335,27 @@ export function synchronizationFeedback(record = {}) {
   const photoLabel = Number.isInteger(progress.photoIndex) && progress.photoIndex >= 1 && progress.photoIndex <= 7 ? `Foto ${progress.photoIndex}` : '';
   const progressLabels = { read_photo: 'lendo neste aparelho', encode_photo: 'preparando envio', upload_photo: 'enviando', confirm_photo: 'confirmando no servidor' };
   const progressDetail = photoLabel && progressLabels[progress.stage] ? `${progress.dataConfirmed ? 'Dados confirmados · ' : ''}${photoLabel}: ${progressLabels[progress.stage]}` : '';
+  if (record.lastSyncError?.code === 'DATA_COMMIT_CONFLICT' && !record.correctionMode && !record.fiscalCorrection) {
+    return { phase, label: 'DIVERGÊNCIA ENTRE RASCUNHO E SERVIDOR', detail: 'Revise os campos afetados. O rascunho e as fotos continuam neste aparelho.' };
+  }
+  const photosPending = dataCommitPendingPhotos(record);
+  if (photosPending) return { phase, label: `DADOS CONFIRMADOS — ${photosPending} ${photosPending === 1 ? 'FOTO PENDENTE' : 'FOTOS PENDENTES'}`,
+    detail: record.lastError || progressDetail || `${confirmed} confirmadas no servidor` };
   return { phase, label: phases[phase] || phases.saved,
     detail: phase === 'saved' ? 'Ainda não confirmadas no servidor.' : phase === 'photos' ? progressDetail || `${confirmed} confirmadas · ${pending} pendentes` : phase === 'confirming' ? 'Validando a persistência pelo UUID.' : record.lastError || '' };
+}
+
+export function dataCommitPendingPhotos(record = {}) {
+  if (!record.syncProgress?.dataConfirmed || record.syncPhase === 'confirmed' || record.correctionMode || record.correctionRequestId || record.fiscalCorrection) return 0;
+  const expected = normalizeArray(record.audit?.expectedPhotoIndexes);
+  return normalizePhotoStates(record.photoStates).filter(photo => (!photo.confirmed || photo.replacePending)
+    && (expected.includes(photo.photoIndex) || photo.localReady || photo.replacePending)).length;
 }
 
 // Persist/log only diagnostic metadata. Error objects can contain HTTP bodies,
 // credentials or image data in details/cause; never copy them into the draft/log.
 export function synchronizationDiagnostic(error, progress = {}) {
-  const stages = ['prepare', 'read_data', 'submit_data', 'read_photo', 'encode_photo', 'upload_photo', 'confirm_photo', 'confirm_correction'];
+  const stages = ['prepare', 'read_data', 'submit_data', 'read_photo', 'encode_photo', 'upload_photo', 'confirm_photo', 'confirm_record', 'confirm_correction'];
   const types = ['TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'EvalError', 'URIError', 'NotReadableError', 'DataCloneError', 'QuotaExceededError', 'InvalidStateError'];
   const exception = types.find(type => error?.name === type || new RegExp(`\\b${type}\\b`).test(String(error?.message || ''))) || '';
   const code = /^[A-Z][A-Z0-9_]{1,63}$/.test(String(error?.code || '')) ? String(error.code) : exception ? exception.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase() : 'UNEXPECTED_ERROR';
@@ -971,7 +1068,7 @@ export function reconcilePhotoStates(localRecord, serverState) {
     if (current.replacePending && !matchingUpload) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: Boolean(current.localReady), serverUrl: server?.url || current.serverUrl || '' };
     }
-    if (current.localReady && current.uploadKey && server && server.uploadKey !== current.uploadKey) {
+    if (current.localReady && server && (!current.uploadKey || server.uploadKey !== current.uploadKey)) {
       return { ...current, photoIndex: index + 1, confirmed: false, localReady: true, serverUrl: server.url || server.serverUrl || current.serverUrl || '' };
     }
     if (!server) {

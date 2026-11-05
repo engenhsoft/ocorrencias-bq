@@ -384,18 +384,21 @@ test('registro de outro usuário não é sincronizado', async () => {
   let submits = 0; globalThis.__dbRecord = { ...storedRecord, recordId: 'alice-only', user: 'Alice' }; globalThis.__apiHandlers = { submitRecord: async () => { submits += 1; } }; app.__set({ session: { token: 'bob', user: 'Bob', role: 'field' } }); await app.performSyncSingleRecord('alice-only', false); assert.equal(submits, 0);
 });
 test('blob local ausente sai de SINCRONIZANDO para ERRO', async () => {
-  globalThis.__photos = new Map(); globalThis.__dbRecord = { ...storedRecord, recordId: 'missing-photo', user: 'Alice', photoStates: [{ photoIndex: 1, localReady: true, uploadKey: 'same-key' }] };
-  globalThis.__apiHandlers = { submitRecord: async () => ({ status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [] }), getRecordState: async () => ({ status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [] }) };
-  app.persistSession({ token: 'alice', user: 'Alice', role: 'field' }); const result = await app.performSyncSingleRecord('missing-photo', false); assert.equal(result.status, core.RECORD_STATUS.ERROR);
+  const local = { ...storedRecord, recordId: 'missing-photo', user: 'Alice', services: storedRecord.services.map(service => ({ ...service, totalValue: 144.26 })), totalServices: 144.26, photoStates: [{ photoIndex: 1, localReady: true, uploadKey: 'same-key' }] };
+  globalThis.__photos = new Map(); globalThis.__dbRecord = local;
+  globalThis.__apiHandlers = { getRecordState: async () => ({ recordId: local.recordId, status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [], record: { ...local, audit: { expectedPhotoIndexes: [1, 2, 3] } } }) };
+  app.persistSession({ token: 'alice', user: 'Alice', role: 'field' }); const result = await app.performSyncSingleRecord('missing-photo', false); assert.equal(result.status, core.RECORD_STATUS.ERROR); assert.equal(result.lastSyncError.code, 'LOCAL_PHOTO_MISSING');
 });
 test('retry conserva UUID e uploadKey das fotos', async () => {
   const uploadKeys = ['key-1', 'key-2', 'key-3']; globalThis.__deletedPhotos = []; globalThis.__photos = new Map(uploadKeys.map((uploadKey, offset) => [offset + 1, { recordId: 'retry-id', photoIndex: offset + 1, uploadKey, blob: new Blob(['x']), mimeType: 'image/jpeg', fileName: 'x.jpg' }]));
-  globalThis.__dbRecord = { ...storedRecord, recordId: 'retry-id', user: 'Alice', photoStates: uploadKeys.map((uploadKey, offset) => ({ photoIndex: offset + 1, localReady: true, uploadKey, replacePending: true })) };
+  const local = { ...storedRecord, recordId: 'retry-id', user: 'Alice', services: storedRecord.services.map(service => ({ ...service, totalValue: 144.26 })), totalServices: 144.26, photoStates: uploadKeys.map((uploadKey, offset) => ({ photoIndex: offset + 1, localReady: true, uploadKey, replacePending: true })) };
+  globalThis.__dbRecord = local;
   const submitted = []; const uploaded = []; const confirmed = [];
+  const response = () => ({ recordId: local.recordId, record: { ...local, audit: { expectedPhotoIndexes: [1, 2, 3] } }, status: confirmed.length >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}`, uploadKey: uploadKeys[photoIndex - 1] })) });
   globalThis.__apiHandlers = {
-    submitRecord: async (_token, record) => { submitted.push(record.recordId); return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: [] }; },
-    getRecordState: async () => ({ status: confirmed.length >= 3 ? core.RECORD_STATUS.WAITING_SUPERVISOR : core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}`, uploadKey: uploadKeys[photoIndex - 1] })) }),
-    uploadPhoto: async (_token, photo) => { uploaded.push(photo.uploadKey); confirmed.push(photo.photoIndex); return { status: core.RECORD_STATUS.SYNCING_PHOTOS, photoStates: confirmed.map((photoIndex) => ({ photoIndex, confirmed: true, url: `u${photoIndex}`, uploadKey: uploadKeys[photoIndex - 1] })) }; }
+    submitRecord: async (_token, record) => { submitted.push(record.recordId); return response(); },
+    getRecordState: async () => { if (!submitted.length) throw new app.__ApiError('Não encontrado', 'RECORD_NOT_FOUND'); return response(); },
+    uploadPhoto: async (_token, photo) => { uploaded.push(photo.uploadKey); confirmed.push(photo.photoIndex); return response(); }
   };
   app.persistSession({ token: 'alice', user: 'Alice', role: 'field' }); const result = await app.performSyncSingleRecord('retry-id', false); assert.deepEqual(submitted, ['retry-id']); assert.deepEqual(uploaded, uploadKeys); assert.equal(result.status, core.RECORD_STATUS.WAITING_SUPERVISOR); assert.deepEqual(globalThis.__deletedPhotos, [['retry-id', 1], ['retry-id', 2], ['retry-id', 3]]);
 });

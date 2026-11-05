@@ -153,7 +153,7 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
   assert.ok(source);
   const statuses = [];
   const recordId = 'registro-offline-1';
-  let stored = { recordId, user: 'Teste', status: 'PENDENTE_ENVIO', services: [], materials: [], occurrenceTypes: ['PODA'], photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: index < 3, serverUrl: index < 3 ? 'https://example.test/' + index : '' })), attempts: 0 };
+  let stored = { recordId, user: 'Teste', status: 'PENDENTE_ENVIO', services: [], materials: [], totalServices: 0, occurrenceTypes: ['PODA'], photoStates: Array.from({ length: 7 }, (_, index) => ({ photoIndex: index + 1, confirmed: index < 3, serverUrl: index < 3 ? 'https://example.test/' + index : '' })), attempts: 0 };
   let submissions = 0;
   const serverState = { status: 'AGUARDANDO_SUPERVISOR', photoStates: stored.photoStates };
   class ApiError extends Error { constructor(message, code) { super(message); this.code = code; } }
@@ -176,7 +176,7 @@ test('falha transitória mantém UUID na fila e o retry chega à confirmação',
     updateQueueUi: async () => {}, currentView: 'sync', mineRecords: [], refreshMine: () => {},
     friendlyError: (error) => error.message, statusLabel: (status) => status, toast: () => {}, console, ApiError,
     api: {
-      getRecordState: async () => { if (++stateReads === 1) throw new ApiError('Não encontrado', 'RECORD_NOT_FOUND'); return { ...serverState, recordId, record: { ...stored, status: 'AGUARDANDO_SUPERVISOR', audit: { expectedPhotoIndexes: [1,2,3] } } }; },
+      getRecordState: async () => { if (++stateReads <= 2) throw new ApiError('Não encontrado', 'RECORD_NOT_FOUND'); return { ...serverState, recordId, record: { ...stored, status: 'AGUARDANDO_SUPERVISOR', audit: { expectedPhotoIndexes: [1,2,3] } } }; },
       submitRecord: async () => { submissions += 1; if (submissions === 1) throw new ApiError('Falha de rede transitória', 'NETWORK_ERROR'); return { status: 'FOTOS_SENDO_SINCRONIZADAS', photoStates: stored.photoStates }; },
       uploadPhoto: async () => serverState
     }
