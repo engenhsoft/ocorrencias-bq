@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.11.05.1';
-export const APP_BUILD = '2026-11-05-reconciliacao-fotos';
+export const APP_VERSION = '2026.11.06.1';
+export const APP_BUILD = '2026-11-06-identidade-utf8';
 
 export const TEAM_GOAL = 6000;
 
@@ -1147,4 +1147,17 @@ export function tokenExpiry(token) {
   } catch {
     return 0;
   }
+}
+
+// This checks cached-session consistency only. Signature, expiry and permissions
+// remain authoritative on the server; never repair an identity from token text.
+export function sessionIdentityMatches(value) {
+  try {
+    const parts = String(value?.token || '').split('.');
+    if (parts.length !== 2 || !parts[0] || !parts[1] || !['field', 'supervisor', 'fiscal'].includes(value?.role)) return false;
+    const body = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(body + '='.repeat((4 - body.length % 4) % 4));
+    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(binary, char => char.charCodeAt(0))));
+    return payload.role === value.role && sameUser(payload.user, value.user);
+  } catch { return false; }
 }

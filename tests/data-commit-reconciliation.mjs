@@ -305,6 +305,32 @@ test('404 depois de dados confirmados nunca autoriza recriação', async () => {
   assert.equal((await app.photos()).length, 3);
 });
 
+test('identidade legada bloqueia uploads; reconciliação autorizada do mesmo UUID retoma somente fotos', async () => {
+  const remote = persisted(); remote.user = 'Pessoa de Campo Fict?cia';
+  const server = mockServer(remote), app = appRuntime(server);
+  await seed(app); await app.run();
+  assert.equal((await app.saved()).lastSyncError.code, 'INVALID_RECORD_STATE');
+  assert.equal((await app.photos()).length, 3);
+  assert.equal(server.files.size, 0);
+  assert.equal(server.writeCount, 0);
+  // The mock represents the owner's separately authenticated, UUID-scoped repair.
+  // The client cannot perform this repair or accept a wildcard identity.
+  server.rows.get(UUID).user = user;
+  server.rows.get(UUID).audit.identityReconciliation = { authorized: true, previousUser: remote.user };
+  await app.run();
+  assert.equal(server.writeCount, 0);
+  await assertComplete(app, server);
+});
+
+test('sessão de outro usuário não lê nem envia o rascunho local e preserva os blobs', async () => {
+  const server = mockServer(persisted()), app = appRuntime(server);
+  await seed(app); app.c.session.user = 'Outra pessoa';
+  assert.equal(await app.run(), null);
+  assert.deepEqual(server.actions, []);
+  assert.equal((await app.photos()).length, 3);
+  assert.equal(server.files.size, 0);
+});
+
 test('execuções simultâneas do mesmo UUID reaproveitam o trabalho e não duplicam arquivos', async () => {
   const server = mockServer(), app = appRuntime(server);
   await seed(app);

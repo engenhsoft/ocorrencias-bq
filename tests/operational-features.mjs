@@ -133,6 +133,15 @@ test('Fiscal com nome acentuado preserva a identidade em UTF-8 na sessão assina
   const login = h.c.login_({ user: 'José Ângelo Fiscal', role: 'fiscal', password: 'fixture-password' });
   assert.equal(h.c.requireSession_(login.token, ['fiscal']).user, 'José Ângelo Fiscal');
 });
+for (const role of ['field', 'supervisor']) test(`Login ${role} preserva nome acentuado da resposta até a sessão validada`, () => {
+  const h = harness();
+  h.props.set(role === 'field' ? 'FIELD_PASSWORD_HASH' : 'SUPERVISOR_PASSWORD_HASH', createHash('sha256').update('fixture-password').digest('hex'));
+  h.c.Utilities.base64EncodeWebSafe = (value, charset) => Buffer.from(typeof value === 'string' && charset !== 'utf8' ? value.replace(/[^\x00-\x7f]/g, '?') : value).toString('base64url');
+  const login = h.c.login_({ user: 'José Simião', role, password: 'fixture-password' });
+  assert.equal(login.user, 'José Simião');
+  assert.equal(h.c.requireSession_(login.token, [role]).user, login.user);
+  assert.throws(() => h.c.requireSession_(login.token, [role === 'field' ? 'supervisor' : 'field']), error => error.code === 'AUTH_REQUIRED');
+});
 test('tokens Campo/Supervisor conservam o formato e assinatura anteriores', () => {
   const h = harness(), nonce = 'nonce-fixture', expires = Date.now() + 10000;
   h.c.Utilities.getUuid = () => nonce;
