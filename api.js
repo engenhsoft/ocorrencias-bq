@@ -1,5 +1,52 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.11.06.1';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.11.06.1';
+import { correctionConfirmationMatches } from './core.js?v=2026.11.09.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.11.09.1';
+
+export const REMOTE_WRITES = ['submitRecord', 'uploadPhoto', 'supervisorCorrectRecord', 'supervisorAction',
+  'requestPhotoSyncBatch', 'approveBatch', 'saveFiscalAccount', 'changeFiscalMasterPassword', 'reassignFiscalCorrection'];
+export const UPDATE_LOCK = 'ocorrencias-bq-release';
+let operationalClient = null;
+let compatibility = null;
+let errorTimer = 0;
+const clientErrors = new Map();
+const reportable = new Set(['NETWORK_ERROR', 'TIMEOUT', 'HTTP_SERVER_ERROR', 'INVALID_SERVER_RESPONSE', 'INVALID_RECORD_STATE',
+  'DATA_COMMIT_CONFLICT', 'LOCAL_PHOTO_READ_ERROR', 'LOCAL_PHOTO_MISSING', 'LOCAL_RECORD_CHANGED', 'PHOTO_PLAN_UNCONFIRMED',
+  'CORRECTION_DATA_UNCONFIRMED', 'CORRECTION_DELTA_MISMATCH', 'PHOTO_CONFIRMATION_PENDING', 'PHOTO_SYNC_PENDING',
+  'PUBLICATION_UNCONFIRMED', 'PDF_ERROR', 'EXCEL_ERROR', 'LOCAL_SYNC_ERROR']);
+const metadata = () => operationalClient ? { clientVersion: operationalClient.version, clientContract: operationalClient.contract, clientSchema: operationalClient.schema } : {};
+
+export function configureOperationalClient(client) { operationalClient = client; }
+export function confirmedCompatibility() { return compatibility; }
+export function monitoringAvailable() { return compatibility?.policy?.monitoring === 1; }
+
+export function incompatibleActions(policy, client) {
+  if (policy?.schema !== 1 || !client || !Array.isArray(policy.acceptedContracts) || !Array.isArray(policy.localSchemas)) return [];
+  return REMOTE_WRITES.filter(action => {
+    const contracts = policy.operationContracts?.[action];
+    return !(Array.isArray(contracts) ? contracts : policy.acceptedContracts).includes(client.contract) || !policy.localSchemas.includes(client.schema);
+  });
+}
+
+export function resetOperationalErrors() {
+  clearTimeout(errorTimer); errorTimer = 0; clientErrors.clear();
+}
+
+export function reportOperationalError(action, code, recordId, { stage = '', correlationId = '', token = operationalClient?.getToken() } = {}) {
+  if (!monitoringAvailable() || !token || token !== operationalClient?.getToken() || !reportable.has(code)) return;
+  const key = [action, code, recordId, stage].join('|');
+  if (!clientErrors.has(key) && clientErrors.size < 18) clientErrors.set(key, { action, code, recordId, stage, correlationId });
+  if (!errorTimer) errorTimer = setTimeout(flushOperationalErrors, 5000);
+}
+
+export async function flushOperationalErrors() {
+  clearTimeout(errorTimer); errorTimer = 0;
+  const token = operationalClient?.getToken();
+  if (!token || !monitoringAvailable() || !navigator.onLine || !clientErrors.size) return;
+  const batch = [...clientErrors.entries()].slice(0, 6);
+  batch.forEach(([key]) => clientErrors.delete(key));
+  if (clientErrors.size) errorTimer = setTimeout(flushOperationalErrors, 5000);
+  try { await apiRequest('reportClientErrors', { token, events: batch.map(([, event]) => event) }, { timeoutMs: 10000 }); }
+  catch { /* Diagnostics do not retry or delay the original operation. */ }
+}
 
 export class ApiError extends Error {
   constructor(message, code = 'API_ERROR', details = null) {
@@ -112,16 +159,22 @@ export async function healthCheck() {
   const url = new URL(API_ENDPOINT);
   url.searchParams.set('action', 'health');
   url.searchParams.set('_', String(Date.now()));
-  return withTimeout(async (signal) => {
+  const result = await withTimeout(async (signal) => {
     const response = await fetch(url, { method: 'GET', redirect: 'follow', cache: 'no-store', signal });
     return parseResponse(response);
   }, 18000);
+  compatibility = { version: result.version, contract: result.contract, policy: result.compatibility, at: Date.now() };
+  return result;
 }
 
 export async function apiRequest(action, payload = {}, options = {}) {
   assertEndpoint();
-  const body = JSON.stringify({ action, ...payload });
-  return withTimeout(async (signal) => {
+  if (compatibility && Date.now() - compatibility.at < 300000 && incompatibleActions(compatibility.policy, operationalClient).includes(action)) {
+    throw new ApiError('Atualize o aplicativo antes desta operação. Os dados locais foram preservados.', 'CLIENT_UPDATE_REQUIRED');
+  }
+  const correlationId = operationalClient ? globalThis.crypto?.randomUUID?.() : undefined;
+  const body = JSON.stringify({ ...payload, ...metadata(), action, correlationId });
+  const send = () => withTimeout(async (signal) => {
     const response = await fetch(API_ENDPOINT, {
       method: 'POST',
       redirect: 'follow',
@@ -154,6 +207,18 @@ export async function apiRequest(action, payload = {}, options = {}) {
     }
     return data;
   }, options.timeoutMs || 35000, options.enforceDeadline !== false);
+  const request = operationalClient && REMOTE_WRITES.includes(action) && navigator.locks?.request
+    ? navigator.locks.request(UPDATE_LOCK, { mode: 'shared' }, send) : send();
+  if (!operationalClient || !payload.token || ['reportClientErrors', 'presenceHeartbeat', 'presenceEnd', 'supervisorMonitor', 'auditLocalDiscard'].includes(action)) return request;
+  return request.catch(error => {
+    // Server errors already have a server-side record. Report transport and local
+    // confirmation failures only, without the message, payload or response body.
+    if (error.details?.success !== false && error.details?.ok !== false) {
+      reportOperationalError(action, error.code, payload.recordId || payload.record?.recordId,
+        { correlationId, token: payload.token });
+    }
+    throw error;
+  });
 }
 
 export function loadMaterialCatalog(options = {}) {
@@ -206,6 +271,10 @@ export function loadMaterialCatalog(options = {}) {
 
 export const api = Object.freeze({
   login: (user, password, role) => apiRequest('login', { user, password, role }),
+  supervisorMonitor: (token, section, parameters = {}) => apiRequest('supervisorMonitor', { ...parameters, token, section }, { timeoutMs: 45000 }),
+  presenceHeartbeat: (token, context) => apiRequest('presenceHeartbeat', { ...context, token }, { timeoutMs: 10000 }),
+  presenceEnd: token => apiRequest('presenceEnd', { token }, { timeoutMs: 10000 }),
+  auditLocalDiscard: (token, recordId) => apiRequest('auditLocalDiscard', { token, recordId }, { timeoutMs: 10000 }),
   getOperationalSummary: (token) => apiRequest('getOperationalSummary', { token }, { timeoutMs: 60000 }),
   listFiscalCorrections: token => apiRequest('listFiscalCorrections', { token }, { timeoutMs: 60000 }),
   openFiscalCorrection: (token, recordId, fiscalCorrection) => apiRequest('openFiscalCorrection', { token, recordId, fiscalCorrection }),

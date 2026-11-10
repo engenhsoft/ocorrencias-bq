@@ -66,7 +66,7 @@ test('dois botões PDF da mesma ocorrência não duplicam consulta simultânea',
   const listeners = {}, hosts = new Map(); let calls = 0, finish;
   const pending = new Promise(resolve => { finish = resolve; });
   const host = selector => { if (!hosts.has(selector)) hosts.set(selector, { innerHTML: '', textContent: '', value: '', hidden: true, setAttribute() {}, removeAttribute() {} }); return hosts.get(selector); };
-  const context = vm.createContext({ ...core, console, navigator: { onLine: true }, createFiscalAdmin: () => ({ reset() {}, enter() {} }), createFiscalWorkspace: () => ({ reset() {}, enter() {} }), api: { async getOccurrenceDocument() { calls++; await pending; throw new Error('Falha simulada recuperável'); } }, document: { querySelector: host, querySelectorAll: () => [], addEventListener(type, handler) { listeners[type] = handler; } } });
+  const context = vm.createContext({ ...core, console, reportOperationalError() {}, navigator: { onLine: true }, createFiscalAdmin: () => ({ reset() {}, enter() {} }), createFiscalWorkspace: () => ({ reset() {}, enter() {} }), api: { async getOccurrenceDocument() { calls++; await pending; throw new Error('Falha simulada recuperável'); } }, document: { querySelector: host, querySelectorAll: () => [], addEventListener(type, handler) { listeners[type] = handler; } } });
   vm.runInContext(features.replace(/^import .*?;\n/gm, '').replace(/^export /gm, ''), context);
   context.createOperationalFeatures({ getSession: () => ({ token: 'fixture-only', role: 'supervisor' }), getRevision: () => 1, onLogout() {} });
   const button = () => ({ textContent: 'GERAR PDF', disabled: false, dataset: { exportRecord: uuid }, hasAttribute: () => false });

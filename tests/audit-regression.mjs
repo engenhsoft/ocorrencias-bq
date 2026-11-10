@@ -221,7 +221,7 @@ function fakeElement() {
 
 async function loadAppHarness() {
   const dbStub = dataUrl(`
-    export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index,key)=>{const photo=globalThis.__photos?.get(index);if(photo&&(key===undefined||key===photo.uploadKey)){globalThis.__deletedPhotos?.push([recordId,index]);globalThis.__photos.delete(index);return true;}return false;}; export const deleteRecord=async()=>{};
+    export const DB_VERSION=1; export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index,key)=>{const photo=globalThis.__photos?.get(index);if(photo&&(key===undefined||key===photo.uploadKey)){globalThis.__deletedPhotos?.push([recordId,index]);globalThis.__photos.delete(index);return true;}return false;}; export const deleteRecord=async()=>{};
     export const getAllRecords=async()=>globalThis.__dbRecords||[]; export const getCachedMaterialCatalog=async()=>[]; export const getMeta=async()=>null;
     export const getPhoto=async(recordId,index)=>globalThis.__photos?.get(index)||null; export const getPhotosForRecord=async()=>[];
     export const getQueueSummary=async()=>({pendingRecords:[],pendingPhotos:0,syncingPhotos:0,errors:0});
@@ -231,6 +231,7 @@ async function loadAppHarness() {
   `);
   const apiStub = dataUrl(`
     export { loadOccurrenceDataset, ambiguousMutationError } from '${dataUrl(apiSource)}';
+    export const configureOperationalClient=()=>{}, flushOperationalErrors=()=>{}, monitoringAvailable=()=>false, reportOperationalError=()=>{}, resetOperationalErrors=()=>{}, UPDATE_LOCK='ocorrencias-bq-release';
     export class ApiError extends Error { constructor(message,code='API_ERROR'){super(message);this.code=code;} }
     const call=(name,...args)=>globalThis.__apiHandlers?.[name]?.(...args);
     export const api=new Proxy({}, {get:(_,name)=>(...args)=>call(name,...args)});
@@ -240,6 +241,10 @@ async function loadAppHarness() {
   source = source.replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`).replace(/from '\.\/db\.js(?:\?v=[^']+)?'/g, `from '${dbStub}'`).replace(/from '\.\/api\.js(?:\?v=[^']+)?'/g, `from '${apiStub}'`);
   const cardsSource = (await read('occurrence-card.js')).replace(/from '\.\/core\.js(?:\?v=[^']+)?'/g, `from '${coreUrl}'`);
   source = source.replace(/from '\.\/occurrence-card\.js(?:\?v=[^']+)?'/g, `from '${dataUrl(cardsSource)}'`).replace(/from '\.\/fiscal-drafts\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const fiscalDraftKey=()=>{throw Error('Fiscal tested separately')};export const fiscalDraftStorage=fiscalDraftKey;")}'`);
+  for (const name of ['release-compatibility', 'sync-queue']) {
+    const url = new URL('../' + name + '.js', import.meta.url);
+    source = source.replace(new RegExp("from '\\./" + name + "\\.js(?:\\?v=[^']+)?'", 'g'), "from '" + url.href + "'");
+  }
   // New dashboard/PDF UI is covered by features-ui; keep this suite's transport fixtures isolated.
   source = source.replace(/from '\.\/operational-features\.js(?:\?v=[^']+)?'/g, `from '${dataUrl("export const createOperationalFeatures=()=>({enter(){},reset(){},setView(){},refreshSummary(){},acceptMine(){}});")}'`);
   source = source.replace(/\ninitialize\(\)\.catch\([\s\S]*?\);\s*$/, '\n');

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import * as core from '../core.js';
+import * as queue from '../sync-queue.js';
 
 const { IDBFactory, IDBKeyRange } = createRequire(import.meta.url)('fake-indexeddb');
 const [appSource, apiSource, dbSource] = await Promise.all(['app.js', 'api.js', 'db.js'].map(name => readFile(new URL(`../${name}`, import.meta.url), 'utf8')));
@@ -79,7 +80,7 @@ function mockServer(initial) {
 
 function appRuntime(server, indexedDB = new IDBFactory()) {
   const logs = [], timers = new Map();
-  const c = vm.createContext({ ...core, URL, AbortController, Date, structuredClone, indexedDB, IDBKeyRange,
+  const c = vm.createContext({ ...core, ...queue, URL, AbortController, Date, structuredClone, indexedDB, IDBKeyRange,
     navigator: { onLine: true }, session: { token: 'token-ficticio', user, role: 'field' }, sessionRevision: 1,
     recordSyncPromises: new Map(), syncRunning: false, dailyProduction: { totalExcludingRecord: 0 }, TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO',
     SYNCABLE_STATUSES: new Set([PENDING, SYNCING_PHOTOS, ERROR]), LAST_SYNC_META: 'lastSyncAt',
@@ -167,8 +168,8 @@ test('snapshot equivalente já gravado retoma as três fotos sem POST de dados m
     if (payload.action !== 'uploadPhoto' || payload.photoIndex !== 1) return;
     const saved = await app.saved();
     assert.equal(core.synchronizationFeedback(saved).label, 'DADOS CONFIRMADOS — 3 FOTOS PENDENTES');
-    app.c.renderSyncQueue([saved]);
-    assert.match(app.c.elements.syncQueueList.innerHTML, /Sincronizar fotos/);
+    app.c.renderSyncQueue({ pendingRecords: [saved], records: [saved], photos: await app.photos() });
+    assert.match(app.c.elements.syncQueueList.innerHTML, /Foto 1/);
     assert.equal((await app.photos()).length, 3);
   };
   await app.run();
@@ -345,9 +346,10 @@ test('duas abas compartilham o bloqueio do UUID e não repetem a gravação nem 
   const server = mockServer(), first = appRuntime(server), second = appRuntime(server, first.indexedDB);
   await seed(first);
   let lock = Promise.resolve();
-  const locks = { request(name, work) {
+  const locks = { request(name, options, work) {
+    if (name === 'ocorrencias-bq-release') { assert.equal(options.mode, 'shared'); return work(); }
     assert.equal(name, `ocorrencias-bq-sync:${UUID}`);
-    const operation = lock.then(work);
+    const operation = lock.then(options);
     lock = operation.catch(() => {});
     return operation;
   } };

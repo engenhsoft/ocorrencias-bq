@@ -26,3 +26,20 @@ export function seedKeys(h, n = 1, changes = {}) {
   for (const [key, column] of Object.entries({ pgKeyRemoved: 'PG_KEY_REMOVED', btoKeyRemoved: 'BTO_KEY_REMOVED', pgKeyInstalled: 'PG_KEY_INSTALLED', btoKeyInstalled: 'BTO_KEY_INSTALLED' })) row[COL[column] - 1] = changes[key] ?? keyValues[key];
   return row;
 }
+
+export function mountPrivateMonitor(h, { shared = false } = {}) {
+  const { c } = h, id = 'private-monitor-fixture';
+  const Sheet = h.sheet(c.meta.APP.pendingSheet).constructor;
+  const ledger = new Sheet('Sheet1');
+  ledger.setName = name => { ledger.name = name; return ledger; };
+  const privateBook = { getId: () => id, getSheets: () => [ledger],
+    getSheetByName: name => name === ledger.name ? ledger : null };
+  const open = c.SpreadsheetApp.openById;
+  c.SpreadsheetApp.openById = book => book === id ? privateBook : open(book);
+  c.SpreadsheetApp.create = () => privateBook;
+  c.DriveApp = { Access: { PRIVATE: 'PRIVATE' }, getFileById: () => ({
+    getOwner: () => ({ getEmail: () => 'owner@fixture.test' }),
+    getSharingAccess: () => shared ? 'ANYONE' : 'PRIVATE', getEditors: () => [], getViewers: () => []
+  }) };
+  return ledger;
+}

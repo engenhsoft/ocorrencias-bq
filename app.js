@@ -1,6 +1,6 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.06.1';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.06.1';
-import { createOperationalFeatures } from './operational-features.js?v=2026.11.06.1';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.09.1';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.09.1';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.09.1';
 import {
   dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -10,13 +10,15 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, sessionIdentityMatches, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.11.06.1';
+} from './core.js?v=2026.11.09.1';
 import {
-  cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
+  DB_VERSION, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.11.06.1';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset } from './api.js?v=2026.11.06.1';
+} from './db.js?v=2026.11.09.1';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.09.1';
+import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.09.1';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.09.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -191,6 +193,13 @@ let confirmDialogPromise = null;
 let supervisorMutationRunning = false;
 let waitingServiceWorker = null;
 let updateReloadRequested = false;
+let updateApplying = false;
+let compatibilityView = null;
+let monitorController = null;
+let monitorImport = null;
+let presenceToken = null;
+let presenceAt = 0;
+let queueSnapshot = null;
 const photoSyncAttempts = new Set();
 const photoSyncFeedback = new Map();
 let photoSyncAllRunning = false;
@@ -215,6 +224,13 @@ function readSession() {
 }
 
 function persistSession(value) {
+  const previous = session;
+  if (previous?.token !== value?.token) {
+    if (previous && ['field', 'fiscal'].includes(previous.role) && navigator.onLine && typeof monitoringAvailable === 'function' && monitoringAvailable()) {
+      void api.presenceEnd(previous.token).catch(() => {});
+    }
+    if (typeof resetOperationalErrors === 'function') resetOperationalErrors();
+  }
   sessionRevision += 1;
   session = value;
   if (value) localStorage.setItem(SESSION_KEY, JSON.stringify(value));
@@ -222,6 +238,7 @@ function persistSession(value) {
 }
 
 function clearSessionUiState() {
+  if (typeof monitorController !== 'undefined') monitorController?.reset();
   if (typeof featuresController === 'function') featuresController()?.reset();
   if (elements.toastRegion) elements.toastRegion.innerHTML = '';
   clearInterval(supervisorRefreshTimer);
@@ -298,6 +315,7 @@ function clearSessionUiState() {
   elements.syncErrors.textContent = '0';
   elements.syncNavCount.hidden = true;
   elements.syncQueueList.innerHTML = '';
+  if (typeof queueSnapshot !== 'undefined') queueSnapshot = null;
   setBusy(elements.refreshMineButton, false);
   setBusy(elements.refreshSupervisorButton, false);
 }
@@ -345,6 +363,10 @@ async function initialize() {
   renderServices();
   updateNetworkUi();
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
+  configureOperationalClient({ version: APP_VERSION, contract: API_CONTRACT, schema: DB_VERSION, getToken: () => session?.token });
+  compatibilityView = createCompatibilityView({ schema: DB_VERSION, onUpdate: showUpdateDialog, onChecked: sendPresence });
+  setTimeout(() => void compatibilityView.check(), 700);
+  setInterval(sendPresence, 120000);
   setupServiceWorker();
   // O armazenamento continua protegido por timeout, mas não faz parte da autenticação.
   if (session?.role !== 'fiscal') void ensureLocalStorage().catch((error) => toast(friendlyError(error), 'error', 6000));
@@ -528,8 +550,11 @@ function bindEvents() {
     const review = event.target.closest('[data-review-sync-record]');
     if (review) return void runLocalAction(reviewDataCommitConflict, review.dataset.reviewSyncRecord);
     const button = event.target.closest('[data-sync-record]');
-    if (button) syncSingleRecord(button.dataset.syncRecord, true);
+    if (button && session?.role === 'field') void syncSingleRecord(button.dataset.syncRecord, true);
   });
+  $('#supervisorMonitorButton')?.addEventListener('click', () => void openMonitoring('health'));
+  $('#diagnoseOccurrenceButton')?.addEventListener('click', () => void openMonitoring('diagnosis', activeSupervisorRecord?.recordId));
+  $('#compareCorrectionButton')?.addEventListener('click', () => void openMonitoring('compare', activeSupervisorRecord?.recordId));
   elements.refreshSupervisorButton.addEventListener('click', () => refreshSupervisor(true));
   $$('.supervisor-tab').forEach((button) => button.addEventListener('click', () => {
     saveSupervisorFilters();
@@ -605,9 +630,12 @@ function bindEvents() {
     else if (session) void loadTeamDirectory();
     if (session?.role === 'field') void syncAll(false);
     void testConnection(false);
+    void flushOperationalErrors(); sendPresence();
+    if (currentView === 'sync') void updateQueueUi();
   });
-  window.addEventListener('offline', updateNetworkUi);
+  window.addEventListener('offline', () => { updateNetworkUi(); if (currentView === 'sync') void updateQueueUi(); });
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) { void compatibilityView?.check(); sendPresence(); }
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'field') { syncAll(false); loadDailyProduction(elements.team.value, false); }
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'supervisor' && supervisorDataLoaded && !supervisorMutationRunning) refreshSupervisor(false);
     if (document.visibilityState === 'visible' && navigator.onLine && session?.role === 'fiscal' && typeof featuresController === 'function') void featuresController()?.refreshFiscal();
@@ -620,12 +648,7 @@ function bindEvents() {
     deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice;
     deferredInstallPrompt = null; elements.installButton.hidden = true;
   });
-  elements.updateNowButton.addEventListener('click', () => {
-    if (!waitingServiceWorker) return;
-    updateReloadRequested = true;
-    setBusy(elements.updateNowButton, true, 'Atualizando…');
-    waitingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
-  });
+  elements.updateNowButton.addEventListener('click', () => void installUpdate());
   elements.releaseNoticeDialog.addEventListener('close', () => {
     try { localStorage.setItem(RELEASE_NOTICE_KEY, '1'); }
     catch (error) { console.warn('[Atualização] Não foi possível registrar o aviso.', error); }
@@ -642,6 +665,48 @@ function showReleaseNoticeOnce() {
   } catch (error) { console.warn('[Atualização] Não foi possível mostrar o aviso.', error); }
 }
 
+function showUpdateDialog() {
+  if (waitingServiceWorker && !elements.updateDialog.open) elements.updateDialog.showModal();
+}
+
+function updateIsBusy() {
+  return Boolean(recordSyncPromises.size || photoSyncAttempts.size || photoSelectionRequests.size || photoSyncAllRunning
+    || syncRunning || occurrenceSubmissionRunning || supervisorMutationRunning || activeDraftSavePromise);
+}
+
+async function installUpdate() {
+  if (!waitingServiceWorker || updateApplying) return;
+  const status = $('#updateStatus');
+  const postpone = () => { status.textContent = 'Há uma operação em andamento. Conclua o envio ou a gravação e tente novamente.'; };
+  if (updateIsBusy()) { postpone(); return; }
+  updateApplying = true;
+  setBusy(elements.updateNowButton, true, 'Atualizando…');
+  const apply = async lock => {
+    if (!lock || updateIsBusy()) { postpone(); return; }
+    if (activeRecord && currentView === 'new' && activeRecord.status === RECORD_STATUS.DRAFT) { syncFormToRecord(); await saveActiveDraft(); }
+    if (updateIsBusy()) { postpone(); return; }
+    await new Promise((resolve, reject) => {
+      const change = () => { clearTimeout(timeout); resolve(); };
+      const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('controllerchange', change); reject(Error('Ativação ainda não confirmada. Tente novamente.')); }, 15000);
+      navigator.serviceWorker.addEventListener('controllerchange', change, { once: true });
+      updateReloadRequested = true;
+      waitingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
+    });
+  };
+  try {
+    if (navigator.locks?.request) await navigator.locks.request(UPDATE_LOCK, { ifAvailable: true }, apply);
+    else await apply(true);
+  } catch (error) { updateReloadRequested = false; status.textContent = friendlyError(error); }
+  finally { updateApplying = false; setBusy(elements.updateNowButton, false); }
+}
+
+function sendPresence() {
+  if (!session || !['field', 'fiscal'].includes(session.role) || !navigator.onLine || document.visibilityState !== 'visible' || !monitoringAvailable()) return;
+  if (presenceToken === session.token && Date.now() - presenceAt < 105000) return;
+  presenceToken = session.token; presenceAt = Date.now();
+  void api.presenceHeartbeat(session.token, session.role === 'field' ? { base: elements.operationBase.value, team: elements.team.value } : {}).catch(() => {});
+}
+
 async function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   try {
@@ -652,7 +717,7 @@ async function setupServiceWorker() {
     const offerUpdate = (worker) => {
       if (!worker || !navigator.serviceWorker.controller) return;
       waitingServiceWorker = worker;
-      if (!elements.updateDialog.open) elements.updateDialog.showModal();
+      compatibilityView?.offer(worker);
     };
     if (registration.waiting) offerUpdate(registration.waiting);
     registration.addEventListener('updatefound', () => {
@@ -662,7 +727,7 @@ async function setupServiceWorker() {
       });
     });
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!updateReloadRequested) { showReleaseNoticeOnce(); return; }
+      if (!updateReloadRequested) { void compatibilityView?.check(true); showReleaseNoticeOnce(); return; }
       const key = `ocorrencias-bq-reloaded-${APP_VERSION}`;
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, '1');
@@ -705,6 +770,7 @@ async function handleLogin(event) {
 
 async function enterApplication() {
   if (typeof featuresController === 'function') featuresController()?.enter();
+  if (typeof sendPresence === 'function') sendPresence();
   elements.loginView.hidden = true; elements.appShell.hidden = false;
   elements.sessionRoleLabel.textContent = session.role === 'fiscal' ? `${session.canManageFiscals ? 'Conta mestra Fiscal' : 'Fiscal'} · ${session.user}` : session.role === 'supervisor' ? `Supervisor · ${session.user}` : `Campo · ${session.user}`;
   $$('[data-nav="new"], [data-nav="mine"]', elements.mainNav).forEach((item) => { item.hidden = session.role !== 'field'; });
@@ -754,7 +820,7 @@ async function handleProfileSwitch(event) {
     const result = await api.login(user, password, profileSwitchTarget);
     if (requestRevision !== sessionRevision) return;
     clearSessionUiState();
-    persistSession({ token: result.token, user: result.user, role: result.role, bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
+    persistSession({ token: result.token, user: result.user, role: result.role, aclRevision: result.aclRevision || '', bases: result.bases || [], canManageFiscals: result.canManageFiscals === true, expiresAt: tokenExpiry(result.token) });
     requestRevision = sessionRevision;
     localStorage.setItem(LAST_USER_KEY, result.user); elements.profileSwitchPassword.value = '';
     clearInterval(supervisorRefreshTimer); await enterApplication();
@@ -1003,6 +1069,9 @@ async function discardDraft() {
     if (revision !== sessionRevision) return;
     setBusy(button, true, 'EXCLUINDO…');
     await deleteRecord(recordId, { expectedUpdatedAt: String(record.updatedAt || ''), expectedStatus: RECORD_STATUS.DRAFT });
+    if (revision === sessionRevision && typeof monitoringAvailable === 'function' && monitoringAvailable() && navigator.onLine && session?.role === 'field') {
+      void api.auditLocalDiscard(session.token, recordId).catch(() => {});
+    }
     await clearMetaIfValue(ACTIVE_DRAFT_META, recordId);
     if (revision !== sessionRevision) return;
     elements.resumeBanner.hidden = true;
@@ -1562,6 +1631,7 @@ async function cacheDailySummary(summary, updateCurrentUi = true) {
 }
 
 async function syncSingleRecord(recordId, notify = true, fiscalKey = '') {
+  if (typeof updateApplying !== 'undefined' && updateApplying) return null;
   const revision = sessionRevision;
   const running = recordSyncPromises.get(fiscalKey || recordId);
   if (running) {
@@ -1569,8 +1639,9 @@ async function syncSingleRecord(recordId, notify = true, fiscalKey = '') {
     return running;
   }
   const perform = () => revision === sessionRevision ? performSyncSingleRecord(recordId, notify, fiscalKey) : null;
-  const task = !fiscalKey && navigator.locks?.request
-    ? navigator.locks.request(`ocorrencias-bq-sync:${recordId}`, perform) : perform();
+  const sync = () => navigator.locks?.request ? navigator.locks.request(`ocorrencias-bq-sync:${fiscalKey || recordId}`, perform) : perform();
+  const task = navigator.locks?.request && typeof UPDATE_LOCK === 'string'
+    ? navigator.locks.request(UPDATE_LOCK, { mode: 'shared' }, sync) : sync();
   recordSyncPromises.set(fiscalKey || recordId, task);
   try {
     const result = await task;
@@ -1585,7 +1656,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   const storage = fiscalKey ? fiscalDraftStorage(fiscalKey) : { getRecord, putRecord, getPhoto, deletePhoto };
   const storedRecord = await storage.getRecord(recordId); if (!storedRecord || !requestSession || !(requestSession.role === 'field' && !fiscalKey || requestSession.role === 'fiscal' && fiscalKey)) return null;
   const record = normalizeOccurrenceRecord(storedRecord, 'localRecord');
-  if (fiscalKey ? record.fiscalDraftKey !== fiscalKey || String(record.fiscalAclRevision || '') !== String(requestSession.aclRevision || '') || !sameUser(record.fiscalCorrection?.assignedFiscal, requestSession.user) : record.user && !sameUser(record.user, requestSession.user)) {
+  if (fiscalKey ? record.fiscalDraftKey !== fiscalKey || String(record.fiscalAclRevision || '') !== String(requestSession.aclRevision || '') || !sameUser(record.fiscalCorrection?.assignedFiscal, requestSession.user) || (requestSession.bases && !requestSession.bases.some(base => normalizeText(base) === normalizeText(record.base))) : record.user && !sameUser(record.user, requestSession.user)) {
     console.warn('[Fila] Registro pertence a outro usuário; sincronização ignorada.', { recordId });
     return null;
   }
@@ -1620,6 +1691,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     const stored = await storage.putRecord(next, { expectedUpdatedAt: localVersion });
     localVersion = String(stored?.updatedAt || next.updatedAt || localVersion);
     if (stored) next = stored;
+    if (!fiscalKey && currentView === 'sync' && revision === sessionRevision && typeof updateQueueProgress === 'function') updateQueueProgress(next);
     if (fiscalKey && revision === sessionRevision && typeof featuresController === 'function') {
       try { featuresController()?.fiscalSyncChanged(next); }
       catch (error) { console.warn('[Fiscal] Estado salvo; atualização visual pendente.', { code: error?.code || error?.name }); }
@@ -1772,6 +1844,8 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     }
     next.lastSyncError = { ...synchronizationDiagnostic(error, { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed }),
       ...(dataConflictFields.length ? { fields: dataConflictFields } : {}) };
+    if (typeof reportOperationalError === 'function') reportOperationalError('localSync', next.lastSyncError.code, next.recordId,
+      { stage: next.lastSyncError.stage, token: requestSession.token });
     console.error('[Sincronização] Falha recuperável.', { recordId: next.recordId, ...next.lastSyncError });
     next.status = error?.code === 'NO_CORRECTION_CHANGES' ? RECORD_STATUS.CORRECTION_REQUESTED : RECORD_STATUS.ERROR;
     next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING', 'DATA_COMMIT_CONFLICT', 'PHOTO_PLAN_UNCONFIRMED'].includes(error?.code)
@@ -1789,9 +1863,10 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
 
 async function syncAll(notify = false) {
   const requestSession = session;
-  if (syncRunning || !requestSession || requestSession.role !== 'field') return; syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
+  if (syncRunning || !requestSession || requestSession.role !== 'field' || !navigator.onLine || (typeof updateApplying !== 'undefined' && updateApplying)) return;
+  syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
   try {
-    const queue = (await getAllRecords()).filter((record) => (!record.user || sameUser(record.user, requestSession.user)) && SYNCABLE_STATUSES.has(record.status));
+    const queue = prioritizeQueue((await getAllRecords()).filter(record => sameUser(record.user, requestSession.user) && canQueueRetry(record, !notify)));
     let completed = 0; let pending = 0;
     for (const record of queue) {
       if (session?.token !== requestSession.token) break;
@@ -1814,18 +1889,45 @@ async function updateQueueUi() {
   elements.syncPendingRecords.textContent = summary.pendingRecords.length; elements.syncPendingPhotos.textContent = summary.pendingPhotos;
   elements.syncPhotosSyncing.textContent = summary.syncingPhotos; elements.syncErrors.textContent = summary.errors; elements.syncNavCount.hidden = !summary.pendingRecords.length; elements.syncNavCount.textContent = summary.pendingRecords.length;
   const lastSync = await getMeta(LAST_SYNC_META); if (revision !== sessionRevision) return;
-  elements.lastSyncAt.textContent = lastSync ? formatDateTime(lastSync) : 'Nenhuma sincronização concluída.'; renderSyncQueue(summary.pendingRecords);
+  elements.lastSyncAt.textContent = lastSync ? formatDateTime(lastSync) : 'Nenhuma sincronização concluída.';
+  if (currentView === 'sync') {
+    queueSnapshot = summary;
+    renderSyncQueue(summary);
+  }
 }
 
-function renderSyncQueue(records) {
-  elements.syncQueueList.innerHTML = records.length ? records.map((record) => recordCard(record, `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}">${dataCommitPendingPhotos(record) ? 'Sincronizar fotos' : 'Tentar novamente'}</button>`)).join('') : emptyState('Fila em dia', 'Não há registros ou fotos aguardando envio.');
+function updateQueueProgress(record) {
+  if (!queueSnapshot) return;
+  const replace = items => items.map(item => item.recordId === record.recordId ? record : item);
+  queueSnapshot = { ...queueSnapshot, pendingRecords: replace(queueSnapshot.pendingRecords).filter(item => item.syncPhase !== 'confirmed'),
+    records: replace(queueSnapshot.records) };
+  renderSyncQueue(queueSnapshot);
+}
+
+function renderSyncQueue(summary) {
+  const records = prioritizeQueue(summary.pendingRecords);
+  const done = (summary.records || []).filter(record => record.syncPhase === 'confirmed').sort((a, b) => String(b.syncedAt || '').localeCompare(String(a.syncedAt || ''))).slice(0, 5);
+  const slots = new Map();
+  for (const photo of summary.photos || []) {
+    if (!photo.blob) continue;
+    if (!slots.has(photo.recordId)) slots.set(photo.recordId, []);
+    slots.get(photo.recordId).push(photo.photoIndex);
+  }
+  elements.syncQueueList.innerHTML = (records.length ? '' : emptyState('Fila em dia', 'Não há registros ou fotos aguardando envio.'))
+    + [...records, ...done].map(record => {
+      const busy = recordSyncPromises.has(record.recordId);
+      const controls = record.lastSyncError?.code === 'DATA_COMMIT_CONFLICT'
+        ? `<button class="button button--warning button--small" type="button" data-review-sync-record="${escapeHtml(record.recordId)}">Revisar divergência</button>`
+        : canQueueRetry(record) ? `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}" ${busy || !navigator.onLine ? 'disabled' : ''}>${record.lastError ? 'Tentar novamente' : 'Sincronizar agora'}</button>` : '';
+      return syncQueueMarkup(record, { online: navigator.onLine, busy, localSlots: slots.get(record.recordId) || [] }, controls);
+    }).join('');
 }
 
 async function testConnection(notify = true) {
   elements.syncLastTest.textContent = 'Testando…'; setBusy(elements.testConnectionButton, true, 'Testando…');
   try { const result = await healthCheck(); elements.syncLastTest.textContent = `Servidor ${result.version} · ${formatDateTime(result.timestamp)}`; if (notify) toast('Conexão com o servidor confirmada.', 'success'); return true; }
   catch (error) { elements.syncLastTest.textContent = friendlyError(error); if (notify) toast(friendlyError(error), 'error'); return false; }
-  finally { setBusy(elements.testConnectionButton, false); }
+  finally { setBusy(elements.testConnectionButton, false); if (typeof compatibilityView !== 'undefined') void compatibilityView?.check(); }
 }
 
 function assertServerRecordList(records, label) {
@@ -1968,7 +2070,7 @@ function renderPhotoSyncRequests() {
 }
 
 async function syncRequestedPhotos(recordId, { notify = true, refresh = true } = {}) {
-  if (!session || session.role !== 'field' || photoSyncAttempts.has(recordId)) return;
+  if (!session || session.role !== 'field' || photoSyncAttempts.has(recordId) || (typeof updateApplying !== 'undefined' && updateApplying)) return;
   const revision = sessionRevision; const requestSession = session;
   const remote = mineRecords.find((record) => record.recordId === recordId && openPhotoSyncRequest(record, session.user));
   if (!remote) return;
@@ -2028,6 +2130,7 @@ async function syncRequestedPhotos(recordId, { notify = true, refresh = true } =
     return { ok: true, recordId };
   } catch (error) {
     if (revision !== sessionRevision) return { ok: false, recordId };
+    if (typeof reportOperationalError === 'function') reportOperationalError('localSync', error.code, recordId, { stage: 'confirm_photo', token: requestSession.token });
     photoSyncFeedback.set(recordId, friendlyError(error));
     if (notify) toast(friendlyError(error), 'error', 5200);
     return { ok: false, recordId, message: friendlyError(error) };
@@ -2663,6 +2766,10 @@ function updateSupervisorReviewActions() {
     [elements.editOccurrenceButton, elements.requestCorrectionButton, elements.requestPhotoSyncButton, elements.approveButton, elements.rejectButton].forEach((button) => { button.hidden = true; });
   }
   elements.approveButton.disabled = !ready; elements.rejectButton.disabled = !ready;
+  const diagnose = $('#diagnoseOccurrenceButton'), compare = $('#compareCorrectionButton'), audit = activeSupervisorRecord?.audit;
+  if (diagnose) diagnose.hidden = session?.role !== 'supervisor' || !activeSupervisorRecord;
+  if (compare) compare.hidden = session?.role !== 'supervisor' || !(audit?.supervisorCorrections?.length || audit?.fiscalCorrections?.length
+    || audit?.lastCorrectionSubmission?.phase === 'COMPLETE' || audit?.timeline?.some(event => event.action === 'CORRECAO_REENVIADA'));
 }
 function openSupervisorReview(recordId, preserveOrder = false) {
   if (!preserveOrder) { reviewOrder = filteredSupervisorRecords().map((record) => record.recordId); reviewTab = supervisorTab; }
@@ -3137,6 +3244,40 @@ function friendlyError(error) {
   return 'Ocorreu um erro inesperado.';
 }
 
+async function openMonitoring(section, recordId = '') {
+  if (session?.role !== 'supervisor') return;
+  const revision = sessionRevision;
+  try {
+    if (!monitorController) {
+      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.09.1').catch(error => { monitorImport = null; throw error; });
+      const { createSupervisorMonitoring } = await monitorImport;
+      if (sessionRevision !== revision) return;
+      monitorController ||= createSupervisorMonitoring({ getSession: () => session, getRevision: () => sessionRevision, onDetail: openMonitoredOccurrence, onAuthFailure: logout });
+    }
+    monitorController.open(section, recordId);
+  } catch (error) { if (sessionRevision === revision) toast(friendlyError(error), 'error'); }
+}
+
+async function openMonitoredOccurrence(recordId) {
+  if (session?.role !== 'supervisor') return;
+  if (filteredSupervisorRecords().some(record => record.recordId === recordId)) { openSupervisorReview(recordId); return; }
+  const revision = sessionRevision;
+  elements.mineDetailTitle.textContent = 'Ocorrência';
+  elements.mineDetailContent.innerHTML = emptyState('Consultando ocorrência', 'Aguarde a confirmação do servidor.');
+  openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent);
+  try {
+    const result = await api.getOccurrenceDocument(session.token, recordId, true);
+    if (sessionRevision !== revision || !elements.mineDetailDialog.open) return;
+    if (result.record?.recordId !== recordId) throw new ApiError('Ocorrência divergente.', 'INVALID_RECORD_STATE');
+    elements.mineDetailTitle.textContent = 'Ocorrência ' + (result.record.occurrenceNumber || recordId);
+    elements.mineDetailContent.innerHTML = occurrenceDetails(normalizeOccurrenceRecord(result.record), false);
+  } catch (error) {
+    if (sessionRevision !== revision) return;
+    elements.mineDetailContent.textContent = friendlyError(error);
+    if (error.code === 'AUTH_REQUIRED') logout();
+  }
+}
+
 let operationalFeatures = null;
 function featuresController() {
   if (!operationalFeatures && typeof createOperationalFeatures === 'function') operationalFeatures = createOperationalFeatures({
@@ -3148,6 +3289,7 @@ function featuresController() {
     },
     onFiscalCorrection: openAssignedFiscalCorrection,
     onFiscalRetry: (id, key) => syncSingleRecord(id, true, key),
+    onFiscalSyncing: key => recordSyncPromises.has(key),
     onCorrection: recordId => { const button = document.createElement('button'); button.dataset.mineAction = 'correct'; button.dataset.recordId = recordId; return handleMineAction({ target: button }); },
     onOpenPhoto: (src, label) => openPhoto(src, label),
     onOpenRecord: (record, { loading = false } = {}) => { elements.mineDetailTitle.textContent = `Ocorrência ${record.occurrenceNumber || 'sem número'}`; elements.mineDetailContent.innerHTML = loading ? '<p class="insight-empty" role="status">Carregando dados confirmados…</p>' : occurrenceDetails(record); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); }

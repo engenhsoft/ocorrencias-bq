@@ -1,10 +1,10 @@
-import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.11.06.1';
-import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.11.06.1';
-import { createFiscalAdmin } from './fiscal-admin.js?v=2026.11.06.1';
-import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.11.06.1';
-import { api, ApiError } from './api.js?v=2026.11.06.1';
-import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.11.06.1';
-import { buildFinancialComparison, financialMarkup, publishedFinancialRecords } from './supervisor-financial.js?v=2026.11.06.1';
+import { createFiscalWorkspace } from './fiscal-workspace.js?v=2026.11.09.1';
+import { fiscalCardMarkup, fiscalPreviewSlots, fiscalReadOnlyRecord } from './occurrence-card.js?v=2026.11.09.1';
+import { createFiscalAdmin } from './fiscal-admin.js?v=2026.11.09.1';
+import { escapeHtml, formatCurrency, formatNumber, formatDateTime, normalizePhotoStates, normalizeText, sameUser, statusLabel, RECORD_STATUS, isUuid, operationalDate } from './core.js?v=2026.11.09.1';
+import { api, ApiError, reportOperationalError } from './api.js?v=2026.11.09.1';
+import { buildConformityComparison, conformityIdentity, conformityMarkup } from './supervisor-conformity.js?v=2026.11.09.1';
+import { buildFinancialComparison, financialMarkup, publishedFinancialRecords, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.09.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 const percent = value => value == null ? 'SEM DADOS' : `${formatNumber(value)}%`;
@@ -40,10 +40,10 @@ export function excelSelectableRecords(records, session) {
     && (session.role !== 'fiscal' || (session.bases || []).some(base => normalizeText(base) === normalizeText(record.base)))).map(record => [record.recordId.toLowerCase(), record])).values()];
 }
 
-export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onFiscalCorrection, onFiscalRetry, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
+export function createOperationalFeatures({ getSession, getRevision, getExportRecords = () => [], onNavigate, onCorrection, onFiscalCorrection, onFiscalRetry, onFiscalSyncing, onSynchronize, onOpenRecord, onOpenPhoto = () => {}, onLogout }) {
   const $ = selector => document.querySelector(selector);
   const fiscalAdmin = createFiscalAdmin({ getSession, getRevision, onLogout });
-  const fiscalWorkspace = createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection: onFiscalCorrection, onRetry: onFiscalRetry, topThreeMarkup, barsMarkup });
+  const fiscalWorkspace = createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection: onFiscalCorrection, onRetry: onFiscalRetry, isSyncing: onFiscalSyncing, topThreeMarkup, barsMarkup });
   let summary = null, summaryTask = null, fiscalTask = null, summaryRevision = -1, fiscalRevision = -1;
   let entryRevision = -1, noticeConsumed = false, pendingNotice = null, fiscalOffset = 0, fiscalNextOffset = null, fiscalSequence = 0;
   let excelCandidates = [], excelSelected = new Set(), excelOpening = false, excelRunning = false, excelAbort = null, excelSequence = 0, excelVisibleLimit = 100;
@@ -69,14 +69,13 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if (!host || getSession()?.role !== 'supervisor' || $('#financialSection')?.hidden !== false) return;
     if (!summary) { host.innerHTML = '<p class="insight-empty" role="status">Carregando valores confirmados…</p>'; return; }
     if (!Array.isArray(summary.financialRecords)) { host.innerHTML = '<p class="insight-empty" role="status">Histórico financeiro confirmado indisponível. Atualize os indicadores para tentar novamente.</p>'; return; }
-    const period = $('#financialPeriod')?.value || 'month';
-    host.innerHTML = financialMarkup(buildFinancialComparison(summary.financialRecords, { period: period === 'all' ? 'all' : 'month', month: /^\d{4}-\d{2}$/.test(period) ? period : summary.month, base: $('#financialBase')?.value || '', crewLeader: $('#financialLeader')?.value || '' }), financialView);
+    host.innerHTML = financialMarkup(buildFinancialComparison(summary.financialRecords, financialFilterValues($, 'financial', summary.month)), financialView);
     for (const button of document.querySelectorAll('[data-financial-view]')) { const active = button.dataset.financialView === financialView; button.setAttribute('aria-selected', String(active)); button.classList.toggle('is-active', active); }
   }
   function fillFinancialFilters() {
     if (!Array.isArray(summary?.financialRecords)) return;
     const records = publishedFinancialRecords(summary.financialRecords);
-    for (const [selector, key] of [['#financialBase', 'base'], ['#financialLeader', 'crewLeader']]) {
+    for (const [selector, key] of [['#financialBase', 'base'], ['#financialLeader', 'crewLeader'], ['#financialTeam', 'team']]) {
       const select = $(selector); if (!select) continue;
       const selected = select.value, values = [...new Set(records.map(record => record[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
       select.innerHTML = '<option value="">Todos</option>' + values.map(value => `<option value="${text(value)}">${text(value)}</option>`).join('');
@@ -84,9 +83,9 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       select.value = selected;
     }
     const period = $('#financialPeriod'); if (!period) return;
-    const selected = period.value || 'month', months = [...new Set(records.map(record => record.registeredAt ? operationalDate(record.registeredAt).slice(0, 7) : '').filter(value => /^\d{4}-\d{2}$/.test(value) && value !== summary.month))].sort().reverse();
-    period.innerHTML = '<option value="month">Mês atual</option><option value="all">Período completo</option>' + months.map(month => `<option value="${month}">${month.slice(5)}/${month.slice(0, 4)}</option>`).join('');
-    if (!['month', 'all', ...months].includes(selected)) period.insertAdjacentHTML('beforeend', `<option value="${text(selected)}">${text(selected)}</option>`);
+    const selected = period.value || 'month';
+    period.innerHTML = financialPeriodOptions(records, summary.month);
+    if (![...period.options].some(option => option.value === selected)) period.insertAdjacentHTML('beforeend', '<option value="' + text(selected) + '">' + text(selected) + '</option>');
     period.value = selected;
   }
   function renderCharts() {
@@ -246,7 +245,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       const result = await api.getOccurrenceDocument(session.token, recordId);
       if (!current(revision, session.token)) return;
       if (result.record?.recordId !== recordId) throw new ApiError('A exportação de outra ocorrência foi recusada.', 'INVALID_RECORD_STATE');
-      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.11.06.1');
+      const { createOccurrencePdf, downloadOccurrencePdf } = await import('./occurrence-pdf.js?v=2026.11.09.1');
       const output = await createOccurrencePdf(result.record, { getPhoto: async index => {
         if (!current(revision, session.token)) throw new ApiError('A sessão mudou durante a exportação.', 'AUTH_REQUIRED');
         const photo = await api.getDocumentPhoto(session.token, recordId, index);
@@ -254,7 +253,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
         return photo;
       } });
       if (current(revision, session.token)) downloadOccurrencePdf(output);
-    } catch (error) { if (current(revision, session.token)) { button.textContent = error.message || 'Falha ao gerar PDF'; if (error.code === 'AUTH_REQUIRED') onLogout(); return; } }
+    } catch (error) { if (current(revision, session.token)) { reportOperationalError('pdf', 'PDF_ERROR', recordId); button.textContent = error.message || 'Falha ao gerar PDF'; if (error.code === 'AUTH_REQUIRED') onLogout(); return; } }
     finally { pdfTasks.delete(key); if (current(revision, session.token)) { button.disabled = false; if (button.textContent === 'Gerando PDF…') button.textContent = original; } }
   }
   function excelMatches() {
@@ -307,7 +306,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     excelRunning = true; excelAbort = abort; renderExcelSelection();
     const progress = value => { if (valid()) $('#excelStatus').textContent = value; };
     try {
-      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.11.06.1');
+      const { collectExcelEntries, writeExcelInWorker, downloadOccurrenceExcel } = await import('./occurrence-excel.js?v=2026.11.09.1');
       if (!valid()) return;
       const entries = await collectExcelEntries([...excelSelected], { getRecord: id => api.getOccurrenceDocument(session.token, id, true), getPhoto: (id, index) => api.getDocumentPhoto(session.token, id, index), isCurrent: valid, signal: abort.signal, onProgress: progress });
       if (!valid()) return;
@@ -316,7 +315,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
       downloadOccurrenceExcel(output);
       const missing = entries.reduce((sum, entry) => sum + entry.photos.filter(photo => !photo.dataUrl).length, 0);
       $('#excelStatus').textContent = `Excel gerado com ${entries.length} ocorrências.${missing ? ` ${missing} fotos indisponíveis, identificadas na aba FOTOGRAFIAS.` : ''}`;
-    } catch (error) { if (valid()) { $('#excelStatus').textContent = error.message || 'Não foi possível gerar Excel.'; if (['AUTH_REQUIRED', 'FORBIDDEN'].includes(error.code)) { abort.abort(); if (error.code === 'AUTH_REQUIRED') onLogout(); } } }
+    } catch (error) { if (valid()) { if (error.name !== 'AbortError') reportOperationalError('excel', 'EXCEL_ERROR'); $('#excelStatus').textContent = error.message || 'Não foi possível gerar Excel.'; if (['AUTH_REQUIRED', 'FORBIDDEN'].includes(error.code)) { abort.abort(); if (error.code === 'AUTH_REQUIRED') onLogout(); } } }
     finally { if (sequence === excelSequence) { excelRunning = false; excelAbort = null; renderExcelSelection(); } }
   }
   function clearExcel() {
@@ -331,7 +330,9 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
     if ($('#financialSection')) $('#financialSection').hidden = true;
     if ($('#financialChart')) $('#financialChart').innerHTML = '';
     if ($('#financialPeriod')) $('#financialPeriod').value = 'month';
-    for (const selector of ['#financialBase', '#financialLeader']) if ($(selector)) $(selector).innerHTML = '<option value="">Todos</option>';
+    for (const selector of ['#financialBase', '#financialLeader', '#financialTeam']) if ($(selector)) $(selector).innerHTML = '<option value="">Todos</option>';
+    for (const selector of ['#financialFrom', '#financialTo']) if ($(selector)) $(selector).value = '';
+    if ($('#financialDates')) $('#financialDates').hidden = true;
     for (const button of document.querySelectorAll('[data-financial-view]')) { const active = button.dataset.financialView === 'current'; button.setAttribute('aria-selected', String(active)); button.classList.toggle('is-active', active); }
     if ($('#nonconformitySection')) $('#nonconformitySection').hidden = true;
     entryRevision = -1; noticeConsumed = false; pendingNotice = null; summary = null; summaryTask = null; fiscalTask = null; summaryRevision = -1; fiscalRevision = -1; fiscalSequence++;
@@ -352,7 +353,7 @@ export function createOperationalFeatures({ getSession, getRevision, getExportRe
   document.addEventListener('close', event => { if (event.target.id === 'mineDetailDialog') { fiscalDetailSequence++; fiscalPhotoSequence++; } if (event.target.id === 'excelDialog') clearExcel(); maybeShowNotice(); }, true);
   document.addEventListener('input', event => { if (event.target.id === 'excelSearch') { excelVisibleLimit = 100; renderExcelSelection(); } });
   document.addEventListener('change', event => {
-    if (['financialPeriod', 'financialBase', 'financialLeader'].includes(event.target.id)) renderFinancial();
+    if (['financialPeriod', 'financialBase', 'financialLeader', 'financialTeam', 'financialFrom', 'financialTo'].includes(event.target.id)) renderFinancial();
     if (['baseChartPeriod', 'rateChartPeriod', 'rateChartDimension', 'rateChartBase', 'rateChartLeader', 'rateShowRejected', 'rateShowRequested'].includes(event.target.id)) renderCharts();
     if (event.target.dataset.excelSelect && !excelRunning) { if (event.target.checked) excelSelected.add(event.target.dataset.excelSelect); else excelSelected.delete(event.target.dataset.excelSelect); renderExcelSelection(); }
     if (event.target.id === 'excelSelectAll' && !excelRunning) { for (const record of excelMatches()) { if (event.target.checked) excelSelected.add(record.recordId); else excelSelected.delete(record.recordId); } renderExcelSelection(); }

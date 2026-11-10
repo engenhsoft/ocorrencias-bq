@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const root = process.argv[3] || new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+const root = process.argv[3] || fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]$/, '');
 const [appSource, coreSource] = await Promise.all(['app.js', 'core.js'].map(name => readFile(root + '/' + name, 'utf8')));
 const core = await import('data:text/javascript;base64,' + Buffer.from(coreSource).toString('base64'));
 const extract = name => {

@@ -1,7 +1,7 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.11.06.1';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.11.09.1';
 
 const DB_NAME = 'ocorrencias-bq-db';
-const DB_VERSION = 1;
+export const DB_VERSION = 1;
 const STORE = Object.freeze({
   records: 'records',
   photos: 'photos',
@@ -32,7 +32,7 @@ export async function updateFiscalCorrectionDraft(key, mutate) {
 export async function getFiscalCorrectionDrafts(user, aclRevision = '') {
   const entries = await readStoreValue(STORE.meta, store => store.getAll());
   return entries.filter(entry => entry.key?.startsWith('fiscalCorrection:'))
-    .map(entry => entry.value?.record).filter(record => record?.fiscalDraftKey
+    .map(entry => entry.value?.record ? { ...entry.value.record, queueLocalPhotoSlots: Object.values(entry.value.photos || {}).filter(photo => photo.blob).map(photo => photo.photoIndex) } : null).filter(record => record?.fiscalDraftKey
       && sameUser(record.fiscalCorrection?.assignedFiscal, user)
       && String(record.fiscalAclRevision || '') === String(aclRevision));
 }
@@ -362,7 +362,7 @@ export async function getQueueSummary(owner) {
   const records = owner === undefined
     ? allRecords
     : owner
-      ? allRecords.filter((record) => !String(record.user || '').trim() || sameUser(record.user, owner))
+      ? allRecords.filter((record) => sameUser(record.user, owner))
       : [];
   const ids = new Set(records.map(record => record.recordId));
   const photos = records.length ? (await readStoreValue(STORE.photos, store => store.getAll())).filter(photo => ids.has(photo?.recordId)) : [];

@@ -7,13 +7,14 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 let chromium;
-try { ({ chromium } = await import('playwright')); }
+try { ({ chromium } = createRequire(import.meta.url)('playwright')); }
 catch { throw new Error('QA opcional requer Playwright: npm install --no-save --package-lock=false playwright'); }
 const runFile = promisify(execFile);
 const root = path.resolve(process.env.OCCBQ_FRONTEND_SOURCE || fileURLToPath(new URL('../', import.meta.url)));
@@ -40,9 +41,12 @@ async function snapshot(read) {
 // change the running fixture or its recorded source hashes.
 const snapshots = { before: await snapshot(baselineFile), after: await snapshot(candidateFile) };
 assert.notEqual(snapshots.before.version, snapshots.after.version, 'Lifecycle test requires two different releases');
+const syntheticVersion = snapshots.after.version.replace(/\d+$/, revision => String(Number(revision) + 1));
+snapshots.next = { ...snapshots.after, version: syntheticVersion, files: Object.fromEntries(Object.entries(snapshots.after.files).map(([name, bytes]) => [name,
+  /\.(?:js|html)$/.test(name) ? Buffer.from(bytes.toString('utf8').replaceAll(snapshots.after.version, syntheticVersion)) : bytes])) };
 const mime = name => name.endsWith('.js') ? 'application/javascript' : name.endsWith('.css') ? 'text/css' : name.endsWith('.png') ? 'image/png' : name.endsWith('.webmanifest') ? 'application/manifest+json' : 'text/html';
 let phase = 'before';
-const requests = { before: 0, after: 0 };
+const requests = { before: 0, after: 0, next: 0 };
 let refuseSourceNetwork = false, refusedOfflineRequests = 0;
 const server = createServer((request, response) => {
   // Chromium's network emulation and this independent server gate ensure that
@@ -51,6 +55,10 @@ const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
   if (!pathname.startsWith('/ocorrencias-bq/')) { response.writeHead(404); response.end(); return; }
   const name = pathname.slice('/ocorrencias-bq/'.length) || 'index.html';
+  if (name === 'release-info.json') {
+    response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    response.end(JSON.stringify({ version: snapshots[phase].version, contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12' })); return;
+  }
   const bytes = snapshots[phase].files[name];
   if (!bytes) { response.writeHead(404); response.end(); return; }
   requests[phase]++;
@@ -77,6 +85,10 @@ try {
   evidence.browser = browser.version(); context = await browser.newContext();
   await context.route('**/*', route => {
     if (new URL(route.request().url()).origin === origin) return route.continue();
+    if (route.request().url().startsWith('https://script.google.com/macros/') && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ ok: true, version: snapshots.after.version, contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12' }) });
+    }
     external.push(new URL(route.request().url()).origin); return route.abort();
   });
   const page = await context.newPage(); page.setDefaultTimeout(30000);
@@ -140,7 +152,7 @@ try {
       keys: await caches.keys(), html: await (await (await caches.open(`ocorrencias-bq-${newVersion}`)).match('./index.html')).text(),
       sentinel: await (await (await caches.open('qa-unrelated-fixture')).match('./qa-sentinel')).text()
     }), { oldVersion, newVersion });
-    assert.ok(state.keys.includes(`ocorrencias-bq-${newVersion}`)); assert.ok(!state.keys.includes(`ocorrencias-bq-${oldVersion}`));
+    assert.ok(state.keys.includes(`ocorrencias-bq-${newVersion}`)); assert.ok(state.keys.includes(`ocorrencias-bq-${oldVersion}`));
     assert.ok(state.html.includes(`app.js?v=${newVersion}`)); assert.equal(state.sentinel, 'preserve-unrelated-cache');
   });
   await check('Offline reload serves the new release shell and matching core from its Service Worker', async () => {
@@ -153,6 +165,28 @@ try {
   });
   await check('The preserved UUID and Blob remain readable after the offline reload', async () => {
     assert.equal(await readFixture(newVersion), true);
+  });
+  await check('Safe update waits for a shared synchronization lock in another tab', async () => {
+    refuseSourceNetwork = false; await context.setOffline(false);
+    const working = await context.newPage(); await working.goto(appUrl);
+    await working.evaluate(async () => {
+      await new Promise(ready => {
+        navigator.locks.request('ocorrencias-bq-release', { mode: 'shared' }, () => new Promise(release => { window.releaseFixtureLock = release; ready(); }));
+      });
+    });
+    phase = 'next';
+    await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
+    await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting));
+    await page.locator('#loginView [data-compatibility]').click();
+    await page.locator('#compatibilityUpdate').click();
+    await page.locator('#updateNowButton').click();
+    await page.waitForFunction(() => document.querySelector('#updateStatus')?.textContent.includes('em andamento'));
+    assert.equal(await page.locator('#loginAppVersion').textContent(), 'v' + newVersion);
+    await working.evaluate(() => window.releaseFixtureLock());
+    await page.locator('#updateNowButton').click();
+    await page.waitForFunction(version => document.querySelector('#loginAppVersion')?.textContent === 'v' + version, syntheticVersion);
+    assert.equal(await readFixture(syntheticVersion), true);
+    await working.close();
   });
 } catch (error) { evidence.failure = error.message; }
 finally {

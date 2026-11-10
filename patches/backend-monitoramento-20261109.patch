@@ -1,0 +1,73 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -8 +8 @@ const APP = Object.freeze({
+-  version: '2026.11.06.1',
++  version: '2026.11.09.1',
+@@ -79 +79,2 @@ function doPost(e) {
+-  let payload = {};
++  let payload = {}, monitorEvent = null;
++  const observe = function (build) { monitorEvent = build; };
+@@ -83,0 +85,5 @@ function doPost(e) {
++      supervisorMonitor: function () { return bqMonitor_(payload); },
++      presenceHeartbeat: function () { return bqPresence_(payload, false); },
++      presenceEnd: function () { return bqPresence_(payload, true); },
++      reportClientErrors: function () { return bqReportClient_(payload); },
++      auditLocalDiscard: function () { return bqLocalDiscard_(payload); },
+@@ -90,2 +96,2 @@ function doPost(e) {
+-      saveFiscalAccount: function () { return saveFiscalAccount_(payload); },
+-      changeFiscalMasterPassword: function () { return changeFiscalMasterPassword_(payload); },
++      saveFiscalAccount: function () { return saveFiscalAccount_(payload, observe); },
++      changeFiscalMasterPassword: function () { return changeFiscalMasterPassword_(payload, observe); },
+@@ -97,2 +103,2 @@ function doPost(e) {
+-      submitRecord: function () { return submitRecord_(payload); },
+-      uploadPhoto: function () { return uploadPhoto_(payload); },
++      submitRecord: function () { return submitRecord_(payload, observe); },
++      uploadPhoto: function () { return uploadPhoto_(payload, observe); },
+@@ -110,4 +116,20 @@ function doPost(e) {
+-    const route = routes[String(payload.action || '')];
+-    if (!route) throw apiError_('UNKNOWN_ACTION', 'Ação não reconhecida.');
+-    return json_(route());
+-  } catch (error) { return errorJson_(error, { action: payload.action, recordId: payload.recordId }); }
++    const action = String(payload?.action || '');
++    if (!Object.prototype.hasOwnProperty.call(routes, action)) throw apiError_('UNKNOWN_ACTION', 'Ação não reconhecida.');
++    bqCheckContract_(action, payload);
++    const result = routes[action]();
++    if (monitorEvent) {
++      try { const event = monitorEvent(); if (event) bqAppendEvent_(event); } catch (failure) { /* Operational result is already confirmed. */ }
++    }
++    if (action === 'login' && result.role === 'fiscal') {
++      try { bqFiscalLogin_(result, payload); } catch (failure) { /* A confirmed login remains usable. */ }
++    }
++    if (action === 'approveBatch' && Array.isArray(result.results)) {
++      result.results.filter(function (item) { return item && item.ok === false; }).slice(0, 6).forEach(function (item) {
++        bqServerError_({ code: item.error || item.code }, Object.assign({}, payload, { recordId: item.recordId }));
++      });
++    }
++    return json_(result);
++  } catch (error) {
++    bqServerError_(error, payload || {});
++    return errorJson_(error, { action: payload?.action, recordId: payload?.recordId });
++  }
+@@ -117 +139 @@ function health_() {
+-  return { ok: true, success: true, service: APP.name, version: APP.version, contract: APP.contract, timestamp: nowIso_() };
++  return { ok: true, success: true, service: APP.name, version: APP.version, contract: APP.contract, timestamp: nowIso_(), compatibility: bqCompatibility_() };
+@@ -207 +229 @@ function assertTeamDirectorySelection_(model, previousValues) {
+-function submitRecord_(payload) {
++function submitRecord_(payload, observe) {
+@@ -308,0 +331 @@ function submitRecord_(payload) {
++    if (observe && found) observe(() => bqDataEvent_(persisted.values, auth, original, model, receipt));
+@@ -589 +612 @@ function recoverCorrectionCases_(plan) {
+-function uploadPhoto_(payload) {
++function uploadPhoto_(payload, observe) {
+@@ -678,0 +702 @@ function uploadPhoto_(payload) {
++      if (observe) observe(() => bqPhotoEvent_(auth, recordId, photoIndex, Boolean(oldUrl), responseValues, uploadKey));
+@@ -2503 +2527 @@ function listFiscalAccounts_(payload) {
+-function saveFiscalAccount_(payload) {
++function saveFiscalAccount_(payload, observe) {
+@@ -2529,0 +2554 @@ function saveFiscalAccount_(payload) {
++    if (observe) observe(() => bqAccountEvent_(auth, existing, account, credential));
+@@ -2534 +2559 @@ function saveFiscalAccount_(payload) {
+-function changeFiscalMasterPassword_(payload) {
++function changeFiscalMasterPassword_(payload, observe) {
+@@ -2542,0 +2568 @@ function changeFiscalMasterPassword_(payload) {
++    if (observe) observe(() => bqAccountEvent_(auth, account, accounts[key], true));

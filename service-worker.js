@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'ocorrencias-bq-';
-const WORKER_VERSION = '2026.11.06.1';
+const WORKER_VERSION = '2026.11.09.1';
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const versioned = (path) => `${path}?v=${WORKER_VERSION}`;
 const APP_SHELL = [
@@ -11,6 +11,9 @@ const APP_SHELL = [
   versioned('./db.js'),
   versioned('./api.js'),
   versioned('./app.js'),
+  versioned('./release-compatibility.js'),
+  versioned('./sync-queue.js'),
+  versioned('./supervisor-monitoring.js'),
   versioned('./operational-features.js'),
   versioned('./fiscal-admin.js'),
   versioned('./fiscal-workspace.js'),
@@ -57,11 +60,12 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(
-        keys
-          .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      ))
+      .then((keys) => {
+        const previous = keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME);
+        const retain = previous.filter(key => /^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(key.slice(CACHE_PREFIX.length)))
+          .sort((a, b) => b.localeCompare(a, 'en', { numeric: true })).slice(0, 1);
+        return Promise.all(previous.filter(key => !retain.includes(key)).map(key => caches.delete(key)));
+      })
       .then(() => self.clients.claim())
   );
 });
@@ -72,7 +76,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.searchParams.has('v') && url.searchParams.get('v') !== WORKER_VERSION) return;
+  if (url.pathname.endsWith('/release-info.json')) return;
+  const requestedVersion = url.searchParams.get('v');
+  if (requestedVersion && requestedVersion !== WORKER_VERSION) {
+    if (!/^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(requestedVersion)) return;
+    event.respondWith(caches.match(request, { cacheName: CACHE_PREFIX + requestedVersion })
+      .then(response => response || Response.error()));
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(
@@ -109,4 +120,5 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'GET_VERSION') event.ports[0]?.postMessage({ version: WORKER_VERSION });
 });

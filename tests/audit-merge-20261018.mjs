@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url';
 // Collection merge contract; no I/O beyond reading the tested source/result.
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-const root = process.env.OCCBQ_FRONTEND_SOURCE || path.resolve(new URL('../', import.meta.url).pathname);
+const root = process.env.OCCBQ_FRONTEND_SOURCE || fileURLToPath(new URL('../', import.meta.url));
 const core = await import('data:text/javascript;base64,' + Buffer.from(await readFile(path.join(root, 'core.js'), 'utf8')).toString('base64'));
 const ID = '11111111-2222-4333-8444-555555555555', OTHER = '22222222-2222-4222-8222-222222222222';
 const service = code => ({ code, catalogText: 'Serviço fixture', unit: 'UN', quantity: 1, referenceValue: 10, totalValue: 10 });

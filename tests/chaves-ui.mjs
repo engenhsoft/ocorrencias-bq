@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // Genuine browser/IndexedDB UI with the official backend running only in memory.
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir, mkdtemp } from 'node:fs/promises';
@@ -10,7 +11,7 @@ import { assertReadable } from './readability-check.mjs';
 
 const require = createRequire(import.meta.url), { chromium, webkit, devices } = require('playwright'), ExcelJS = require('../vendor/exceljs-4.4.0.min.js');
 const browserName = process.env.OCCBQ_BROWSER || 'chromium';
-const root = path.resolve(new URL('../', import.meta.url).pathname), evidence = path.resolve(root, '../evidence/chaves-' + browserName);
+const root = path.resolve(process.env.OCCBQ_FRONTEND_SOURCE || fileURLToPath(new URL('../', import.meta.url))), evidence = path.resolve(root, '../evidence/chaves-' + browserName);
 await mkdir(evidence, { recursive: true });
 const backend = await readFile(process.argv[2], 'utf8'), make = await fixtureFactory(backend);
 const version = (await readFile(path.join(root, 'core.js'), 'utf8')).match(/APP_VERSION = '([^']+)'/)[1];
@@ -27,7 +28,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`, calls = [], errors = [], checks = [];
 let browser;
 try {
-  if (browserName !== 'webkit') browser = await chromium.launch({ headless: true });
+  if (browserName !== 'webkit') browser = await chromium.launch({ headless: true, channel: process.env.OCCBQ_CHROME_CHANNEL || undefined });
   for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }], ['narrow', { width: 320, height: 700 }]]) {
     const h = make(); h.grant(); h.add(2); h.drive();
     h.c.readTeamDirectory_ = () => [{ base: 'CAICÓ', team: 'LM A', crewLeader: 'Chefe A' }];
@@ -87,7 +88,7 @@ try {
     await context.setOffline(true); await page.locator('#btoKeyInstalled').fill('000078-OFFLINE');
     await until(() => page.evaluate(async version => { const db = await import('./db.js?v=' + version); return (await db.getAllRecords()).some(record => record.btoKeyInstalled === '000078-OFFLINE'); }, version));
     await context.setOffline(false);
-    await page.evaluate(async version => { const db = await import('./db.js?v=' + version); const record = (await db.getAllRecords()).find(record => record.status === 'RASCUNHO'); await db.putRecord({ ...record, services: [{ lineId: 'fixture-service', code: 'D', catalogKey: 'Emergência:3', catalogText: 'Serviço fixture', unit: 'UN', group: 'Fixture', contract: '4600080938', referenceValue: 100, quantity: 1, totalValue: 100 }], materials: [{ lineId: 'fixture-material', code: '00001', description: 'Material fixture', unit: 'UN', quantity: 1 }], totalServices: 100 }); }, version);
+    await page.evaluate(async version => { const db = await import('./db.js?v=' + version); const record = (await db.getAllRecords()).find(record => record.status === 'RASCUNHO'); await db.putRecord({ ...record, services: [{ lineId: 'fixture-service', code: 'D', catalogKey: 'Emergência:3', catalogText: 'Serviço fixture', unit: 'UN', group: 'Fixture', origin: 'Emergência', contract: '4600080938', referenceValue: 100, quantity: 1, totalValue: 100 }], materials: [{ lineId: 'fixture-material', code: '00001', description: 'Material fixture', unit: 'UN', quantity: 1 }], totalServices: 100 }); }, version);
     console.error(name + ': offline draft saved'); await page.reload(); await page.locator('#resumeDraftButton').click(); await page.locator('#keysSection').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#btoKeyInstalled').inputValue(), '000078-OFFLINE'); assert.equal((await stored()).recordId, originalId); assert.equal((await stored()).formVersion, 1);
     await page.waitForFunction(() => !document.querySelector('#continueToPhotosButton').disabled);
@@ -106,7 +107,9 @@ try {
     assert.match(await page.locator('#reviewDialogContent').innerText(), /000078-OFFLINE/); await assertReadable(page);
     await page.evaluate(() => document.querySelector('#reviewDialog').close());
     const pdfEvent = page.waitForEvent('download'); await page.locator(`[data-export-record="${originalId}"]`).click(); const pdf = await pdfEvent; const pdfPath = path.join(evidence, name + '.pdf'); await pdf.saveAs(pdfPath);
-    const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' }); for (const code of [keyValues.pgKeyRemoved, keyValues.btoKeyRemoved, keyValues.pgKeyInstalled, '000078-OFFLINE']) assert.ok(text.includes(code), code + ' PDF');
+    const text = process.env.OCCBQ_PDF_PYTHON
+          ? execFileSync(process.env.OCCBQ_PDF_PYTHON, ['-X', 'utf8', '-c', 'import sys; from pypdf import PdfReader; print("\\n".join(p.extract_text() for p in PdfReader(sys.argv[1]).pages))', pdfPath], { encoding: 'utf8' })
+          : execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' }); for (const code of [keyValues.pgKeyRemoved, keyValues.btoKeyRemoved, keyValues.pgKeyInstalled, '000078-OFFLINE']) assert.ok(text.includes(code), code + ' PDF');
     await page.locator(`[data-export-excel="${originalId}"]`).click(); await page.locator('#excelDialog').waitFor({ state: 'visible' });
     const excelEvent = page.waitForEvent('download'); await page.locator('#generateExcelButton').click(); const excel = await excelEvent; const excelPath = path.join(evidence, name + '.xlsx'); await excel.saveAs(excelPath);
     const book = new ExcelJS.Workbook(); await book.xlsx.load(await readFile(excelPath)); assert.ok(book.getWorksheet('OCORRÊNCIAS').getRow(2).values.includes('000078-OFFLINE'));

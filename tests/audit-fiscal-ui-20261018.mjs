@@ -4,8 +4,11 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
 import * as core from '../core.js';
+import * as queue from '../sync-queue.js';
+import * as finance from '../supervisor-financial.js';
+import { fileURLToPath } from 'node:url';
 
-const root = process.env.OCCBQ_FRONTEND_SOURCE || path.resolve(new URL('../', import.meta.url).pathname);
+const root = process.env.OCCBQ_FRONTEND_SOURCE || fileURLToPath(new URL('../', import.meta.url));
 const body = source => source.replace(/^import[^;]*;\n/gm, '').replace(/^export /gm, '');
 const [workspaceSource, adminSource] = await Promise.all(['fiscal-workspace.js', 'fiscal-admin.js'].map(name => readFile(path.join(root, name), 'utf8')));
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
@@ -32,7 +35,7 @@ function environment({ master = false } = {}) {
 function workspace({ drafts = [], records = [record()], master = false, api: supplied = {} } = {}) {
   const env = environment({ master }), calls = { retry: [], correction: [], list: 0 };
   const api = { listFiscalCorrections: async () => { calls.list++; return { records }; }, listFiscalAccounts: async () => ({ accounts: [{ user: 'Fiscal Fixture', bases: ['CAICÓ'], active: true }] }), ...supplied };
-  const factory = vm.runInNewContext(body(workspaceSource) + '\ncreateFiscalWorkspace', { ...core, document: env.document, api, ApiError: class ApiError extends Error { constructor(message, code) { super(message); this.code = code; } }, getFiscalCorrectionDrafts: async () => drafts });
+  const factory = vm.runInNewContext(body(workspaceSource) + '\ncreateFiscalWorkspace', { ...core, ...queue, ...finance, navigator: { onLine: true }, document: env.document, api, ApiError: class ApiError extends Error { constructor(message, code) { super(message); this.code = code; } }, getFiscalCorrectionDrafts: async () => drafts });
   const controller = factory({ ...env.options, onRetry: async (...args) => calls.retry.push(args), onCorrection: async value => calls.correction.push(value), barsMarkup: () => '', topThreeMarkup: () => '' });
   const click = async dataset => { const button = new Element(); button.dataset = dataset; env.$('#view-fiscal').listeners.get('click')({ target: { closest: () => button } }); await flush(); return button; };
   return { ...env, controller, calls, click };

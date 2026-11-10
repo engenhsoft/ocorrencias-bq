@@ -1,9 +1,11 @@
+import { fileURLToPath } from 'node:url';
+import * as queue from '../sync-queue.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
 
-const root = process.argv[3] || new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+const root = process.argv[3] || fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]$/, '');
 const read = name => readFile(root + '/' + name, 'utf8');
 const [appSource, apiSource, dbSource, workerSource, coreSource, oldTests, publicationTests] = await Promise.all(
   ['app.js', 'api.js', 'db.js', 'service-worker.js', 'core.js', 'tests/audit-regression.mjs', 'tests/publication-reconciliation.mjs'].map(read));
@@ -193,12 +195,12 @@ test('falha de instalação remove apenas o cache incompleto da nova release', a
 });
 test('reconexão inicia fila antes da conclusão do health check', async () => {
   const handler = appSource.match(/window\.addEventListener\('online', ([^]*?)\);\n  window\.addEventListener\('offline'/)?.[1]; assert.ok(handler);
-  const events = [], health = deferred(); const c = { updateNetworkUi() {}, session: { role: 'field' }, loadTeamDirectory() {}, testConnection() { events.push('health'); return health.promise; }, syncAll() { events.push('sync'); return Promise.resolve(); }, console };
+  const events = [], health = deferred(); const c = { updateNetworkUi() {}, session: { role: 'field' }, loadTeamDirectory() {}, testConnection() { events.push('health'); return health.promise; }, syncAll() { events.push('sync'); return Promise.resolve(); }, currentView: 'new', flushOperationalErrors() {}, sendPresence() {}, console };
   const run = vm.runInNewContext('(' + handler + ')', c); const task = run(); await settle(); assert.ok(events.includes('sync')); health.resolve(true); await task;
 });
 function syncHarness(records = []) {
   const saved = new Map(records.map(r => [r.recordId, structuredClone(r)])), photos = new Map(), calls = [], c = {
-    ...core, ApiError: apiHarness().ApiError, ambiguousMutationError: apiHarness().c.ambiguousMutationError, session: { user: 'Campo FICTÍCIO', token: 'token-ficticio', role: 'field' }, sessionRevision: 1, navigator: { onLine: true },
+    ...core, ...queue, ApiError: apiHarness().ApiError, ambiguousMutationError: apiHarness().c.ambiguousMutationError, session: { user: 'Campo FICTÍCIO', token: 'token-ficticio', role: 'field' }, sessionRevision: 1, navigator: { onLine: true },
     dailyProduction: { totalExcludingRecord: 0 }, APP_VERSION: core.APP_VERSION, TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO',
     recordSyncPromises: new Map(), syncRunning: false, elements: { syncNowButton: {} }, SYNCABLE_STATUSES: new Set([core.RECORD_STATUS.PENDING, core.RECORD_STATUS.ERROR]),
     getRecord: async id => structuredClone(saved.get(id)), getAllRecords: async () => [...saved.values()].map(r => structuredClone(r)),

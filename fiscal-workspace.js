@@ -1,14 +1,16 @@
-import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.06.1';
-import { api, ApiError } from './api.js?v=2026.11.06.1';
-import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.06.1';
-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.06.1';
-import { buildFinancialComparison, financialMarkup } from './supervisor-financial.js?v=2026.11.06.1';
+import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.09.1';
+import { api, ApiError } from './api.js?v=2026.11.09.1';
+import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.09.1';
+import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.09.1';
+import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.09.1';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.09.1';
 
 const text = value => escapeHtml(String(value ?? ''));
-export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, topThreeMarkup, barsMarkup }) {
+export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, isSyncing = () => false, topThreeMarkup, barsMarkup }) {
   const $ = selector => document.querySelector(selector);
   let generation = 0, summary = null, summaryTask = null, correctionTask = null, records = [], accounts = [], panel = 'consult', financialView = 'current';
-  let localDrafts = new Map(), confirmedMessage = '';
+  let localDrafts = new Map(), confirmedMessage = '', queueRunning = false;
+  const queueActive = new Set();
   const scope = () => JSON.stringify([generation, getRevision(), getSession()?.token, getSession()?.user, (getSession()?.bases || []).map(normalizeText).sort()]);
   const current = key => getSession()?.role === 'fiscal' && key === scope();
   const allowedBase = base => (getSession()?.bases || []).some(item => normalizeText(item) === normalizeText(base));
@@ -37,7 +39,30 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
       const button = $(`[data-fiscal-panel="${name}"]`); button.setAttribute('aria-selected', String(name === panel)); button.classList.toggle('is-active', name === panel);
     }
   }
+  function queueItems() {
+    const assigned = records.filter(item => item.canCorrect).map(localDraftFor);
+    const activeIds = new Set(records.map(item => item.recordId));
+    const awaitingReadback = [...latestDrafts().values()].filter(item => !activeIds.has(item.recordId));
+    return prioritizeQueue([...assigned, ...awaitingReadback].filter(local => local && allowedBase(local.base)
+      && local.correctionMode && local.syncPhase !== 'confirmed' && canQueueRetry(local)));
+  }
+  function renderQueue() {
+    const section = $('#fiscalSyncQueue'); if (!section) return;
+    const items = queueItems();
+    const completed = [...latestDrafts().values()].filter(record => allowedBase(record.base) && record.syncPhase === 'confirmed')
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, 5);
+    section.hidden = Boolean(getSession()?.canManageFiscals);
+    $('#fiscalSyncAll').disabled = queueRunning || !items.length || !navigator.onLine;
+    $('#fiscalSyncItems').innerHTML = (!items.length ? '<p class="insight-empty">Nenhum envio de correção pendente neste aparelho.</p>' : '')
+      + [...items, ...completed].map(record => {
+        const busy = queueActive.has(record.fiscalDraftKey) || isSyncing(record.fiscalDraftKey);
+        const controls = record.syncPhase === 'confirmed' ? '' : '<button class="button button--ghost" type="button" data-fiscal-retry="'
+          + text(record.recordId) + '" ' + (busy || !navigator.onLine ? 'disabled' : '') + '>' + (record.lastError ? 'Tentar novamente' : 'Sincronizar agora') + '</button>';
+        return syncQueueMarkup(record, { online: navigator.onLine, busy, localSlots: record.queueLocalPhotoSlots }, controls);
+      }).join('');
+  }
   function renderCorrections() {
+    renderQueue();
     const visible = records.filter(record => localDraftFor(record)?.syncPhase !== 'confirmed');
     for (const local of latestDrafts().values()) {
       if (!records.some(record => record.recordId === local.recordId) && local.correctionMode && local.syncPhase !== 'confirmed') {
@@ -50,7 +75,7 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     $('#fiscalCorrectionsList').innerHTML = visible.length ? visible.map(record => {
       const local = localDraftFor(record);
       const feedback = local ? synchronizationFeedback(local) : null;
-      const busy = feedback && ['sending', 'photos', 'confirming'].includes(feedback.phase);
+      const busy = local && (queueActive.has(local.fiscalDraftKey) || isSyncing(local.fiscalDraftKey));
       const sync = feedback ? `<p class="sync-feedback" role="status" aria-live="polite"><strong>${text(feedback.label)}</strong><br>${text(feedback.detail)}</p>` : '';
       const retry = local && local.correctionMode && !['saved', 'confirmed'].includes(feedback?.phase) || record.retryLocal;
       const route = record.fiscalCorrection, legacy = route.routingVersion === 'LEGACY_FIELD', waiting = route.assignmentStatus === 'WAITING_ASSIGNMENT';
@@ -93,9 +118,7 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     $('#fiscalBaseChart').innerHTML = barsMarkup(items);
     $('#fiscalConformityChart').innerHTML = conformityMarkup(buildConformityComparison(summary.conformityRecords, { period, month: summary.month, base,
       crewLeader: $('#fiscalIndicatorLeader').value, dimension: $('#fiscalConformityDimension').value }), ['approved', 'corrected', ...($('#fiscalShowRejected').checked ? ['rejected'] : []), ...($('#fiscalShowRequested').checked ? ['requested'] : [])]);
-    const financePeriod = $('#fiscalFinancialPeriod').value;
-    $('#fiscalFinancialChart').innerHTML = financialMarkup(buildFinancialComparison(summary.financialRecords, { period: financePeriod === 'all' ? 'all' : 'month', month: /^\d{4}-\d{2}$/.test(financePeriod) ? financePeriod : summary.month,
-      base: $('#fiscalFinancialBase').value, crewLeader: $('#fiscalFinancialLeader').value, team: $('#fiscalFinancialTeam').value }), financialView);
+    $('#fiscalFinancialChart').innerHTML = financialMarkup(buildFinancialComparison(summary.financialRecords, financialFilterValues($, 'fiscalFinancial', summary.month)), financialView);
   }
   async function refreshSummary(force = false) {
     if (getSession()?.role !== 'fiscal') return;
@@ -114,8 +137,9 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
         $('#fiscalRanking').innerHTML = topThreeMarkup(summary);
         options('#fiscalIndicatorBase', result.authorizedBases); options('#fiscalIndicatorLeader', result.conformityRecords.map(record => record.crewLeader));
         options('#fiscalFinancialBase', result.authorizedBases); options('#fiscalFinancialLeader', result.financialRecords.map(record => record.crewLeader)); options('#fiscalFinancialTeam', result.financialRecords.map(record => record.team));
-        const months = [...new Set(result.financialRecords.map(record => record.registeredAt ? operationalDate(record.registeredAt).slice(0, 7) : '').filter(value => /^\d{4}-\d{2}$/.test(value) && value !== result.month))].sort().reverse();
-        $('#fiscalFinancialPeriod').innerHTML = '<option value="month">Mês atual</option><option value="all">Todo o histórico</option>' + months.map(month => `<option>${text(month)}</option>`).join('');
+        const financialPeriod = $('#fiscalFinancialPeriod'), savedPeriod = financialPeriod.value;
+        financialPeriod.innerHTML = financialPeriodOptions(result.financialRecords, result.month);
+        if ([...financialPeriod.options].some(option => option.value === savedPeriod)) financialPeriod.value = savedPeriod;
         renderIndicators(); $('#fiscalIndicatorsStatus').textContent = `Indicadores das Bases autorizadas · mês ${result.month} · fuso Bahia.`;
       } catch (failure) { if (current(key)) error($('#fiscalIndicatorsStatus'), failure); }
     })();
@@ -149,7 +173,8 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
   $('#view-fiscal').addEventListener('click', event => {
     const button = event.target.closest('button'); if (!button || getSession()?.role !== 'fiscal') return;
     if (button.dataset.fiscalPanel) setPanel(button.dataset.fiscalPanel);
-    if (button.dataset.fiscalRetry) void retry(button.dataset.fiscalRetry, button);
+    if (button.dataset.fiscalRetry) void retry(button.dataset.fiscalRetry);
+    if (button.id === 'fiscalSyncAll') void retryAll();
     if (button.dataset.fiscalCorrect) void correct(button.dataset.fiscalCorrect, button);
     if (button.dataset.fiscalAssign) void assign(button.dataset.fiscalAssign, button);
     if (button.id === 'fiscalCorrectionsRefresh') void refreshCorrections();
@@ -176,20 +201,33 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     }
     renderCorrections();
   }
-  async function retry(id, button) {
+  async function retry(id) {
     const assigned = records.find(record => record.recordId === id);
-    const record = assigned ? localDraftFor(assigned) : latestDrafts().get(id); if (!record || !onRetry) return;
-    const key = scope(); button.disabled = true;
+    const record = assigned?.canCorrect ? localDraftFor(assigned) : assigned ? null : latestDrafts().get(id);
+    if (!record || !onRetry || !navigator.onLine || !allowedBase(record.base) || queueActive.has(record.fiscalDraftKey)) return;
+    const key = scope(); queueActive.add(record.fiscalDraftKey); renderCorrections();
     try { await onRetry(id, record.fiscalDraftKey); }
     catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }
-    finally { if (current(key)) { button.disabled = false; renderCorrections(); } }
+    finally { queueActive.delete(record.fiscalDraftKey); if (current(key)) renderCorrections(); }
   }
+  async function retryAll() {
+    if (queueRunning || !navigator.onLine) return;
+    const key = scope(), queue = queueItems(); queueRunning = true; renderCorrections();
+    try { for (const item of queue) { if (!current(key) || !navigator.onLine) break; await retry(item.recordId); } }
+    finally { queueRunning = false; if (current(key)) renderCorrections(); }
+  }
+  globalThis.window?.addEventListener('online', () => { if (getSession()?.role === 'fiscal') renderCorrections(); });
+  globalThis.window?.addEventListener('offline', () => { if (getSession()?.role === 'fiscal') renderCorrections(); });
   function reset() { generation++; localDrafts = new Map(); confirmedMessage = '';  summary = null; summaryTask = null; correctionTask = null; records = []; accounts = []; financialView = 'current'; $('#fiscalCorrectionCount').textContent = '0';
+    if ($('#fiscalSyncItems')) $('#fiscalSyncItems').innerHTML = '';
     for (const id of ['fiscalCorrectionsList', 'fiscalRanking', 'fiscalBaseChart', 'fiscalConformityChart', 'fiscalFinancialChart']) $('#' + id).innerHTML = '';
     for (const id of ['fiscalIndicatorBase', 'fiscalIndicatorLeader', 'fiscalFinancialBase', 'fiscalFinancialLeader', 'fiscalFinancialTeam']) $('#' + id).innerHTML = '<option value="">Todos</option>';
     $('#fiscalConformityDimension').value = 'base'; $('#fiscalShowRejected').checked = false; $('#fiscalShowRequested').checked = false;
     for (const tab of document.querySelectorAll('[data-fiscal-financial-view]')) { const active = tab.dataset.fiscalFinancialView === 'current'; tab.classList.toggle('is-active', active); tab.setAttribute('aria-selected', String(active)); }
-    $('#fiscalIndicatorPeriod').value = 'month'; $('#fiscalFinancialPeriod').innerHTML = '<option value="month">Mês atual</option><option value="all">Todo o histórico</option>'; setPanel('consult');
+    $('#fiscalIndicatorPeriod').value = 'month'; $('#fiscalFinancialPeriod').innerHTML = financialPeriodOptions([], '');
+    for (const id of ['fiscalFinancialFrom', 'fiscalFinancialTo']) if ($('#' + id)) $('#' + id).value = '';
+    if ($('#fiscalFinancialDates')) $('#fiscalFinancialDates').hidden = true;
+    setPanel('consult');
   }
   function enter() { reset(); void refreshCorrections(); void refreshSummary(); }
   function confirmed() { summary = null; void refreshCorrections(); void refreshSummary(true); }

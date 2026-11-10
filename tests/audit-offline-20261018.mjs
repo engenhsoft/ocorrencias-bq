@@ -1,10 +1,11 @@
+import { fileURLToPath } from 'node:url';
 // Isolated IndexedDB/frontend regressions: synthetic records and Blobs only.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import path from 'node:path';
 
-const root = process.env.OCCBQ_FRONTEND_SOURCE || new URL('../', import.meta.url).pathname;
+const root = process.env.OCCBQ_FRONTEND_SOURCE || fileURLToPath(new URL('../', import.meta.url));
 const read = name => readFile(path.join(root, name), 'utf8');
 const [dbSource, draftSource, coreSource, fixtures] = await Promise.all(
   ['db.js', 'fiscal-drafts.js', 'core.js', 'tests/audit-regression.mjs'].map(read));

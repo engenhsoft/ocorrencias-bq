@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate } from './core.js?v=2026.11.06.1';
+import { dateInRange, escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate, validDateRange } from './core.js?v=2026.11.09.1';
 
 const list = value => Array.isArray(value) ? value : [];
 const text = value => escapeHtml(String(value ?? ''));
@@ -77,19 +77,23 @@ export function publishedFinancialRecords(records) {
     && record.audit?.publicationState !== 'RECONCILIACAO_NECESSARIA');
 }
 
-export function buildFinancialComparison(records, { period = 'month', month = operationalDate().slice(0, 7), base = '', crewLeader = '', team = '' } = {}) {
+export function buildFinancialComparison(records, { period = 'month', month = operationalDate().slice(0, 7), from = '', to = '', base = '', crewLeader = '', team = '' } = {}) {
+  const custom = period === 'custom';
+  const invalidRange = custom && (!from || !to || !validDateRange(from, to));
   const byId = new Map(), conflicts = new Set();
   for (const record of publishedFinancialRecords(records)) {
     const key = record.recordId.toLowerCase(), previous = byId.get(key);
-    if (previous && JSON.stringify([previous.registeredAt, previous.base, previous.crewLeader, previous.totalServices, initialFinancialValue(previous)]) !== JSON.stringify([record.registeredAt, record.base, record.crewLeader, record.totalServices, initialFinancialValue(record)])) conflicts.add(key);
+    const fingerprint = item => JSON.stringify([item.registeredAt, item.base, item.crewLeader, item.team, item.totalServices, initialFinancialValue(item)]);
+    if (previous && fingerprint(previous) !== fingerprint(record)) conflicts.add(key);
     byId.set(key, record);
   }
   const items = [], pending = [];
   let count = 0;
   for (const [recordId, record] of byId) {
+    if (invalidRange) break;
     if ((team && normalizeText(record.team) !== normalizeText(team)) || (base && normalizeText(record.base) !== normalizeText(base)) || (crewLeader && normalizeText(record.crewLeader) !== normalizeText(crewLeader))) continue;
     const date = record.registeredAt ? operationalDate(record.registeredAt) : '';
-    if (period !== 'all' && date && date.slice(0, 7) !== month) continue;
+    if (period !== 'all' && date && (custom ? !dateInRange(date, { from, to }) : date.slice(0, 7) !== month)) continue;
     count++;
     const initial = initialFinancialValue(record), corrected = financialNumber(record.totalServices);
     let reason = conflicts.has(recordId) ? 'UUID duplicado com valores ou identidades divergentes.' : period !== 'all' && !date ? 'Data de registro ausente ou inválida; período não comprovado.' : corrected == null ? 'TOTAL DOS SERVIÇOS ausente ou inválido.' : initial.pending;
@@ -99,10 +103,28 @@ export function buildFinancialComparison(records, { period = 'month', month = op
   const corrected = items.some(item => item.corrected == null) ? null : sum(items.map(item => item.corrected));
   const sent = items.some(item => item.sent == null) ? null : sum(items.map(item => item.sent));
   const difference = sent == null || corrected == null ? null : corrected - sent;
-  return { count, comparable: items.filter(item => item.sent != null && item.corrected != null).length, sent, corrected, difference, reduction: difference == null ? null : -difference, percentage: sent > 0 && difference != null ? difference / sent * 100 : null, pending, items };
+  return { count, comparable: items.filter(item => item.sent != null && item.corrected != null).length, sent, corrected, difference, reduction: difference == null ? null : -difference, percentage: sent > 0 && difference != null ? difference / sent * 100 : null, pending, items, invalidRange };
+}
+
+export function financialPeriodOptions(records, currentMonth) {
+  const months = [...new Set(publishedFinancialRecords(records).map(record => record.registeredAt ? operationalDate(record.registeredAt).slice(0, 7) : '')
+    .filter(month => /^\d{4}-\d{2}$/.test(month) && month < currentMonth))].sort().reverse();
+  return '<option value="month">Mês atual</option><option value="all">Período completo</option><option value="custom">Datas personalizadas</option>'
+    + months.map(month => '<option value="' + month + '">' + month.slice(5) + '/' + month.slice(0, 4) + '</option>').join('');
+}
+
+export function financialFilterValues(select, prefix, currentMonth) {
+  const field = name => select('#' + prefix + name);
+  const value = name => field(name)?.value || '';
+  const period = value('Period') || 'month';
+  if (field('Dates')) field('Dates').hidden = period !== 'custom';
+  return { period: ['all', 'custom'].includes(period) ? period : 'month',
+    month: /^\d{4}-\d{2}$/.test(period) ? period : currentMonth, from: value('From'), to: value('To'),
+    base: value('Base'), crewLeader: value('Leader'), team: value('Team') };
 }
 
 export function financialMarkup(result, view = 'current') {
+  if (result.invalidRange) return '<p class="insight-empty" role="status">Selecione a data inicial e a data final em ordem cronológica.</p>';
   const compare = view === 'comparison', currency = value => value == null ? 'Não comprovado' : formatCurrency(value);
   const count = `<p class="financial-count">${formatNumber(result.count)} ${result.count === 1 ? 'ocorrência publicada' : 'ocorrências publicadas'}</p>`;
   const issues = result.pending.length ? `<details class="financial-pending"><summary>${formatNumber(result.pending.length)} ${result.pending.length === 1 ? 'pendência de dados' : 'pendências de dados'}</summary><ul>${result.pending.map(item => `<li><code>${text(item.recordId)}</code> · ${text(item.reason)}</li>`).join('')}</ul><p>O comparativo completo aguarda comprovação. Valor final conhecido: ${text(currency(result.corrected))}.</p></details>` : '';

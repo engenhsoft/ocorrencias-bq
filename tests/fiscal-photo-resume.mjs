@@ -91,7 +91,7 @@ async function runtime({ slots = [1], changes = {}, preverified = true, field = 
   }
   const c = vm.createContext({ ...core, Map, Set, Object, Date, Blob, JSON, Buffer, URL, AbortController, structuredClone, queueMicrotask, setTimeout, clearTimeout, FileReader,
     crypto: { randomUUID }, navigator: { onLine: true }, indexedDB: idb, IDBKeyRange: { only: value => value },
-    session: { token: 'fixture-secret-token', user: field ? original.user : ROUTE.assignedFiscal, role: field ? 'field' : 'fiscal', aclRevision: 'acl-fixture' }, sessionRevision: 1,
+    session: { token: 'fixture-secret-token', user: field ? original.user : ROUTE.assignedFiscal, role: field ? 'field' : 'fiscal', aclRevision: 'acl-fixture', bases: [original.base] }, sessionRevision: 1,
     recordSyncPromises: new Map(), TYPE_TRAFO: 'SUBSTITUIÇÃO DE TRAFO', dailyProduction: { totalExcludingRecord: 0 }, LAST_SYNC_META: 'fixture-last-sync',
     cacheDailySummary: async () => {}, updateQueueUi: async () => {}, currentView: 'fixture', mineRecords: [], photoSyncAllRunning: false,
     refreshMine() {}, logout() { loggedOut = true; }, toast() {},

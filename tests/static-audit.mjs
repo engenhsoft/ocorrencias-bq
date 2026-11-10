@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -8,7 +9,7 @@ const tests = [];
 const test = (name, run) => tests.push({ name, run });
 
 for (const file of ['app.js', 'core.js', 'api.js', 'db.js', 'config.js', 'service-worker.js']) {
-  test(`sintaxe JavaScript válida: ${file}`, () => execFileSync(process.execPath, ['--check', new URL(file, root).pathname]));
+  test(`sintaxe JavaScript válida: ${file}`, () => execFileSync(process.execPath, ['--check', fileURLToPath(new URL(file, root))]));
 }
 
 const html = await read('index.html');
@@ -46,7 +47,7 @@ for (const asset of shell.filter((item) => item !== './')) test(`shell existe: $
 test('service worker ativa nova versão imediatamente', () => assert.match(serviceWorker, /skipWaiting\(\)/));
 test('service worker assume clientes após ativação', () => assert.match(serviceWorker, /clients\.claim\(\)/));
 test('service worker limpa caches antigos do mesmo app', () => assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\).*key !== CACHE_NAME/s));
-test('navegação usa rede com fallback offline do cache da própria release', () => { assert.match(serviceWorker, /request\.mode === 'navigate'/); assert.match(serviceWorker, /cache\.match\('\.\/index\.html'\)/); assert.doesNotMatch(serviceWorker, /caches\.match\(/); });
+test('navegação usa a própria release; assets anteriores consultam somente o cache explícito', () => { assert.match(serviceWorker, /request\.mode === 'navigate'/); assert.match(serviceWorker, /cache\.match\('\.\/index\.html'\)/); assert.match(serviceWorker, /caches\.match\(request, \{ cacheName: CACHE_PREFIX \+ requestedVersion \}\)/); });
 test('versões de app e service worker são coerentes', () => {
   const appVersion = core.match(/APP_VERSION = '([^']+)'/)?.[1]; const workerVersion = serviceWorker.match(/WORKER_VERSION = '([^']+)'/)?.[1]; assert.equal(appVersion, workerVersion); assert.ok(serviceWorker.includes(workerVersion));
   assert.ok(html.includes(`v=${appVersion}`));

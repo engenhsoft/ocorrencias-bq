@@ -875,3 +875,57 @@ a.programacao-access { text-decoration: none; }
   .page-heading { flex-wrap: wrap; }
   .panel-actions .button { flex: 1 1 auto; }
 }
+.compatibility-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: .4rem;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: .16em;
+}
+.compatibility-link.is-active { color: var(--warning, #815211); }
+.monitor-section { display: grid; gap: .85rem; }
+.monitor-section h4, .monitor-section p { margin-block: .25rem; }
+.monitor-filters, .monitor-dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: .65rem;
+  align-items: end;
+}
+.monitor-filters .monitor-dates { grid-column: 1 / -1; }
+.monitor-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: .6rem 1rem;
+  margin: .35rem 0;
+}
+.monitor-facts dt { font-weight: 700; font-size: .78rem; }
+.monitor-facts dd { margin: 0; overflow-wrap: anywhere; }
+.monitor-conclusions { display: grid; gap: .35rem; }
+.monitor-table { overflow-x: auto; }
+.monitor-table table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.monitor-table th, .monitor-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: .5rem;
+  border-bottom: 1px solid var(--border, #d9e0e8);
+  overflow-wrap: anywhere;
+}
+.monitor-table td:last-child { font-weight: 700; }
+.comparison-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.comparison-photos img { display: block; max-width: 100%; height: auto; margin-top: .5rem; }
+#monitorTabs .is-active { border-color: currentColor; }
+#fiscalSyncQueue { margin-top: 1rem; }
+#compatibilityDetails { overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  html { scroll-padding-top: 76px; scroll-padding-bottom: calc(76px + var(--safe-bottom)); }
+  .app-header__inner { gap: .5rem; }
+  .brand-lockup--compact { min-width: 0; gap: .45rem; }
+  .brand-lockup--compact span { min-width: 0; overflow-wrap: anywhere; }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: .3rem; max-width: 54%; }
+  .header-actions .compatibility-link { max-width: 100%; overflow-wrap: anywhere; }
+}
