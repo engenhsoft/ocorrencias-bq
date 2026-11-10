@@ -98,11 +98,11 @@ test('235 consultas individuais viram uma consulta em lote com cache disponível
   assert.equal(before.calls.individualCache, currentBaseline ? 0 : 235); assert.equal(after.calls.individualCache, 0);
   assert.equal(after.calls.bulkCache, 1); assert.equal(after.calls.drive, 0); assert.equal(after.calls.sharing, 0);
 });
-test('somente dois ranges operacionais, 46 e 41 colunas, sem cabeçalhos/histórico/catálogos', () => {
+test('somente dois ranges operacionais, com CHAVES e sem cabeçalhos/histórico/catálogos', () => {
   const { before, after } = compare('warm'); const { APP } = after.c.meta;
   assert.deepEqual(plain(before.counts()), currentBaseline ? { opens: 1, dataReads: 2, headerReads: 0, writes: 0 } : { opens: 1, dataReads: 4, headerReads: 5, writes: 0 });
   assert.deepEqual(plain(after.counts()), { opens: 1, dataReads: 2, headerReads: 0, writes: 0 });
-  assert.deepEqual(after.reads.map(r => [r.sheet, r.row, r.columns]), [[APP.pendingSheet, 2, 46], [APP.officialSheet, 2, 41]]);
+  assert.deepEqual(after.reads.map(r => [r.sheet, r.row, r.columns]), [[APP.pendingSheet, 2, 51], [APP.officialSheet, 2, 41]]);
 });
 for (const mode of ['cold', 'partial', 'private', 'broken', 'batch-error']) {
   test(`cache ${mode}: mesmas URLs, confirmações e fallback de permissões`, () => {
@@ -133,10 +133,14 @@ test('Campo mantém payload e remove a inspeção dos cinco cabeçalhos', () => 
   assert.deepEqual(plain(after.counts()), { opens: 1, dataReads: 4, headerReads: 0, writes: 0 });
   assert.equal(before.counts().headerReads, currentBaseline ? 0 : 5); assert.equal(after.calls.bulkCache, 1);
 });
-test('login, sessão, edição, fotos e leituras alheias à publicação não foram alteradas', () => {
+test('preserva login, sessão, fotos e leituras, com escape literal na gravação de edição', () => {
   for (const name of ['login_', 'credentialHash_', 'signingSecret_', 'requireSession_', 'supervisorCorrectRecord_', 'requestPhotoSync_', 'ensurePhotoPublic_', 'listPublishedRecords_']) {
-    const current = extract(fixed, name).replace("  if (payload.role === 'fiscal') return loginFiscal_(payload);\n", '').replace("return data.role === 'fiscal' ? fiscalSession_(data) : data;", 'return data;');
-    assert.equal(current, extract(invariantBaseline, name), name);
+    let expected = extract(invariantBaseline, name);
+    if (name === 'supervisorCorrectRecord_') {
+      expected = expected.replace('.setValues([row]);', '.setValues([bqLiteralRow_(row)]);');
+    }
+    const current = extract(fixed, name);
+    assert.equal(current, expected, name);
   }
 });
 test('cópia de publicação ainda pendente permanece acionável com dois ranges e sem histórico', () => {

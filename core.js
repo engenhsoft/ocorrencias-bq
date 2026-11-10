@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.11.09.1';
-export const APP_BUILD = '2026-11-09-monitoramento';
+export const APP_VERSION = '2026.11.09.2';
+export const APP_BUILD = '2026-11-09-auditoria';
 
 export const TEAM_GOAL = 6000;
 

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 import vm from 'node:vm';
 
 const [beforeRoot, afterRoot, beforeBackend, afterBackend, output] = process.argv.slice(2);
@@ -18,8 +20,9 @@ const results = [];
 for (const [phase, root, backendPath] of [['before', beforeRoot, beforeBackend], ['after', afterRoot, afterBackend]]) {
   const [appSource, apiSource, dbSource, coreSource, backend] = await Promise.all(['app.js', 'api.js', 'db.js', 'core.js'].map(name => readFile(root + '/' + name, 'utf8')).concat(readFile(backendPath, 'utf8')));
   const core = await import('data:text/javascript;base64,' + Buffer.from(coreSource).toString('base64'));
+  const queue = appSource.includes("from './sync-queue.js") ? await import(pathToFileURL(resolve(root, 'sync-queue.js')).href) : {};
   const element = () => ({ hidden: false, innerHTML: '', textContent: '', value: '', disabled: false, dataset: {}, classList: { toggle() {} }, setAttribute() {} });
-  const context = { assert, vm, core, ...core, appSource, apiSource, dbSource, oldTests: regression, extract, plain, clock, Blob, Date, Map, Set, Promise, console: { warn() {}, error() {} }, setTimeout, clearTimeout, queueMicrotask, structuredClone, AbortController, URL };
+  const context = { assert, vm, core, ...core, queue, appSource, apiSource, dbSource, oldTests: regression, extract, plain, clock, Blob, Date, Map, Set, Promise, console: { warn() {}, error() {} }, setTimeout, clearTimeout, queueMicrotask, structuredClone, AbortController, URL };
   const helpers = vm.runInNewContext([extract(audit, 'apiHarness'), extract(audit, 'dbHarness'), extract(audit, 'syncHarness')].join('\n') + '\n({apiHarness,dbHarness,syncHarness})', context);
   context.ApiError = helpers.apiHarness().ApiError;
   context.loadOccurrenceDataset = vm.runInNewContext(extract(apiSource, 'loadOccurrenceDataset') + '\nloadOccurrenceDataset', { ApiError: context.ApiError, setTimeout });
@@ -78,12 +81,15 @@ for (const [phase, root, backendPath] of [['before', beforeRoot, beforeBackend],
   await measure('Sincronismo: retry após confirmação remota, latência de 15 ms por chamada', async () => {
     const local = { ...record('a'), status: core.RECORD_STATUS.ERROR, attempts: 1, serverConfirmed: true };
     const h = helpers.syncHarness([local]); let requests = 0, submits = 0;
-    const response = () => ({ recordId: 'a', record: { recordId: 'a' }, status: core.RECORD_STATUS.WAITING_SUPERVISOR,
+    const status = core.RECORD_STATUS.WAITING_SUPERVISOR;
+    const confirmed = { ...local, status, totalServices: 0, audit: { expectedPhotoIndexes: [1, 2, 3] } };
+    const response = () => ({ recordId: 'a', record: confirmed, status,
       photoStates: local.photoStates.map(s => ({ ...s, url: s.serverUrl })) });
     h.c.api.getRecordState = async () => { requests++; await pause(15); return response(); };
     h.c.api.submitRecord = async () => { requests++; submits++; await pause(15); return response(); };
     const start = performance.now(); await h.c.syncSingleRecord('a', false);
-    assert.equal(h.saved.get('a').status, core.RECORD_STATUS.WAITING_SUPERVISOR);
+    assert.equal(h.saved.get('a').status, status, h.saved.get('a').lastError);
+    assert.equal(submits, 0);
     return { syncMs: performance.now() - start, requests, submits };
   });
   await measure('Pesquisa obsoleta: fallback local de 20 ms simulado', async () => {

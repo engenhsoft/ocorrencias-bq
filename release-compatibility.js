@@ -1,5 +1,5 @@
-import { confirmedCompatibility, healthCheck, incompatibleActions } from './api.js?v=2026.11.09.1';
-import { APP_VERSION } from './core.js?v=2026.11.09.1';
+import { confirmedCompatibility, healthCheck, incompatibleActions } from './api.js?v=2026.11.09.2';
+import { APP_VERSION } from './core.js?v=2026.11.09.2';
 
 export const API_CONTRACT = 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12';
 const releasePattern = /^\d{4}\.\d{2}\.\d{2}\.\d{1,4}$/;

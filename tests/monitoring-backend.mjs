@@ -62,7 +62,7 @@ test('saúde e detalhes são exclusivos do Supervisor, inclusive fotos históric
 test('login confirmado gera um acesso; refresh/heartbeat não gera eventos adicionais', () => {
   const h = fixture();
   h.c.instalarMonitoramentoBQ();
-  const logged = h.post({ action: 'login', user: 'Fiscal A', role: 'fiscal', password: 'fixture-password', clientVersion: '2026.11.09.1' });
+  const logged = h.post({ action: 'login', user: 'Fiscal A', role: 'fiscal', password: 'fixture-password', clientVersion: '2026.11.09.2' });
   assert.ok(logged.ok);
   for (let i = 0; i < 5; i++) assert.equal(h.post({ action: 'presenceHeartbeat', token: logged.token, base: 'MOSSORÓ' }).ok, true);
   assert.equal(h.events().length, 1);
@@ -138,7 +138,7 @@ test('diagnóstico distingue dados, fotos, conflitos e publicação parcial sem 
   h.c.instalarMonitoramentoBQ();
   h.add(1, { status: 'FOTOS_SENDO_SINCRONIZADAS' });
   h.setAudit(1, { ...h.audit(1), lastDataConfirmation: '2026-10-10T12:00:00-03:00' });
-  h.c.bqTechnicalError_('localSync', 'DATA_COMMIT_CONFLICT', { role: 'field' }, id(1), randomUUID(), '2026.11.09.1', 'APLICATIVO');
+  h.c.bqTechnicalError_('localSync', 'DATA_COMMIT_CONFLICT', { role: 'field' }, id(1), randomUUID(), '2026.11.09.2', 'APLICATIVO');
   const copy = h.row(1).slice();
   copy[COL.STATUS - 1] = 'PUBLICADA';
   h.sheet(APP.officialSheet).appendRow(copy);
@@ -192,7 +192,7 @@ test('comparador conserva dois ciclos e recusa foto de outro UUID ou slot', () =
 test('compatibilidade bloqueia a mutação específica; mantém clientes v12 anteriores e leituras', () => {
   const h = fixture();
   const health = h.c.health_();
-  assert.equal(health.version, '2026.11.09.1');
+  assert.equal(health.version, '2026.11.09.2');
   assert.equal(health.compatibility.monitoring, 1);
   assert.doesNotThrow(() => h.c.bqCheckContract_('submitRecord', {}));
   const policy = { ...health.compatibility, operationContracts: { submitRecord: ['future'] } };

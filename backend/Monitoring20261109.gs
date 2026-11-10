@@ -27,7 +27,8 @@ function bqCompatibility_() {
 }
 
 function bqCheckContract_(action, payload, policy) {
-  if (!BQ_MONITOR.mutations.includes(action)) return;
+  const integrityRepair = action === 'verifyPublishedIntegrity' && payload.repair === true;
+  if (!integrityRepair && !BQ_MONITOR.mutations.includes(action)) return;
   const compatibility = policy || bqCompatibility_();
   const accepted = compatibility.operationContracts[action] || compatibility.acceptedContracts;
   const contract = payload.clientContract == null ? BQ_MONITOR.legacyContract : payload.clientContract;
@@ -35,6 +36,12 @@ function bqCheckContract_(action, payload, policy) {
   if (payload.clientSchema != null && !compatibility.localSchemas.includes(payload.clientSchema)) {
     throw apiError_('CLIENT_UPDATE_REQUIRED', 'O esquema local desta operação não é compatível.');
   }
+}
+
+function bqLiteralRow_(row) {
+  // Sheets treats a leading equals sign as a formula and a leading
+  // apostrophe as its text escape. Preserve both as literal user data.
+  return row.map(function (value) { return typeof value === 'string' && /^[=']/.test(value) ? "'" + value : value; });
 }
 
 function bqUuid_(value) {
@@ -505,11 +512,23 @@ function bqDiagnosis_(id) {
   const expectedMaterials = Array.isArray(audit.finalMaterials) ? audit.finalMaterials.length : Array.isArray(audit.pendingMaterials) ? audit.pendingMaterials.length : null;
   const finalEvents = history.filter(function (item) { return item.values[3] === 'APROVADA_E_PUBLICADA'; }).length;
   const evidenceMismatch = stagedPublication && (expectedServices != null && expectedServices !== services || expectedMaterials != null && expectedMaterials !== materials);
-  const publicationConflict = found.official.length > 1 || finalEvents > 1 || Boolean(found.pending.length && found.official.length);
-  const publication = status === STATUS.APPROVED || audit.publicationState === 'RECONCILIACAO_NECESSARIA' || publicationConflict || evidenceMismatch
-    ? 'PUBLICAÇÃO NECESSITA RECONCILIAÇÃO'
-    : found.official.length === 1 && status === STATUS.PUBLISHED && finalEvents === 1 && finalPublicationEvent_(audit) && expectedServices != null && expectedMaterials != null ? 'PUBLICAÇÃO CONFIRMADA'
-      : stagedPublication ? 'PUBLICAÇÃO SEM COMPROVAÇÃO INTEGRAL' : 'SEM PUBLICAÇÃO CONHECIDA';
+  let publicationConflict = found.official.length > 1 || finalEvents > 1 || Boolean(found.pending.length && found.official.length);
+  let publication = stagedPublication ? 'PUBLICAÇÃO SEM COMPROVAÇÃO INTEGRAL' : 'SEM PUBLICAÇÃO CONHECIDA';
+  if (status === STATUS.APPROVED || audit.publicationState === 'RECONCILIACAO_NECESSARIA' || publicationConflict || evidenceMismatch) {
+    publication = 'PUBLICAÇÃO NECESSITA RECONCILIAÇÃO';
+  } else if (found.official.length === 1 && status === STATUS.PUBLISHED && finalEvents === 1 && finalPublicationEvent_(audit)
+    && expectedServices != null && expectedMaterials != null) {
+    try {
+      // The existing verifier compares content and cardinality of the same
+      // UUID. This path uses a published snapshot and never requests repair.
+      const proof = verifyPublishedIntegrity_(id, { repair: false });
+      if (proof.ok === true && proof.pendingCopies === 0) publication = 'PUBLICAÇÃO CONFIRMADA';
+    } catch (error) {
+      if (['PUBLISHED_RECONCILIATION_CONFLICT', 'INTEGRITY_REVIEW_REQUIRED'].includes(error.code)) {
+        publication = 'PUBLICAÇÃO NECESSITA RECONCILIAÇÃO'; publicationConflict = true;
+      }
+    }
+  }
   const confirmed = Boolean(audit.lastDataConfirmation || receipt?.dataVerifiedAt);
   const currentError = errors[0] || null;
   const conflict = found.pending.length > 1 || publicationConflict || photos.discrepancy.length > 0 || Boolean(currentError &&

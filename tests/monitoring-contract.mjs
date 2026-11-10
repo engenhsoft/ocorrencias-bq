@@ -64,6 +64,18 @@ test('intervalos inválidos e datas ausentes não criam totais aparentes', () =>
   assert.match(unknown.pending.find(item => item.recordId === ids[3]).reason, /Data de registro/);
 });
 
+test('UUID com duas Bases divergentes aparece como pendência em ambas', () => {
+  const first = records[0], duplicate = { ...first, base: 'MOSSORÓ', team: 'Outra', totalServices: 500 };
+  for (const input of [[first, duplicate], [duplicate, first]]) {
+    for (const base of ['CAICÓ', 'MOSSORÓ']) {
+      const result = buildFinancialComparison(input, { base, period: 'custom', from: '2026-10-31', to: '2026-10-31' });
+      assert.equal(result.count, 1);
+      assert.equal(result.corrected, null);
+      assert.match(result.pending[0].reason, /UUID duplicado/);
+    }
+  }
+});
+
 const partial = { recordId: ids[0], status: RECORD_STATUS.SYNCING_PHOTOS, occurrenceTypes: ['PODA'], registeredAt: '2026-11-02',
   audit: { expectedPhotoIndexes: [1, 2, 3] }, syncProgress: { dataConfirmed: true }, syncPhase: 'photos',
   photoStates: [{ photoIndex: 1, confirmed: true, serverUrl: 'https://example.test/1' },

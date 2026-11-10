@@ -113,7 +113,7 @@ test('uma ocorrência gera um XLSX verdadeiro com fotos incorporadas', async () 
 });
 test('leitor independente aceita DrawingML e preserva fotografias e células', async () => {
   const output = await buildOccurrenceWorkbook(await collect([id(1)]), { ExcelJS });
-  const check = execFileSync('python3', ['-c', "import sys,io; from openpyxl import load_workbook; w=load_workbook(io.BytesIO(sys.stdin.buffer.read())); assert len(w['FOTOGRAFIAS']._images)==5; assert w['SERVIÇOS']['C2'].value=='000123'; assert w['SERVIÇOS']['F2'].value==1.25; print('OK')"], { input: Buffer.from(output.bytes), encoding: 'utf8' });
+  const check = execFileSync(process.env.OCCBQ_EXCEL_PYTHON || 'python3', ['-X', 'utf8', '-c', "import sys,io; from openpyxl import load_workbook; w=load_workbook(io.BytesIO(sys.stdin.buffer.read())); assert len(w['FOTOGRAFIAS']._images)==5; assert w['SERVIÇOS']['C2'].value=='000123'; assert w['SERVIÇOS']['F2'].value==1.25; print('OK')"], { input: Buffer.from(output.bytes), encoding: 'utf8' });
   assert.equal(check.trim(), 'OK');
 });
 test('várias ocorrências geram um único arquivo; serviços, materiais e 7 slots de Trafo ligados ao UUID', async () => {

@@ -43,6 +43,11 @@ try {
     await context.route('**/*', async route => {
       const request = route.request();
       if (request.url().startsWith(origin) || request.url().startsWith('blob:' + origin)) return route.continue();
+      const url = new URL(request.url());
+      if (request.resourceType() === 'image' && (url.origin === 'https://example.test'
+          || (url.origin === 'https://drive.google.com' && url.pathname === '/thumbnail'))) {
+        return route.fulfill({ status: 200, contentType: 'image/png', body: image });
+      }
       if (!request.url().startsWith('https://script.google.com/macros/')) return route.abort();
       const payload = request.method() === 'GET' ? { action: 'health' } : JSON.parse(request.postData() || '{}');
       calls.push({ viewport: name, action: payload.action, recordId: payload.record?.recordId || payload.recordId });
@@ -145,8 +150,16 @@ try {
       const draft = (await db.getFiscalCorrectionDrafts('Fiscal A', aclRevision)).find(record => record.recordId === recordId);
       return draft?.syncPhase === 'confirmed' && draft.observation === 'PODA fixture revisada';
     }, { version, recordId: id(3), aclRevision: fiscalAclRevision }));
+    await logout(); await login('supervisor');
+    await page.locator('[data-review-record="' + originalId + '"]').click();
+    await page.locator('#approveButton').click(); await page.locator('#confirmActionButton').click();
+    await until(() => h.sheet(h.c.meta.APP.officialSheet).rows.some(row => row[0] === originalId)
+      && !h.sheet(h.c.meta.APP.pendingSheet).rows.some(row => row[0] === originalId));
+    assert.equal(h.c.verifyPublishedIntegrity_(originalId, { repair: false }).state, 'INTEGRITY_OK');
+    assert.equal(h.sheet(h.c.meta.APP.officialSheet).rows.filter(row => row[0] === originalId).length, 1);
+    console.error(name + ': approval and publication verified');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
-    checks.push({ viewport: name, offlineDraft: true, sameUuid: true, dataThenPhotos: true, synchronization: true, supervisorDetail: true, fiscalCorrection: true, fiscalLocalConfirmation: true, existingTypeCorrection: true, pdfText: true, excelText: true, pageOverflow: false }); await context.close();
+    checks.push({ viewport: name, offlineDraft: true, sameUuid: true, dataThenPhotos: true, synchronization: true, supervisorDetail: true, fiscalCorrection: true, fiscalLocalConfirmation: true, existingTypeCorrection: true, approvalAndPublication: true, pdfText: true, excelText: true, pageOverflow: false }); await context.close();
   }
   assert.deepEqual(errors, []);
   const report = { browser: browserName, photoPreparation: 'file chooser UI and native IndexedDB Blobs', storage: browserName === 'webkit' ? 'fresh persistent profile' : 'fresh isolated context', checks, errors, calls, productionWrites: 0, operationalLogins: 0 }; await writeFile(path.join(evidence, 'results.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));

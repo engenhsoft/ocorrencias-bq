@@ -160,6 +160,16 @@ try {
     await page.locator('#fiscalSyncQueue').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#supervisorMonitorButton').isVisible(), false);
     await expectText('#fiscalSyncQueue', 'Nenhum envio de correção pendente');
+    const account = c.fiscalAccount_('Fiscal A');
+    const expiredToken = c.createToken_('Fiscal A', 'fiscal', Date.now() - 1000, account.revision);
+    await page.evaluate(token => {
+      const key = 'ocorrencias-bq-session-v1';
+      const session = JSON.parse(localStorage.getItem(key));
+      localStorage.setItem(key, JSON.stringify({ ...session, token }));
+    }, expiredToken);
+    await page.reload();
+    await page.locator('#loginView').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#appShell').isVisible(), false);
     checks.push(width + ' Campo/Fiscal: visibilidade, fila local, foto, offline e reconexão');
     await context.close();
   }

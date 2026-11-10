@@ -1,4 +1,4 @@
-import { dateInRange, escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate, validDateRange } from './core.js?v=2026.11.09.1';
+import { dateInRange, escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate, validDateRange } from './core.js?v=2026.11.09.2';
 
 const list = value => Array.isArray(value) ? value : [];
 const text = value => escapeHtml(String(value ?? ''));
@@ -80,25 +80,33 @@ export function publishedFinancialRecords(records) {
 export function buildFinancialComparison(records, { period = 'month', month = operationalDate().slice(0, 7), from = '', to = '', base = '', crewLeader = '', team = '' } = {}) {
   const custom = period === 'custom';
   const invalidRange = custom && (!from || !to || !validDateRange(from, to));
-  const byId = new Map(), conflicts = new Set();
+  const byId = new Map();
   for (const record of publishedFinancialRecords(records)) {
-    const key = record.recordId.toLowerCase(), previous = byId.get(key);
-    const fingerprint = item => JSON.stringify([item.registeredAt, item.base, item.crewLeader, item.team, item.totalServices, initialFinancialValue(item)]);
-    if (previous && fingerprint(previous) !== fingerprint(record)) conflicts.add(key);
-    byId.set(key, record);
+    const key = record.recordId.toLowerCase();
+    const copies = byId.get(key);
+    if (copies) copies.push(record);
+    else byId.set(key, [record]);
   }
+  const fingerprint = item => JSON.stringify([item.registeredAt, item.base, item.crewLeader, item.team, item.totalServices, initialFinancialValue(item)]);
   const items = [], pending = [];
   let count = 0;
-  for (const [recordId, record] of byId) {
+  for (const [recordId, copies] of byId) {
     if (invalidRange) break;
-    if ((team && normalizeText(record.team) !== normalizeText(team)) || (base && normalizeText(record.base) !== normalizeText(base)) || (crewLeader && normalizeText(record.crewLeader) !== normalizeText(crewLeader))) continue;
-    const date = record.registeredAt ? operationalDate(record.registeredAt) : '';
-    if (period !== 'all' && date && (custom ? !dateInRange(date, { from, to }) : date.slice(0, 7) !== month)) continue;
+    let date = '';
+    const record = copies.find(candidate => {
+      if ((team && normalizeText(candidate.team) !== normalizeText(team)) || (base && normalizeText(candidate.base) !== normalizeText(base))
+        || (crewLeader && normalizeText(candidate.crewLeader) !== normalizeText(crewLeader))) return false;
+      date = candidate.registeredAt ? operationalDate(candidate.registeredAt) : '';
+      return period === 'all' || !date || (custom ? dateInRange(date, { from, to }) : date.slice(0, 7) === month);
+    });
+    if (!record) continue;
+    const reference = copies.length > 1 ? fingerprint(record) : '';
+    const conflict = copies.length > 1 && copies.some(candidate => candidate !== record && fingerprint(candidate) !== reference);
     count++;
     const initial = initialFinancialValue(record), corrected = financialNumber(record.totalServices);
-    let reason = conflicts.has(recordId) ? 'UUID duplicado com valores ou identidades divergentes.' : period !== 'all' && !date ? 'Data de registro ausente ou inválida; período não comprovado.' : corrected == null ? 'TOTAL DOS SERVIÇOS ausente ou inválido.' : initial.pending;
+    const reason = conflict ? 'UUID duplicado com valores ou identidades divergentes.' : period !== 'all' && !date ? 'Data de registro ausente ou inválida; período não comprovado.' : corrected == null ? 'TOTAL DOS SERVIÇOS ausente ou inválido.' : initial.pending;
     if (reason) pending.push({ recordId, reason });
-    items.push({ recordId, sent: reason ? null : initial.sent, corrected: conflicts.has(recordId) || (period !== 'all' && !date) ? null : corrected, source: initial.source, firstAt: initial.firstAt });
+    items.push({ recordId, sent: reason ? null : initial.sent, corrected: conflict || (period !== 'all' && !date) ? null : corrected, source: initial.source, firstAt: initial.firstAt });
   }
   const corrected = items.some(item => item.corrected == null) ? null : sum(items.map(item => item.corrected));
   const sent = items.some(item => item.sent == null) ? null : sum(items.map(item => item.sent));

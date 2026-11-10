@@ -205,6 +205,12 @@ test('Só confirmação completa resolve pedido, falha mantém aberto', () => {
   context.resolvePhotoSyncRequest_(audit, STATUS.SYNCING_PHOTOS, 'Pessoa A'); assert.equal(audit.photoSyncRequest.status, 'OPEN');
   context.resolvePhotoSyncRequest_(audit, STATUS.WAITING_SUPERVISOR, 'Pessoa A'); assert.equal(audit.photoSyncRequest.status, 'RESOLVED');
 });
-test('Nenhuma coluna/aba operacional foi adicionada', () => { assert.equal(COL.WIDTH, 46); assert.ok(backend.includes("teamDirectorySheet: 'Equipe X Base X Chefe de turma'")); });
+test('Preserva o esquema operacional com as colunas de CHAVES', () => {
+  assert.equal(COL.CONTRACT, 46);
+  assert.equal(COL.PG_KEY_REMOVED, 47);
+  assert.equal(COL.FORM_VERSION, 51);
+  assert.equal(COL.WIDTH, 51);
+  assert.ok(backend.includes("teamDirectorySheet: 'Equipe X Base X Chefe de turma'"));
+});
 
 console.log(JSON.stringify({ passed, photoPendingScenarios: scenarios.length, productionWrites: 0 }, null, 2));

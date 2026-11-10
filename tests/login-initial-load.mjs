@@ -44,13 +44,15 @@ function appHarness(role = 'supervisor', source = appSource) {
     supervisorDataLoaded: false, supervisorRecords: [], supervisorPendingRecords: [], supervisorMetricRecords: [],
     supervisorLoadState: 'idle', supervisorLastLoadedAt: '',
     supervisorPhotoFailures: new Map(), selectedSupervisorIds: new Set(), supervisorTab: 'occurrences', supervisorPendingFilter: 'photos',
-    supervisorMutationRunning: false, supervisorRefreshTimer: null, LAST_USER_KEY: 'fixture-last-user',
+    supervisorMutationRunning: false, supervisorMutationVersion: 0, supervisorRefreshTimer: null, LAST_USER_KEY: 'fixture-last-user',
     SYNCABLE_STATUSES: new Set([core.RECORD_STATUS.PENDING, core.RECORD_STATUS.ERROR]),
     navigator: { onLine: true }, document: { visibilityState: 'visible' }, window: { scrollTo() {} },
     localStorage: { getItem() { return null; }, setItem() {} }, console: { error() {}, warn() {} },
     FormData: class { get(key) { return { user: 'Campo TESTE', password: 'fixture-only', role }[key]; } },
     setTimeout: () => {}, setInterval: fn => { intervals.push(fn); return intervals.length; }, clearInterval() {},
-    $$: () => [], endpointConfigured: () => true,
+    $$: () => [], endpointConfigured: () => true, DB_VERSION: 1, API_CONTRACT: 'fixture-contract',
+    configureOperationalClient() {}, createCompatibilityView: () => ({ check() {} }),
+    compatibilityView: null, showUpdateDialog() {}, sendPresence() {},
     api: { login: async () => ({ token: 'fixture', user: 'Campo TESTE', role }), listPending: async () => emptyPayload(), listMine: async () => ({ records: [] }) },
     openDatabase: async () => {}, getAllRecords: async () => [],
     clearSessionUiState() {}, persistSession(value) { c.session = value; c.sessionRevision++; }, tokenExpiry: () => Date.now() + 100000,
@@ -79,6 +81,7 @@ test('autenticação abre o Supervisor antes do IndexedDB e das referências sec
   h.c.openDatabase = () => database.promise;
   h.c.api.listPending = () => { calls++; return dataset.promise; };
   await h.c.handleLogin({ preventDefault() {} });
+  await tick();
   assert.equal(h.elements.appShell.hidden, false); assert.equal(h.c.currentView, 'supervisor');
   assert.equal(h.c.loginRunning, false); assert.equal(calls, 1);
   assert.match(h.elements.supervisorList.innerHTML, /Carregando ocorrências/);
@@ -149,6 +152,7 @@ test('mount, atualização e navegação simultâneos compartilham um request', 
   const h = appHarness(); const dataset = deferred(); let calls = 0;
   h.c.api.listPending = () => { calls++; return dataset.promise; };
   await h.c.enterApplication(); const second = h.c.refreshSupervisor(true); const third = h.c.navigate('supervisor');
+  await tick();
   assert.equal(calls, 1); dataset.resolve(emptyPayload()); await Promise.all([second, third]);
   assert.equal(calls, 1); assert.equal(h.c.supervisorRefreshPromise, null);
 });

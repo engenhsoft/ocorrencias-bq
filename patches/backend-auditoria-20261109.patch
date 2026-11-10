@@ -1,0 +1,48 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -8 +8 @@ const APP = Object.freeze({
+-  version: '2026.11.09.1',
++  version: '2026.11.09.2',
+@@ -244 +243,0 @@ function submitRecord_(payload, observe) {
+-      const officialRecord = recordFromRow_(officialFound.values, loadServicesMap_(), loadMaterialsMap_());
+@@ -245,0 +245 @@ function submitRecord_(payload, observe) {
++      const officialRecord = recordFromRow_(officialFound.values, loadServicesMap_(), loadMaterialsMap_());
+@@ -321 +321 @@ function submitRecord_(payload, observe) {
+-    else { formatChavesRow_(pending, pending.getLastRow() + 1, 1); pending.appendRow(row); flushSheets_(); persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA'); }
++    else { formatChavesRow_(pending, pending.getLastRow() + 1, 1); pending.appendRow(bqLiteralRow_(row)); flushSheets_(); persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA'); }
+@@ -527 +527 @@ function writeAndReadCorrection_(sheet, row, values, operation) {
+-  sheet.getRange(row, 1, 1, COL.WIDTH).setValues([values]); flushSheets_();
++  sheet.getRange(row, 1, 1, COL.WIDTH).setValues([bqLiteralRow_(values)]); flushSheets_();
+@@ -733 +732,0 @@ function getRecordState_(payload) {
+-  const record = recordFromValuesAt_(found.values);
+@@ -735 +734,2 @@ function getRecordState_(payload) {
+-  else if (auth.role !== 'supervisor') assertOwner_(auth, record.user);
++  else if (auth.role !== 'supervisor') assertOwner_(auth, found.values[COL.USER - 1]);
++  const record = recordFromValuesAt_(found.values);
+@@ -898 +898 @@ function supervisorCorrectRecord_(payload) {
+-    pending.getRange(found.row, 1, 1, COL.WIDTH).setValues([row]);
++    pending.getRange(found.row, 1, 1, COL.WIDTH).setValues([bqLiteralRow_(row)]);
+@@ -1013 +1013 @@ function applySupervisorDecision_(auth, recordId, decision, reason, note, report
+-  pending.getRange(found.row, 1, 1, COL.WIDTH).setValues([updated]);
++  pending.getRange(found.row, 1, 1, COL.WIDTH).setValues([bqLiteralRow_(updated)]);
+@@ -1280 +1280 @@ function replaceServiceRows_(recordId, services) {
+-  sheet.getRange(sheet.getLastRow() + 1, 1, services.length, SERVICE_HEADERS.length).setValues(services.map(function (service) { return [recordId, service.code, service.catalogText, service.unit, service.quantity, service.referenceValue, service.totalValue, service.group, service.catalogKey, timestamp]; }));
++  sheet.getRange(sheet.getLastRow() + 1, 1, services.length, SERVICE_HEADERS.length).setValues(services.map(function (service) { return bqLiteralRow_([recordId, service.code, service.catalogText, service.unit, service.quantity, service.referenceValue, service.totalValue, service.group, service.catalogKey, timestamp]); }));
+@@ -1298 +1298 @@ function replaceMaterialRows_(recordId, materials, occurrenceNumber) {
+-  sheet.getRange(writeRow, 1, normalized.length, MATERIAL_HEADERS.length).setValues(normalized.map(function (material) { return [recordId, material.description, material.quantity, timestamp, String(material.code || ''), material.description || '', material.unit || '', String(occurrenceNumber || '')]; }));
++  sheet.getRange(writeRow, 1, normalized.length, MATERIAL_HEADERS.length).setValues(normalized.map(function (material) { return bqLiteralRow_([recordId, material.description, material.quantity, timestamp, String(material.code || ''), material.description || '', material.unit || '', String(occurrenceNumber || '')]); }));
+@@ -1391 +1391,4 @@ function verifyPublishedIntegrityRoute_(payload) {
+-  return verifyPublishedIntegrity_(requireUuid_(payload.recordId), { repair: Boolean(payload.repair), cleanupPending: Boolean(payload.cleanupPending), actor: auth.user });
++  if ([payload.repair, payload.cleanupPending].some(function (flag) { return flag != null && typeof flag !== 'boolean'; })) {
++    throw apiError_('INVALID_INTEGRITY_OPTION', 'As opções de integridade devem ser verdadeiras ou falsas.');
++  }
++  return verifyPublishedIntegrity_(requireUuid_(payload.recordId), { repair: payload.repair === true, cleanupPending: payload.cleanupPending === true, actor: auth.user });
+@@ -1521 +1524 @@ function appendHistoryAt_(record, actor, action, previousStatus, nextStatus, rea
+-  sheet_(APP.historySheet).appendRow([record.recordId, at || nowIso_(), actor, action, previousStatus, nextStatus, reason || '', note || '', record.occurrenceNumber || '', record.team || '', types, record.base || '', record.crewLeader || '', record.pgPostRemoved || '', record.pgPostInstalled || '', record.pgConductorStart || '', record.pgConductorEnd || '', record.transformerPhotos && record.transformerPhotos.removed || '', record.transformerPhotos && record.transformerPhotos.installed || '']);
++  sheet_(APP.historySheet).appendRow(bqLiteralRow_([record.recordId, at || nowIso_(), actor, action, previousStatus, nextStatus, reason || '', note || '', record.occurrenceNumber || '', record.team || '', types, record.base || '', record.crewLeader || '', record.pgPostRemoved || '', record.pgPostInstalled || '', record.pgConductorStart || '', record.pgConductorEnd || '', record.transformerPhotos && record.transformerPhotos.removed || '', record.transformerPhotos && record.transformerPhotos.installed || '']));
+@@ -1556 +1559 @@ function integrateTransformersOnApproval_(record) {
+-    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 15).setValues([row]);
++    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 15).setValues([bqLiteralRow_(row)]);
+@@ -2064 +2067 @@ function appendPublicationRows_(sheet, rows, textColumns) {
+-  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
++  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows.map(bqLiteralRow_));

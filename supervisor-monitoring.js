@@ -1,5 +1,5 @@
-import { api, confirmedCompatibility } from './api.js?v=2026.11.09.1';
-import { escapeHtml, formatCurrency, formatDateTime, formatNumber, operationalDate, RECORD_STATUS, statusLabel, validDateRange } from './core.js?v=2026.11.09.1';
+import { api, confirmedCompatibility } from './api.js?v=2026.11.09.2';
+import { escapeHtml, formatCurrency, formatDateTime, formatNumber, operationalDate, RECORD_STATUS, statusLabel, validDateRange } from './core.js?v=2026.11.09.2';
 
 const text = value => escapeHtml(String(value ?? ''));
 const date = value => value ? formatDateTime(value) : 'Sem confirmação';
@@ -120,6 +120,7 @@ function comparisonMarkup(cycle) {
 
 const github = 'https://github.com/engenhsoft/ocorrencias-bq';
 const previousBackends = [
+  ['2026.11.09.1', '45', 'ee4abbe905a0fb99d0f2e3e83ca0b484c6c6d590'],
   ['2026.11.06.1', '44', '584d8018b9474bad1acdabb32e023fccfa52e461'],
   ['2026.10.30.1', '43', 'af3a78a4d0fc088eaa52cff14efa83e44c762a28'],
   ['2026.10.23.3', '42', '946294a46b96329bab50f3723da40599d1829913']
