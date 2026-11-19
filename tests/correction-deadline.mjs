@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { correctionTiming, buildCorrectionOverview, correctionDeadlineMarkup, correctionOverviewMarkup, RECORD_STATUS, correctionDate } from '../core.js';
+import { correctionTiming, buildCorrectionOverview, correctionDeadlineMarkup, correctionOverviewMarkup, RECORD_STATUS, correctionDate, supervisorKpis } from '../core.js';
 const require = createRequire(import.meta.url);
 const fake = require('fake-indexeddb');
 globalThis.indexedDB = fake.indexedDB; globalThis.IDBKeyRange = fake.IDBKeyRange;
@@ -14,9 +14,9 @@ test('cores e contagem corretas em 24/48/72 h e no milissegundo anterior',()=>{
  for(const [hours,tone]of [[24,'success'],[48,'warning'],[72-1/3600000,'warning'],[72,'danger'],[96,'danger']])assert.equal(correctionTiming(record(1,hours),origin).tone,tone);
  assert.match(correctionDate(origin),/19\/11\/2026.*10:00/);
 });
-test('gráfico deduplica, ordena fiscais, soma categorias e calcula média real',()=>{
+test('gráfico deduplica e exclui vencidas, mantendo somente pendências abertas',()=>{
  const rows=[record(1,18,'JOÃO'),record(2,51,'JOÃO'),record(3,84,'ANA'),record(4,3,'JOÃO')];
- const data=buildCorrectionOverview([...rows,rows[1]],origin);assert.equal(data.total,4);assert.equal(data.within,3);assert.equal(data.expired,1);assert.equal(data.meanMs,39*3600000);assert.equal(data.groups[0].label,'JOÃO');
+ const data=buildCorrectionOverview([...rows,rows[1]],origin);assert.equal(data.total,3);assert.equal(data.within,3);assert.equal(data.expired,0);assert.equal(data.meanMs,24*3600000);assert.equal(data.groups[0].label,'JOÃO');
  for(const group of data.groups)assert.equal(group.total,group.within+group.expired+group.unknown);
 });
 test('corrigidas, novas sem pedido e substituídas não são pendências do gráfico',()=>{
@@ -31,13 +31,13 @@ test('data desconhecida é cinza, sem vencimento inventado e fora da média',()=
  assert.match(correctionOverviewMarkup([unknown],origin),/sem data comprovada/);
 });
 test('detalhamento contém número, equipe, base, datas, espera, atraso e acesso',()=>{
- const html=correctionOverviewMarkup([record(1,84)],origin);
- for(const text of ['OC-1','LV 02','MOSSORÓ','Tempo de atraso','Fiscal responsável','Prazo final','Abrir ocorrência','Iniciar novo lançamento'])assert.ok(html.includes(text),text);
+ const html=correctionOverviewMarkup([record(1,51)],origin);
+ for(const text of ['OC-1','LV 02','MOSSORÓ','Tempo restante','Fiscal responsável','Prazo final','Abrir ocorrência'])assert.ok(html.includes(text),text);
  assert.ok(correctionDeadlineMarkup(record(1,84),{now:origin}).includes('Prazo de correção encerrado. Esta ocorrência ultrapassou o limite de 3 dias. Será necessário realizar um novo lançamento.'));
 });
 test('gráfico reflete correção e exclusão usando os mesmos registros da lista',()=>{
- const a=record(1),b=record(2,90);assert.equal(buildCorrectionOverview([a,b],origin).total,2);
- a.status='AGUARDANDO_SUPERVISOR';assert.equal(buildCorrectionOverview([a,b],origin).expired,1);
+ const a=record(1),b=record(2,90);assert.equal(buildCorrectionOverview([a,b],origin).total,1);
+ a.status='AGUARDANDO_SUPERVISOR';assert.equal(buildCorrectionOverview([a,b],origin).total,0);
  assert.equal(buildCorrectionOverview([a],origin).total,0);
 });
 test('limpeza IndexedDB elimina dez filas e fotos, preserva a protegida, resiste a cache antigo',async()=>{
@@ -62,4 +62,21 @@ test('abrir ocorrência pelo gráfico muda para correções e remove filtros inc
  const item={recordId:id(5)}, c={session:{role:'supervisor'},supervisorPendingRecords:[item],supervisorTab:'occurrences',supervisorPendingFilter:'photos',supervisorFiltersByTab:{pending:{search:'outra OC'}},emptySupervisorFilters:()=>({search:''}),saveSupervisorFilters(){},restoreSupervisorFilters(){},renderSupervisorList(){c.rendered=true;},filteredSupervisorRecords:()=>c.supervisorTab==='pending'&&c.supervisorPendingFilter==='correction'&&!c.supervisorFiltersByTab.pending.search?[item]:[],openSupervisorReview:uuid=>{assert.ok(c.filteredSupervisorRecords().some(row=>row.recordId===uuid));c.opened=uuid;}};
  vm.createContext(c);vm.runInContext(fn,c);c.openCorrectionFromChart(item.recordId);assert.equal(c.opened,item.recordId);assert.equal(c.rendered,true);assert.equal(c.supervisorPendingFilter,'correction');assert.equal(c.supervisorTab,'pending');
  c.opened=null;c.openCorrectionFromChart(id(6));assert.equal(c.opened,null);c.session.role='fiscal';c.openCorrectionFromChart(item.recordId);assert.equal(c.opened,null);
+});
+
+test('gráfico remove os três KPIs e toda OC vencida, conservando total e tempos individuais',()=>{
+ const html=correctionOverviewMarkup([record(1,18),record(2,72),record(3,100)],origin);
+ assert.match(html,/Total de OCs pendentes/);assert.match(html,/Tempo transcorrido/);
+ for(const label of ['Dentro do prazo','Fora do prazo','Tempo médio de espera','OC-2','OC-3'])assert.ok(!html.includes(label),label);
+ assert.equal(buildCorrectionOverview([record(1,72)],origin).total,0);
+});
+test('reprovada por prazo conserva aviso e novo lançamento sem voltar ao gráfico',()=>{
+ const r=record(1,96);r.status='REPROVADA';r.audit.lastCorrectionRequest.autoRejectedAt=new Date(origin-24*3600000).toISOString();r.audit.lastCorrectionRequest.deadlineStatus='FORA_DO_PRAZO_DE_CORRECAO';
+ assert.equal(correctionTiming(r,origin).expired,true);assert.equal(buildCorrectionOverview([r],origin).total,0);
+ assert.match(correctionDeadlineMarkup(r,{now:origin}),/Iniciar novo lançamento/);
+});
+
+test('indicadores gerais deixam de contar vencida como pendente mesmo antes de nova consulta',()=>{
+ const r=record(1);r.audit.lastCorrectionRequest.requestedAt=new Date(Date.now()-73*3600000).toISOString();
+ const k=supervisorKpis([r]);assert.equal(k.waitingCorrection,0);assert.equal(k.pending,0);assert.equal(k.rejected,1);
 });

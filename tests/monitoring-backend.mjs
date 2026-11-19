@@ -129,7 +129,10 @@ test('alertas distinguem atrasos formais, destinatários legados, concluídas e 
   h.add(6, { status: 'FOTOS_SENDO_SINCRONIZADAS' });
   const list = h.monitor('late');
   assert.deepEqual(list.items.map(item => [item.recordId, item.correction.band, item.correction.responsible]),
-    [[id(3), 72, 'Campo A'], [id(2), 48, 'Campo A'], [id(1), 24, 'Campo A']]);
+    [[id(2), 48, 'Campo A'], [id(1), 24, 'Campo A']]
+  );
+  assert.equal(h.c.operationalStatusFromValues_(h.row(3)), 'REPROVADA');
+  assert.equal(h.c.bqDeadline_(h.row(3)).status, 'FORA_DO_PRAZO_DE_CORRECAO');
 });
 
 test('diagnóstico distingue dados, fotos, conflitos e publicação parcial sem escrita', () => {

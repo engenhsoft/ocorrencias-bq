@@ -26,10 +26,13 @@ function bqDeadline_(values, clock) {
   const now = clock == null ? Date.now() : clock, due = start + BQ_DEADLINE.hours * 3600000;
   const receipt = audit.lastCorrectionSubmission;
   const complete = receipt && receipt.requestedAt === correctionRequestedAt_(audit) && receipt.phase === 'COMPLETE';
+  const verifiedAt = !complete && receipt && bqValidCorrectionReceivedAt_(values, receipt.requestId);
+  const timelyReceipt = verifiedAt != null && verifiedAt !== false && verifiedAt < due;
   const replaced = request.replacementRecordId || rawStatus === BQ_DEADLINE.replaced;
-  const open = !complete && !replaced && operationalStatusFromValues_(values) === STATUS.CORRECTION_REQUESTED;
+  const open = !complete && !replaced && operationalStatusBeforeDeadline_(values) === STATUS.CORRECTION_REQUESTED;
+  const autoRejected = rawStatus === STATUS.REJECTED && request.autoRejectedAt && request.deadlineStatus === BQ_DEADLINE.expired;
   const status = replaced ? BQ_DEADLINE.replaced : complete ? request.deadlineSchema === 1 ? 'CORRIGIDA_DENTRO_DO_PRAZO' : 'CORRIGIDA_ANTERIORMENTE'
-    : !open ? 'ENCERRADA' : now >= due ? BQ_DEADLINE.expired : due - now <= BQ_DEADLINE.warning * 3600000 ? 'PRAZO_PROXIMO_DO_VENCIMENTO' : 'AGUARDANDO_CORRECAO';
+    : autoRejected ? BQ_DEADLINE.expired : !open ? 'ENCERRADA' : now >= due ? timelyReceipt ? 'RECONCILIACAO_TEMPESTIVA' : BQ_DEADLINE.expired : due - now <= BQ_DEADLINE.warning * 3600000 ? 'PRAZO_PROXIMO_DO_VENCIMENTO' : 'AGUARDANDO_CORRECAO';
   return { schema: 1, status: status, open: open, roundId: request.routingRequestId || request.requestedAt,
     requestedAt: new Date(start).toISOString(), dueAt: new Date(due).toISOString(), serverNow: new Date(now).toISOString(),
     responsible: request.routingVersion === 'FISCAL_ASSIGNED' ? request.assignedFiscal || '' : String(values[COL.USER - 1] || ''),
@@ -38,16 +41,31 @@ function bqDeadline_(values, clock) {
 }
 function bqPersistExpired_(values) {
   const deadline = bqDeadline_(values);
-  if (!deadline || deadline.status !== BQ_DEADLINE.expired) return;
-  const audit = safeJson_(values[COL.AUDIT - 1], {}), request = audit.lastCorrectionRequest;
-  if (request.deadlineStatus === BQ_DEADLINE.expired) return;
-  request.deadlineStatus = BQ_DEADLINE.expired; request.dueAt = deadline.dueAt;
-  appendAuditTimeline_(audit, BQ_DEADLINE.expired, 'SERVIDOR', deadline.dueAt, 'Limite de 72 horas corridas encerrado');
-  const found = uniqueCorrectionRow_(sheet_(APP.pendingSheet), String(values[COL.ID - 1]));
-  if (!found) return;
-  // Caller holds the script lock. Change only audit; keep operational data/photos.
-  writeCorrectionAudit_(sheet_(APP.pendingSheet), found, audit);
-  values[COL.AUDIT - 1] = correctionAuditJson_(audit);
+  if (!deadline || ![BQ_DEADLINE.expired, 'RECONCILIACAO_TEMPESTIVA'].includes(deadline.status)) return false;
+  const target = sheet_(APP.pendingSheet); let found = uniqueCorrectionRow_(target, String(values[COL.ID - 1]));
+  if (!found) return false;
+  const audit = safeJson_(found.values[COL.AUDIT - 1], {}), request = audit.lastCorrectionRequest;
+  if (found.values[COL.STATUS - 1] === STATUS.REJECTED && request.autoRejectionHistoryConfirmedAt) return false;
+  const receipt = audit.lastCorrectionSubmission;
+  const received = receipt && bqValidCorrectionReceivedAt_(found.values, receipt.requestId);
+  if (received != null && received !== false && received < Date.parse(deadline.dueAt)) {
+    finishCorrection_(target, found, receipt.actor || 'SERVIDOR'); return false;
+  }
+  const changed = found.values[COL.STATUS - 1] !== STATUS.REJECTED || !request.autoRejectedAt;
+  if (changed) {
+    request.deadlineStatus = BQ_DEADLINE.expired; request.dueAt = deadline.dueAt;
+    request.autoRejectedAt = deadline.dueAt; request.rejectionRecordedAt = nowIso_();
+    appendAuditTimeline_(audit, 'REPROVADA_POR_PRAZO', 'SERVIDOR', deadline.dueAt, 'Limite de 72 horas corridas encerrado');
+    const next = found.values.slice(); next[COL.AUDIT - 1] = correctionAuditJson_(audit);
+    next[COL.STATUS - 1] = STATUS.REJECTED; next[COL.REASON - 1] = 'FORA DO PRAZO DE CORREÇÃO';
+    next[COL.UPDATED_AT - 1] = nowIso_();
+    found = writeAndReadCorrection_(target, found.row, next);
+  }
+  appendHistoryOnce_(correctionDataFromValues_(found.values), 'SERVIDOR', 'REPROVADA_POR_PRAZO',
+    STATUS.CORRECTION_REQUESTED, STATUS.REJECTED, 'FORA DO PRAZO DE CORREÇÃO', BQ_DEADLINE.message, deadline.dueAt);
+  request.autoRejectionHistoryConfirmedAt = nowIso_();
+  writeCorrectionAudit_(target, found, audit);
+  return changed;
 }
 function bqValidCorrectionReceivedAt_(values, requestId) {
   const audit = safeJson_(values[COL.AUDIT - 1], {}), receipt = audit.lastCorrectionSubmission;
@@ -65,17 +83,20 @@ function bqValidCorrectionReceivedAt_(values, requestId) {
 function bqAssertDeadline_(values, retryId) {
   if (!values) return;
   const deadline = bqDeadline_(values);
-  if (!deadline || !deadline.open || deadline.status !== BQ_DEADLINE.expired) return;
+  if (!deadline || ![BQ_DEADLINE.expired, 'RECONCILIACAO_TEMPESTIVA'].includes(deadline.status)) return;
   // A lost response may be reconciled only from already validated server receipts.
   const received = retryId && bqValidCorrectionReceivedAt_(values, retryId);
   if (received != null && received !== false && received < Date.parse(deadline.dueAt)) return;
-  bqPersistExpired_(values);
   throw apiError_('CORRECTION_DEADLINE_EXPIRED', BQ_DEADLINE.message, { recordId: String(values[COL.ID - 1]), correctionDeadline: deadline });
 }
 function bqRefreshDeadlines_() {
   const lock = LockService.getScriptLock();
   if (typeof lock.tryLock === 'function') { if (!lock.tryLock(1000)) return; } else lock.waitLock(1000);
-  try { dataRows_(sheet_(APP.pendingSheet), COL.WIDTH).forEach(bqPersistExpired_); }
+  try {
+    let rejected = 0;
+    dataRows_(sheet_(APP.pendingSheet), COL.WIDTH).forEach(function (values) { if (bqPersistExpired_(values)) rejected++; });
+    return { ok: true, rejected: rejected, checkedAt: nowIso_() };
+  }
   finally { lock.releaseLock(); }
 }
 function bqStartDeadline_(request, audit) {
@@ -108,10 +129,22 @@ function bqLinkReplacement_(auth, original, createdId) {
 }
 function bqAssertPhotoDeadline_(values, payload) {
   const deadline = bqDeadline_(values);
-  if (!deadline || deadline.status !== BQ_DEADLINE.expired) return;
+  if (!deadline || ![BQ_DEADLINE.expired, 'RECONCILIACAO_TEMPESTIVA'].includes(deadline.status)) return;
   const audit = safeJson_(values[COL.AUDIT - 1], {}), receipt = audit.lastCorrectionSubmission;
   const sameConfirmedSlot = String(values[photoUploadKeyColumn_(Number(payload.photoIndex)) - 1]) === payload.uploadKey
     && photoSlotConfirmed_(values, audit, Number(payload.photoIndex));
   // Reconcile a known slot; never admit new bytes using another slot's receipt.
   bqAssertDeadline_(values, sameConfirmedSlot && receipt && receipt.requestId);
+}
+
+// Scheduled persistence; all reads and correction attempts also enforce the exact boundary.
+function atualizarPrazosCorrecaoBQ() { return bqRefreshDeadlines_(); }
+function instalarPrazosCorrecaoBQ() {
+  const handler = 'atualizarPrazosCorrecaoBQ';
+  const existing = ScriptApp.getProjectTriggers().filter(function (trigger) { return trigger.getHandlerFunction() === handler; });
+  if (!existing.length) ScriptApp.newTrigger(handler).timeBased().everyMinutes(5).create();
+  existing.slice(1).forEach(function (trigger) { ScriptApp.deleteTrigger(trigger); });
+  const result = bqRefreshDeadlines_();
+  console.info(JSON.stringify({ ok: true, handler: handler, intervalMinutes: 5, result: result }));
+  return result;
 }

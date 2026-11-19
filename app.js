@@ -1,6 +1,6 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.19.2';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.19.2';
-import { createOperationalFeatures } from './operational-features.js?v=2026.11.19.2';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.19.3';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.19.3';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.19.3';
 import {
   correctionTiming, correctionDeadlineMarkup, correctionOverviewMarkup, observeServerClock, CORRECTION_EXPIRED_MESSAGE, dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -10,15 +10,15 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, sessionIdentityMatches, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.11.19.2';
+} from './core.js?v=2026.11.19.3';
 import {
   DB_VERSION, purgeRemovedRecords, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.11.19.2';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.19.2';
-import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.19.2';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.2';
+} from './db.js?v=2026.11.19.3';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.19.3';
+import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.19.3';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -2558,7 +2558,7 @@ function filteredSupervisorRecords() {
   const { from, to } = supervisorFilterRange();
   if (!validDateRange(from, to)) return [];
   const source = supervisorTab === 'pending'
-    ? supervisorPendingRecords.filter((record) => supervisorPendingFilter === 'correction' ? record.status === RECORD_STATUS.CORRECTION_REQUESTED : record.status === RECORD_STATUS.SYNCING_PHOTOS)
+    ? supervisorPendingRecords.filter((record) => supervisorPendingFilter === 'correction' ? record.status === RECORD_STATUS.CORRECTION_REQUESTED && !correctionTiming(record).expired : record.status === RECORD_STATUS.SYNCING_PHOTOS)
     : supervisorTab === 'published' ? supervisorPublishedRecords() : supervisorRecords;
   return source.filter((record) => {
     const date = dateForSupervisorRecord(record);
@@ -2618,7 +2618,7 @@ function supervisorActiveRecords() {
   if (supervisorTab === 'published') return supervisorPublishedRecords();
   if (supervisorTab !== 'pending') return supervisorRecords;
   return supervisorPendingRecords.filter((record) => supervisorPendingFilter === 'correction'
-    ? record.status === RECORD_STATUS.CORRECTION_REQUESTED
+    ? record.status === RECORD_STATUS.CORRECTION_REQUESTED && !correctionTiming(record).expired
     : record.status === RECORD_STATUS.SYNCING_PHOTOS);
 }
 
@@ -3257,7 +3257,7 @@ async function openMonitoring(section, recordId = '') {
   const revision = sessionRevision;
   try {
     if (!monitorController) {
-      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.19.2').catch(error => { monitorImport = null; throw error; });
+      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.19.3').catch(error => { monitorImport = null; throw error; });
       const { createSupervisorMonitoring } = await monitorImport;
       if (sessionRevision !== revision) return;
       monitorController ||= createSupervisorMonitoring({ getSession: () => session, getRevision: () => sessionRevision, onDetail: openMonitoredOccurrence, onAuthFailure: logout });
@@ -3358,7 +3358,7 @@ window.addEventListener('occbq-records-removed', event => {
 setInterval(() => {
   if (document.visibilityState !== 'visible') return;
   if (session?.role === 'supervisor') {
-    renderCorrectionPendingChart();
+    renderSupervisorNavigation();
     if (supervisorTab === 'pending' && supervisorPendingFilter === 'correction' && !supervisorMutationRunning) renderSupervisorList();
   }
   document.querySelectorAll('[data-deadline-record]').forEach(el => {
