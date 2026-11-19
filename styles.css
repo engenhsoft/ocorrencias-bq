@@ -929,3 +929,18 @@ a.programacao-access { text-decoration: none; }
   .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: .3rem; max-width: 54%; }
   .header-actions .compatibility-link { max-width: 100%; overflow-wrap: anywhere; }
 }
+
+/* Corrections reuse the existing Supervisor cards and typography. */
+.correction-deadline{margin-block:1rem;padding:1rem;border:1px solid #c8d3df;border-left:5px solid #6b7280;border-radius:12px;overflow-wrap:anywhere}
+.correction-deadline--success{border-left-color:#278452;background:#f2faf5;color:#183c29}
+.correction-deadline--warning{border-left-color:#ad7500;background:#fff9e9;color:#644300}
+.correction-deadline--danger{border-left-color:#bd3543;background:#fff3f4;color:#79202a}
+.correction-deadline .monitor-facts{margin-block:.75rem}
+.correction-bars{display:grid;gap:.8rem;margin-top:1rem}
+.correction-group{border:1px solid #d9e2ec;border-radius:12px;padding:1rem;min-width:0}
+.correction-group summary{display:grid;grid-template-columns:minmax(8rem,1fr) 2fr;gap:.5rem;cursor:pointer;font-weight:700;min-height:44px;align-items:center}
+.correction-group summary>span:last-child{grid-column:1/-1;font-size:.95rem;font-weight:400}
+.correction-bar{display:flex;min-height:1.2rem;border-radius:6px;overflow:hidden;min-width:3px}
+.correction-bar>span{min-width:0}.correction-bar__within{background:#278452}.correction-bar__expired{background:#bd3543}.correction-bar__unknown{background:#718096}
+.correction-group .record-card{margin-top:1rem}.correction-group[open] summary{margin-bottom:1rem}
+@media(max-width:600px){.correction-group summary{grid-template-columns:1fr}.correction-group summary>span:last-child{grid-column:auto}.correction-deadline{padding:.85rem}.correction-deadline .monitor-facts{grid-template-columns:1fr}}

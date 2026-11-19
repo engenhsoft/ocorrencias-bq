@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.11.09.2';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.11.09.2';
+import { correctionConfirmationMatches } from './core.js?v=2026.11.19.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.11.19.1';
 
 export const REMOTE_WRITES = ['submitRecord', 'uploadPhoto', 'supervisorCorrectRecord', 'supervisorAction',
   'requestPhotoSyncBatch', 'approveBatch', 'saveFiscalAccount', 'changeFiscalMasterPassword', 'reassignFiscalCorrection'];
@@ -104,6 +104,7 @@ export async function parseResponse(response) {
     if (response.status >= 500) throw unavailable();
     throw new ApiError('O servidor retornou uma resposta inválida.', 'INVALID_SERVER_RESPONSE', { status: response.status, responseType: Array.isArray(data) ? 'array' : typeof data });
   }
+  await operationalClient?.onPolicy?.(data);
   if (!response.ok || data.ok === false || data.success === false) {
     throw new ApiError(data.message || `Falha no servidor (${response.status}).`, data.error || (response.status >= 500 ? 'HTTP_SERVER_ERROR' : 'SERVER_ERROR'), { ...data, status: response.status });
   }

@@ -192,7 +192,7 @@ test('comparador conserva dois ciclos e recusa foto de outro UUID ou slot', () =
 test('compatibilidade bloqueia a mutação específica; mantém clientes v12 anteriores e leituras', () => {
   const h = fixture();
   const health = h.c.health_();
-  assert.equal(health.version, '2026.11.09.2');
+  assert.equal(health.version, h.c.meta.APP.version);
   assert.equal(health.compatibility.monitoring, 1);
   assert.doesNotThrow(() => h.c.bqCheckContract_('submitRecord', {}));
   const policy = { ...health.compatibility, operationContracts: { submitRecord: ['future'] } };

@@ -1,9 +1,9 @@
-import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.09.2';
-import { api, ApiError } from './api.js?v=2026.11.09.2';
-import { synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.09.2';
-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.09.2';
-import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.09.2';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.09.2';
+import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.19.1';
+import { api, ApiError } from './api.js?v=2026.11.19.1';
+import { correctionTiming, correctionDeadlineMarkup, synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.19.1';
+import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.19.1';
+import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.19.1';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, isSyncing = () => false, topThreeMarkup, barsMarkup }) {
@@ -77,11 +77,12 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
       const feedback = local ? synchronizationFeedback(local) : null;
       const busy = local && (queueActive.has(local.fiscalDraftKey) || isSyncing(local.fiscalDraftKey));
       const sync = feedback ? `<p class="sync-feedback" role="status" aria-live="polite"><strong>${text(feedback.label)}</strong><br>${text(feedback.detail)}</p>` : '';
-      const retry = local && local.correctionMode && !['saved', 'confirmed'].includes(feedback?.phase) || record.retryLocal;
+      const expired = correctionTiming(record).expired;
+      const retry = !expired && (local && local.correctionMode && !['saved', 'confirmed'].includes(feedback?.phase) || record.retryLocal);
       const route = record.fiscalCorrection, legacy = route.routingVersion === 'LEGACY_FIELD', waiting = route.assignmentStatus === 'WAITING_ASSIGNMENT';
       const candidates = accounts.filter(account => account.active && account.bases.includes(route.base));
       const assignment = getSession()?.canManageFiscals && !legacy ? `<div class="fiscal-assignment"><label class="field"><span>Fiscal responsável · ${text(route.base)}</span><select data-assignment-for="${text(record.recordId)}"><option value="">Selecionar Fiscal ativo</option>${candidates.map(account => `<option value="${text(account.user)}"${account.user === route.assignedFiscal ? ' selected' : ''}>${text(account.user)}</option>`).join('')}</select></label><button class="button button--ghost" type="button" data-fiscal-assign="${text(record.recordId)}">Atribuir / transferir</button></div>` : '';
-      return `<article class="record-card fiscal-correction-card"><header class="record-card__header"><div><h3>Ocorrência ${text(record.occurrenceNumber || 'sem número')}</h3><small>${text(record.recordId)}</small></div><span class="status-chip status-chip--warning">${legacy ? 'Solicitação anterior' : waiting ? 'Aguardando atribuição' : 'Correção solicitada'}</span></header><p>${text(record.base)} · ${text(record.team)} · ${text(record.crewLeader)}</p><div class="correction-request-callout"><strong>Solicitação do Supervisor</strong><p>${text(record.supervisorNote || record.reason)}</p></div><p>${legacy ? 'Esta solicitação anterior permanece com o usuário Campo original.' : waiting ? 'A conta mestra deve atribuir um Fiscal ativo desta Base.' : `Responsável: ${text(route.assignedFiscal)}`}</p>${sync}${retry ? `<button class="button button--primary" type="button" data-fiscal-retry="${text(record.recordId)}" ${busy ? 'disabled' : ''}>${busy ? 'Sincronizando…' : 'SINCRONIZAR AGORA / tentar novamente'}</button>` : ''}${record.canCorrect && !busy ? `<button class="button button--warning" type="button" data-fiscal-correct="${text(record.recordId)}">CORRIGIR / retomar rascunho</button>` : ''}${assignment}</article>`;
+      return `<article class="record-card fiscal-correction-card"><header class="record-card__header"><div><h3>Ocorrência ${text(record.occurrenceNumber || 'sem número')}</h3><small>${text(record.recordId)}</small></div><span class="status-chip status-chip--warning">${expired ? 'FORA DO PRAZO DE CORREÇÃO' : legacy ? 'Solicitação anterior' : waiting ? 'Aguardando atribuição' : 'Correção solicitada'}</span></header><p>${text(record.base)} · ${text(record.team)} · ${text(record.crewLeader)}</p><div class="correction-request-callout"><strong>Solicitação do Supervisor</strong><p>${text(record.supervisorNote || record.reason)}</p></div><p>${legacy ? 'Esta solicitação anterior permanece com o usuário Campo original.' : waiting ? 'A conta mestra deve atribuir um Fiscal ativo desta Base.' : `Responsável: ${text(route.assignedFiscal)}`}</p>${correctionDeadlineMarkup(record)}${sync}${retry ? `<button class="button button--primary" type="button" data-fiscal-retry="${text(record.recordId)}" ${busy ? 'disabled' : ''}>${busy ? 'Sincronizando…' : 'SINCRONIZAR AGORA / tentar novamente'}</button>` : ''}${record.canCorrect && !expired && !busy ? `<button class="button button--warning" type="button" data-fiscal-correct="${text(record.recordId)}">CORRIGIR / retomar rascunho</button>` : ''}${assignment}</article>`;
     }).join('') : '<p class="insight-empty">Nenhuma solicitação de correção nas suas Bases.</p>';
   }
   async function refreshCorrections() {

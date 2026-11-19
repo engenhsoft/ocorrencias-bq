@@ -42,7 +42,7 @@ function appHarness(role = 'supervisor', source = appSource) {
     mineRefreshPromise: null, mineRefreshRevision: -1, mineFilter: 'all', mineAutoFilterPending: false,
     supervisorRefreshPromise: null, supervisorRefreshRevision: -1, supervisorLoading: false, supervisorLoadError: null,
     supervisorDataLoaded: false, supervisorRecords: [], supervisorPendingRecords: [], supervisorMetricRecords: [],
-    supervisorLoadState: 'idle', supervisorLastLoadedAt: '',
+    supervisorLoadState: 'idle', supervisorLastLoadedAt: '', renderCorrectionPendingChart() {},
     supervisorPhotoFailures: new Map(), selectedSupervisorIds: new Set(), supervisorTab: 'occurrences', supervisorPendingFilter: 'photos',
     supervisorMutationRunning: false, supervisorMutationVersion: 0, supervisorRefreshTimer: null, LAST_USER_KEY: 'fixture-last-user',
     SYNCABLE_STATUSES: new Set([core.RECORD_STATUS.PENDING, core.RECORD_STATUS.ERROR]),

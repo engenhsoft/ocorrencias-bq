@@ -221,7 +221,7 @@ function fakeElement() {
 
 async function loadAppHarness() {
   const dbStub = dataUrl(`
-    export const DB_VERSION=1; export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index,key)=>{const photo=globalThis.__photos?.get(index);if(photo&&(key===undefined||key===photo.uploadKey)){globalThis.__deletedPhotos?.push([recordId,index]);globalThis.__photos.delete(index);return true;}return false;}; export const deleteRecord=async()=>{};
+    export const DB_VERSION=1; export const purgeRemovedRecords=async()=>{}; export const cacheCatalogResults=async()=>{}; export const cacheMaterialCatalog=async()=>{}; export const deletePhoto=async(recordId,index,key)=>{const photo=globalThis.__photos?.get(index);if(photo&&(key===undefined||key===photo.uploadKey)){globalThis.__deletedPhotos?.push([recordId,index]);globalThis.__photos.delete(index);return true;}return false;}; export const deleteRecord=async()=>{};
     export const getAllRecords=async()=>globalThis.__dbRecords||[]; export const getCachedMaterialCatalog=async()=>[]; export const getMeta=async()=>null;
     export const getPhoto=async(recordId,index)=>globalThis.__photos?.get(index)||null; export const getPhotosForRecord=async()=>[];
     export const getQueueSummary=async()=>({pendingRecords:[],pendingPhotos:0,syncingPhotos:0,errors:0});

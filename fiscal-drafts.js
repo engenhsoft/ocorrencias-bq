@@ -1,5 +1,5 @@
-import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.11.09.2';
-import { normalizeText } from './core.js?v=2026.11.09.2';
+import { getMeta, updateFiscalCorrectionDraft } from './db.js?v=2026.11.19.1';
+import { normalizeText } from './core.js?v=2026.11.19.1';
 
 export function fiscalDraftKey(user, recordId, route, aclRevision = '') {
   if (!user || !recordId || route?.routingVersion !== 'FISCAL_ASSIGNED' || !route.routingRequestId || !route.assignmentRevision) throw new Error('Solicitação fiscal incompleta. Atualize a lista.');

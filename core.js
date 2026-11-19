@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.11.09.2';
-export const APP_BUILD = '2026-11-09-auditoria';
+export const APP_VERSION = '2026.11.19.1';
+export const APP_BUILD = '2026-11-19-prazo-correcao';
 
 export const TEAM_GOAL = 6000;
 
@@ -96,6 +96,7 @@ export const RECORD_STATUS = Object.freeze({
   SYNCING_PHOTOS: 'FOTOS_SENDO_SINCRONIZADAS',
   WAITING_SUPERVISOR: 'AGUARDANDO_SUPERVISOR',
   CORRECTION_REQUESTED: 'CORRECAO_SOLICITADA',
+  REPLACED: 'SUBSTITUIDA_POR_NOVO_LANCAMENTO',
   REJECTED: 'REPROVADA',
   APPROVED: 'APROVADA',
   PUBLISHED: 'PUBLICADA',
@@ -109,6 +110,7 @@ const STATUS_META = Object.freeze({
   FOTOS_SENDO_SINCRONIZADAS: ['Fotos sendo sincronizadas', 'info'],
   AGUARDANDO_SUPERVISOR: ['Aguardando conferência do supervisor', 'warning'],
   CORRECAO_SOLICITADA: ['Correção solicitada', 'warning'],
+  SUBSTITUIDA_POR_NOVO_LANCAMENTO: ['Substituída por novo lançamento', 'neutral'],
   REPROVADA: ['Reprovada', 'danger'],
   APROVADA: ['Aprovada', 'success'],
   PUBLICADA: ['Publicada', 'success'],
@@ -365,7 +367,7 @@ export function synchronizationDiagnostic(error, progress = {}) {
 }
 
 export function synchronizationFailureMessage(diagnostic, fallback = '') {
-  if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED', 'FISCAL_CORRECTION_REQUIRED', 'SESSION_CHANGED'].includes(diagnostic.code)) return fallback;
+  if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED', 'FISCAL_CORRECTION_REQUIRED', 'SESSION_CHANGED', 'CORRECTION_DEADLINE_EXPIRED', 'RECORD_REMOVED'].includes(diagnostic.code)) return fallback;
   const stageLabels = { read_photo: 'ler a foto neste aparelho', encode_photo: 'preparar a foto', upload_photo: 'enviar a foto', confirm_photo: 'confirmar a foto no servidor', confirm_correction: 'confirmar a correção no servidor' };
   const label = stageLabels[diagnostic.stage];
   if (!label) return fallback;
@@ -1160,4 +1162,66 @@ export function sessionIdentityMatches(value) {
     const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(binary, char => char.charCodeAt(0))));
     return payload.role === value.role && sameUser(payload.user, value.user);
   } catch { return false; }
+}
+
+
+export const CORRECTION_EXPIRED_MESSAGE = 'Prazo de correção encerrado. Esta ocorrência ultrapassou o limite de 3 dias. Será necessário realizar um novo lançamento.';
+const duration = 72 * 3600000;
+let offset = 0, serverAnchor = null, monotonicAnchor = 0;
+try { offset = Number(localStorage.getItem('occbq-server-clock-offset')) || 0; } catch { /* Browser storage may be unavailable. */ }
+export function observeServerClock(value) {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return;
+  offset = time - Date.now(); serverAnchor = time; monotonicAnchor = performance.now();
+  try { localStorage.setItem('occbq-server-clock-offset', String(offset)); } catch { /* Server remains authoritative. */ }
+}
+export const correctionNow = () => serverAnchor == null ? Date.now() + offset : serverAnchor + performance.now() - monotonicAnchor;
+export const correctionDate = value => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Fortaleza', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : 'Data não comprovada';
+export function waitDuration(ms) {
+  if (!Number.isFinite(ms)) return 'Sem comprovação';
+  const minutes = Math.max(0, Math.floor(ms / 60000));
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`;
+}
+export function correctionTiming(record, now = correctionNow()) {
+  const request = record?.audit?.lastCorrectionRequest, proof = record?.correctionDeadline;
+  const requestedAt = proof?.requestedAt || (request?.supervisor && (request.reason || request.note) ? request.requestedAt : '');
+  const start = Date.parse(requestedAt);
+  const receipt = record?.audit?.lastCorrectionSubmission;
+  const complete = receipt?.phase === 'COMPLETE' && receipt.requestedAt === (request?.lastRequestedAt || request?.requestedAt);
+  const replaced = proof?.replacementRecordId || request?.replacementRecordId || record?.status === 'SUBSTITUIDA_POR_NOVO_LANCAMENTO';
+  const open = (record?.correctionMode ? record?.serverStatus : record?.status) === RECORD_STATUS.CORRECTION_REQUESTED && !complete && !replaced;
+  const responsible = proof?.responsible || (request?.routingVersion === 'FISCAL_ASSIGNED' ? request.assignedFiscal || 'Aguardando atribuição' : record?.user || 'Sem responsável comprovado');
+  if (!Number.isFinite(start)) return { known: false, open, responsible, status: 'Data de solicitação não comprovada', tone: 'unknown' };
+  const due = start + duration, remaining = due - now, elapsed = Math.max(0, now - start);
+  const expired = open && remaining <= 0;
+  return { known: true, open, responsible, start, due, elapsed, remaining, expired,
+    tone: expired ? 'danger' : remaining <= 24 * 3600000 ? 'warning' : 'success',
+    status: replaced ? 'Substituída por novo lançamento' : complete ? request?.deadlineSchema === 1 || proof?.status === 'CORRIGIDA_DENTRO_DO_PRAZO' ? 'Corrigida dentro do prazo' : 'Correção concluída anteriormente' : expired ? 'FORA DO PRAZO DE CORREÇÃO' : remaining <= 24 * 3600000 ? 'Prazo próximo do vencimento' : 'Aguardando correção — dentro do prazo' };
+}
+export function correctionDeadlineMarkup(record, { allowReplacement = true, now = correctionNow() } = {}) {
+  const t = correctionTiming(record, now), e = escapeHtml;
+  if (!t.open && !record?.audit?.lastCorrectionRequest && !record?.correctionDeadline) return '';
+  return `<section class="correction-deadline correction-deadline--${t.tone}" data-deadline-record="${e(record.recordId)}"><strong>${e(t.status)}</strong><dl class="monitor-facts"><div><dt>Fiscal responsável</dt><dd>${e(t.responsible)}</dd></div><div><dt>Solicitação · Fortaleza</dt><dd>${e(t.known ? correctionDate(t.start) : 'Data não comprovada')}</dd></div>${t.known ? `<div><dt>Prazo final · Fortaleza</dt><dd>${e(correctionDate(t.due))}</dd></div><div><dt>Tempo transcorrido</dt><dd>${e(waitDuration(t.elapsed))}</dd></div><div><dt>${t.expired ? 'Tempo de atraso' : 'Tempo restante'}</dt><dd>${e(waitDuration(Math.abs(t.remaining)))}</dd></div>` : ''}</dl>${t.expired ? `<p>${CORRECTION_EXPIRED_MESSAGE}</p>${allowReplacement ? `<button class="button button--warning button--small" type="button" data-replace-occurrence="${e(record.recordId)}">Iniciar novo lançamento</button>` : ''}` : ''}</section>`;
+}
+export function buildCorrectionOverview(records, now = correctionNow()) {
+  const unique = new Map();
+  for (const record of records) if (record?.recordId && (!unique.has(record.recordId) || String(record.updatedAt || '') > String(unique.get(record.recordId).updatedAt || ''))) unique.set(record.recordId, record);
+  const groups = new Map(), totals = { total: 0, within: 0, expired: 0, unknown: 0, meanMs: null };
+  const waits = [];
+  for (const record of unique.values()) {
+    const timing = correctionTiming(record, now);
+    if (!timing.open) continue;
+    const label = timing.responsible, key = label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+    if (!groups.has(key)) groups.set(key, { label, total: 0, within: 0, expired: 0, unknown: 0, records: [] });
+    const group = groups.get(key), category = !timing.known ? 'unknown' : timing.expired ? 'expired' : 'within';
+    totals.total++; totals[category]++; group.total++; group[category]++; group.records.push({ record, timing });
+    if (timing.known) waits.push(timing.elapsed);
+  }
+  totals.meanMs = waits.length ? waits.reduce((a, b) => a + b, 0) / waits.length : null;
+  return { ...totals, groups: [...groups.values()].sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, 'pt-BR')) };
+}
+export function correctionOverviewMarkup(records, now = correctionNow()) {
+  const data = buildCorrectionOverview(records, now), e = escapeHtml, max = Math.max(1, ...data.groups.map(g => g.total));
+  const kpis = [['Total de OCs pendentes', data.total], ['Dentro do prazo', data.within], ['Fora do prazo', data.expired], ['Tempo médio de espera', data.meanMs == null ? 'Sem pendências com data comprovada' : waitDuration(data.meanMs)]];
+  return `<div class="supervisor-kpis">${kpis.map(([label, value]) => `<article class="supervisor-kpi"><span>${label}</span><strong>${e(value)}</strong></article>`).join('')}</div><p class="insight-note">Verde: mais de 24 h restantes. Amarelo: até 24 h. Vermelho: prazo encerrado. Selecione o fiscal para detalhar. Horário de Fortaleza.</p>${data.unknown ? `<p>${data.unknown} pendência(s) sem data comprovada, exibida(s) em cinza e fora da média.</p>` : ''}<div class="correction-bars" aria-label="Quantidade de pendências por fiscal">${data.groups.map(group => `<details class="correction-group"><summary><span>${e(group.label)}</span><span class="correction-bar" aria-hidden="true" style="width:${group.total / max * 100}%"><span class="correction-bar__within" style="flex:${group.within}"></span><span class="correction-bar__expired" style="flex:${group.expired}"></span><span class="correction-bar__unknown" style="flex:${group.unknown}"></span></span><span>${group.total} pendente(s) · ${group.within} dentro · ${group.expired} fora${group.unknown ? ` · ${group.unknown} sem data` : ''}</span></summary>${group.records.sort((a,b) => (b.timing.elapsed || 0) - (a.timing.elapsed || 0)).map(({record}) => `<article class="record-card"><h4>OC ${e(record.occurrenceNumber || 'sem número')}</h4><p>${e(record.team)} · ${e(record.base || 'Base não informada')}${record.subBase ? ` · ${e(record.subBase)}` : ''}</p>${correctionDeadlineMarkup(record, { now })}<button class="button button--ghost button--small" type="button" data-review-record="${e(record.recordId)}">Abrir ocorrência</button></article>`).join('')}</details>`).join('') || '<p class="insight-empty">Nenhuma ocorrência aguardando correção.</p>'}</div>`;
 }
