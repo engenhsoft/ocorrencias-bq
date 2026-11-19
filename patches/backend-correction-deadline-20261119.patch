@@ -1,0 +1,209 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.11.09.2',
++  version: '2026.11.19.1',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -116,6 +116,7 @@
+     const action = String(payload?.action || '');
+     if (!Object.prototype.hasOwnProperty.call(routes, action)) throw apiError_('UNKNOWN_ACTION', 'Ação não reconhecida.');
+     bqCheckContract_(action, payload);
++    bqAssertNotRemoved_(payload.recordId || payload.record && payload.record.recordId);
+     const result = routes[action]();
+     if (monitorEvent) {
+       try { const event = monitorEvent(); if (event) bqAppendEvent_(event); } catch (failure) { /* Operational result is already confirmed. */ }
+@@ -128,6 +129,7 @@
+         bqServerError_({ code: item.error || item.code }, Object.assign({}, payload, { recordId: item.recordId }));
+       });
+     }
++    if (payload.token || action === 'login') { result.removedRecordIds = bqRemovedIds_(); result.serverNow = new Date().toISOString(); }
+     return json_(result);
+   } catch (error) {
+     bqServerError_(error, payload || {});
+@@ -230,13 +232,14 @@
+   let auth = requireSession_(payload.token, ['field', 'fiscal']);
+   if (auth.canManageFiscals) throw apiError_('FORBIDDEN', 'A conta mestra gerencia atribuições; a edição requer o Fiscal responsável.');
+   const submitted = payload.record || {};
+-  const recordId = requireUuid_(submitted.recordId);
++  const recordId = requireUuid_(submitted.recordId); bqAssertNotRemoved_(recordId);
+   const lock = LockService.getScriptLock();
+   lock.waitLock(30000); let authorizedWrite = false;
+   try {
+     auth = requireSession_(payload.token, ['field', 'fiscal']);
+     assertCorrectionHeaders_();
+     ensureOperationalSheets_();
++    bqAssertNotRemoved_(recordId);
+     const pending = sheet_(APP.pendingSheet);
+     const official = sheet_(APP.officialSheet);
+     const officialFound = uniqueCorrectionRow_(official, recordId);
+@@ -249,10 +252,12 @@
+     authorizeCorrectionWrite_(auth, found && found.values, submitted.fiscalCorrection, true);
+ 
+     const existing = found ? found.values : emptyRow_();
++    bqAssertDeadline_(found && found.values, submitted.correctionRequestId);
+     const original = found ? correctionDataFromValues_(existing) : null;
+     const model = validateAndNormalizeRecord_(original ? mergeCorrectionPatch_(original, submitted) : submitted, original ? { serviceMode: 'fieldEdit', original: original } : {});
+     if (auth.role === 'fiscal' && auth.bases.indexOf(model.base) < 0) throw apiError_('FORBIDDEN', 'A Base corrigida não está autorizada para este Fiscal.');
+     assertTeamDirectorySelection_(model, found ? existing : null);
++    const replacementOriginal = bqReplacementOriginal_(auth, submitted, model);
+     const previousStatus = String(existing[COL.STATUS - 1] || '');
+     const existingAudit = safeJson_(existing[COL.AUDIT - 1], {});
+     if (found && correctionRequestedAt_(existingAudit) && !submitted.correctionRequestId) throw apiError_('CORRECTION_UPDATE_REQUIRED', 'Atualize o aplicativo e abra novamente a correção antes de reenviar.');
+@@ -268,7 +273,7 @@
+     if (found && !correction && existingAudit.lastDataConfirmation
+       && correctionFingerprint_(original) === correctionFingerprint_(model)) {
+       const expectedSlots = normalizePhotoIndexes_(existingAudit.expectedPhotoIndexes);
+-      if (normalizePhotoIndexes_(submitted.expectedPhotoIndexes).every(function (index) { return expectedSlots.indexOf(index) >= 0; })) return stateResponse_(recordFromValuesAt_(existing), false, auth.role !== 'fiscal');
++      if (normalizePhotoIndexes_(submitted.expectedPhotoIndexes).every(function (index) { return expectedSlots.indexOf(index) >= 0; })) { bqLinkReplacement_(auth, replacementOriginal, recordId); return stateResponse_(recordFromValuesAt_(existing), false, auth.role !== 'fiscal'); }
+       existingAudit.expectedPhotoIndexes = normalizePhotoIndexes_(expectedSlots.concat(normalizePhotoIndexes_(submitted.expectedPhotoIndexes)));
+       const metadata = existing.slice(); metadata[COL.AUDIT - 1] = correctionAuditJson_(existingAudit);
+       metadata[COL.STATUS - 1] = recordReadyForSupervisorValues_(metadata) ? STATUS.WAITING_SUPERVISOR : STATUS.SYNCING_PHOTOS;
+@@ -297,6 +302,7 @@
+       pendingMaterials: model.materials
+     });
+     audit.expectedPhotoIndexes = expectedPhotoIndexes;
++    if (replacementOriginal) audit.replacementOf = String(replacementOriginal.values[COL.ID - 1]);
+     if (receipt) {
+       if (auth.role === 'fiscal') Object.assign(receipt, { routingRequestId: submitted.fiscalCorrection.routingRequestId, assignmentRevision: submitted.fiscalCorrection.assignmentRevision, actorRole: 'fiscal' });
+       // Persist the team's intent before any data mutation, on the same UUID.
+@@ -328,6 +334,7 @@
+       persisted = writeCorrectionAudit_(pending, persisted, confirmedAudit);
+       persisted = finishCorrection_(pending, persisted, auth.user);
+     } else appendHistory_(model, auth.user, found ? 'DADOS_ATUALIZADOS' : 'CRIADA', found ? previousStatus : '', status, '', '');
++    bqLinkReplacement_(auth, replacementOriginal, recordId);
+     if (observe && found) observe(() => bqDataEvent_(persisted.values, auth, original, model, receipt));
+     return stateResponse_(recordFromValuesAt_(persisted.values), !found, auth.role !== 'fiscal');
+   } catch (error) { if (authorizedWrite) quarantineCorrectionStatus_(recordId); throw error; }
+@@ -535,6 +542,7 @@
+ 
+ function finishCorrection_(sheet, found, actor) {
+   const audit = safeJson_(found.values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
++  bqAssertDeadline_(found.values, receipt && receipt.requestId);
+   if (!receipt || !receipt.dataVerifiedAt || correctionFingerprint_(correctionDataFromValues_(found.values)) !== receipt.expectedFingerprint) throw apiError_('CORRECTION_DATA_UNCONFIRMED', 'Os campos corrigidos ainda não foram confirmados por releitura.');
+   if (!correctionReceiptHasChanges_(found.values, receipt, false) && !correctionReceiptHasChanges_(found.values, receipt, true)) throw apiError_('NO_CORRECTION_CHANGES', 'Nenhuma alteração foi detectada. Faça a correção solicitada antes de reenviar.');
+   if (normalizePhotoIndexes_(audit.requestedPhotoIndexes).length || !recordReadyForSupervisorValues_(found.values)) return found;
+@@ -543,7 +551,9 @@
+   const expected = found.values.slice(); expected[COL.STATUS - 1] = STATUS.WAITING_SUPERVISOR;
+   sheet.getRange(found.row, COL.STATUS).setValue(STATUS.WAITING_SUPERVISOR); flushSheets_();
+   found = assertCorrectionRow_(sheet, expected, undefined, found.row);
++  const validReceivedAt = bqValidCorrectionReceivedAt_(found.values, receipt.requestId);
+   receipt.phase = 'COMPLETE'; receipt.completedAt = receipt.completedAt || nowIso_();
++  if (audit.lastCorrectionRequest) { audit.lastCorrectionRequest.validCorrectionReceivedAt = validReceivedAt == null ? receipt.completedAt : new Date(validReceivedAt).toISOString(); audit.lastCorrectionRequest.deadlineStatus = 'CORRIGIDA_DENTRO_DO_PRAZO'; }
+   const fiscalRoute = fiscalCorrectionRoute_(audit);
+   if (fiscalRoute && receipt.routingRequestId === fiscalRoute.routingRequestId) { fiscalRoute.assignmentStatus = 'COMPLETE'; fiscalRoute.completedAt = receipt.completedAt; fiscalRoute.completedBy = actor; }
+   resolvePhotoSyncRequest_(audit, STATUS.WAITING_SUPERVISOR, actor);
+@@ -621,9 +631,11 @@
+   try {
+     auth = requireSession_(payload.token, ['field', 'fiscal']);
+     assertCorrectionHeaders_();
++    bqAssertNotRemoved_(recordId);
+     const sheet = sheet_(APP.pendingSheet); const found = uniqueCorrectionRow_(sheet, recordId);
+     if (!found) throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada.');
+-    authorizeCorrectionPhoto_(auth, found.values, payload); authorizedWrite = true;
++    authorizeCorrectionPhoto_(auth, found.values, payload);
++    bqAssertPhotoDeadline_(found.values, payload); authorizedWrite = true;
+     const originalPhotoOnly = auth.role === 'field' && Boolean(fiscalCorrectionRoute_(safeJson_(found.values[COL.AUDIT - 1], {})));
+     const previousStatus = String(found.values[COL.STATUS - 1] || '');
+     const urlColumn = photoUrlColumn_(photoIndex); const keyColumn = photoUploadKeyColumn_(photoIndex);
+@@ -988,6 +1000,8 @@
+     throw apiError_('RECORD_NOT_FOUND', 'Ocorrência não encontrada na fila do supervisor.');
+   }
+   const previousStatus = operationalStatusFromValues_(found.values);
++  if (decision === 'request_correction' && previousStatus === STATUS.CORRECTION_REQUESTED) return stateResponse_(recordFromValuesAt_(found.values), false, true);
++  bqAssertDeadline_(found.values);
+   const hasTransformer = String(found.values[COL.TYPES - 1] || '').split(' | ').indexOf(TYPES[0]) >= 0;
+   if ((reportedPhotoIssues || []).some(function (index) { return index > 5; }) && !hasTransformer) throw apiError_('INVALID_PHOTO_INDEX', 'Fotos específicas de Trafo só podem ser solicitadas em ocorrência de Trafo.');
+   const photoIssues = photoIssueIndexesFromValues_(found.values).concat(reportedPhotoIssues || []).filter(function (index, position, all) { return all.indexOf(index) === position; });
+@@ -1001,7 +1015,10 @@
+   const audit = safeJson_(updated[COL.AUDIT - 1], {});
+   if (decision === 'request_correction') {
+     const request = newFiscalCorrectionRoute_({ photoIndexes: photoIssues, reason: reason, note: note || reason, supervisor: auth.user, requestedAt: reviewedAt }, featureBase_(found.values[COL.BASE - 1]));
+-    const requests = Array.isArray(audit.correctionRequests) ? audit.correctionRequests.slice(-29) : [];
++    bqStartDeadline_(request, audit);
++    const requests = Array.isArray(audit.correctionRequests) ? audit.correctionRequests.slice() : [];
++    const previousRound = audit.lastCorrectionRequest;
++    if (previousRound) { const index = requests.findIndex(function (item) { return item.routingRequestId ? item.routingRequestId === previousRound.routingRequestId : item.requestedAt === previousRound.requestedAt; }); if (index >= 0) requests[index] = Object.assign({}, previousRound); }
+     requests.push(request); audit.correctionRequests = requests; audit.lastCorrectionRequest = request; audit.requestedPhotoIndexes = photoIssues;
+     if (photoIssues.length) {
+       const photoRequests = Array.isArray(audit.photoCorrectionRequests) ? audit.photoCorrectionRequests.slice(-29) : [];
+@@ -1462,6 +1479,7 @@
+     pgPostRemoved: String(values[COL.PG_POST_REMOVED - 1] || ''), pgPostInstalled: String(values[COL.PG_POST_INSTALLED - 1] || ''), pgConductorStart: String(values[COL.PG_CONDUCTOR_START - 1] || ''), pgConductorEnd: String(values[COL.PG_CONDUCTOR_END - 1] || ''),
+     transformer: { removedCode: String(values[COL.REMOVED_CODE - 1] || ''), removedCia: String(values[COL.REMOVED_CIA - 1] || ''), removedBto: String(values[COL.REMOVED_BTO - 1] || ''), newCode: String(values[COL.NEW_CODE - 1] || ''), newCia: String(values[COL.NEW_CIA - 1] || ''), newBto: String(values[COL.NEW_BTO - 1] || '') },
+     transformerPhotos: transformerPhotos, services: services, materials: materials, totalServices: Number(values[COL.TOTAL - 1]) || 0, goalPercentage: Number(values[COL.GOAL_PERCENTAGE - 1]) || 0, observation: String(values[COL.OBSERVATION - 1] || ''),
++    correctionDeadline: bqDeadline_(values), replacementOf: audit.replacementOf || '',
+     photos: photos, photoCount: photos.filter(Boolean).length, photoStates: photoStates, status: status, reason: String(values[COL.REASON - 1] || ''), supervisorNote: String(values[COL.SUPERVISOR_NOTE - 1] || ''), supervisor: String(values[COL.SUPERVISOR - 1] || ''), reviewedAt: isoValue_(values[COL.REVIEWED_AT - 1]), audit: audit
+   }, chavesFieldsFromValues_(values));
+ }
+@@ -1598,7 +1616,7 @@
+ function spreadsheet_() { return SpreadsheetApp.openById(APP.spreadsheetId); }
+ function flushSheets_() { if (SpreadsheetApp && typeof SpreadsheetApp.flush === 'function') SpreadsheetApp.flush(); }
+ function sheet_(name, spreadsheet) { const sheet = (spreadsheet || spreadsheet_()).getSheetByName(name); if (!sheet) throw apiError_('SHEET_NOT_FOUND', 'Aba necessária não encontrada: ' + name + '.'); return sheet; }
+-function dataRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getValues(); }
++function dataRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getValues().filter(function (row) { return !bqIsRemoved_(row[0]); }); }
+ function displayRows_(sheet, width) { const lastRow = sheet.getLastRow(); return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues(); }
+ function dataRowsWithNumbers_(sheet, width) { return dataRows_(sheet, width).map(function (values, index) { return { row: index + 2, values: values }; }); }
+ function findRowById_(sheet, id) { return publicationRowsForId_(sheet, id, COL.WIDTH)[0] || null; }
+@@ -2680,7 +2698,7 @@
+   }).map(function (values) {
+     const audit = safeJson_(values[COL.AUDIT - 1], {}), route = fiscalCorrectionProjection_(audit, accounts);
+     return Object.assign(fiscalRecordSummary_(values), { reason: String(values[COL.REASON - 1] || ''), supervisorNote: String(values[COL.SUPERVISOR_NOTE - 1] || ''),
+-      fiscalCorrection: route, canCorrect: route.routingVersion === 'FISCAL_ASSIGNED' && route.assignmentStatus === 'ASSIGNED' && normalize_(route.assignedFiscal) === normalize_(auth.user) });
++      correctionDeadline: bqDeadline_(values), fiscalCorrection: route, canCorrect: bqDeadline_(values)?.status !== BQ_DEADLINE.expired && route.routingVersion === 'FISCAL_ASSIGNED' && route.assignmentStatus === 'ASSIGNED' && normalize_(route.assignedFiscal) === normalize_(auth.user) });
+   });
+   const current = requireSession_(payload.token, ['fiscal']);
+   return { ok: true, success: true, records: records, bases: current.bases, aclRevision: current.aclRevision, calculatedAt: nowIso_() };
+@@ -2690,6 +2708,7 @@
+   const found = uniqueCorrectionRow_(sheet_(APP.pendingSheet), id);
+   if (!found) throw apiError_('RECORD_NOT_FOUND', 'Solicitação não encontrada.');
+   authorizeFiscalCorrection_(auth, found.values, payload.fiscalCorrection, false);
++  bqAssertDeadline_(found.values);
+   const record = recordFromValuesAt_(found.values);
+   record.fiscalCorrection = fiscalCorrectionProjection_(record.audit);
+   return { ok: true, success: true, record: record, aclRevision: auth.aclRevision };
+@@ -2701,6 +2720,7 @@
+     const auth = requireFiscalMaster_(payload.token), pending = sheet_(APP.pendingSheet), found = uniqueCorrectionRow_(pending, id);
+     if (!found) throw apiError_('RECORD_NOT_FOUND', 'Solicitação não encontrada.');
+     const audit = safeJson_(found.values[COL.AUDIT - 1], {}), route = fiscalCorrectionRoute_(audit);
++    bqAssertDeadline_(found.values);
+     if (!route || operationalStatusFromValues_(found.values) !== STATUS.CORRECTION_REQUESTED || route.assignmentStatus === 'COMPLETE') throw apiError_('CORRECTION_CLOSED', 'Somente solicitações novas e abertas podem ser atribuídas.');
+     if (route.routingRequestId !== payload.routingRequestId || route.assignmentRevision !== payload.expectedRevision) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Atualize a lista.');
+     const selected = fiscalCorrectionCandidates_(route.base).filter(function (account) { return normalize_(account.user) === normalize_(payload.assignedFiscal); })[0];
+@@ -2864,6 +2884,7 @@
+ }
+ 
+ function bqAppendEvent_(event) {
++  if (bqIsRemoved_(event.recordId)) return false;
+   try {
+     const sheet = bqMonitorSheet_();
+     if (!sheet) return false;
+@@ -2888,7 +2909,7 @@
+   const start = Math.max(2, end - scan + 1);
+   const items = end < start ? [] : sheet.getRange(start, 2, end - start + 1, 1).getValues().reverse()
+     .map(function (row, index) { return { row: end - index, event: safeJson_(row[0], null) }; })
+-    .filter(function (item) { return item.event && typeof item.event.kind === 'string'; });
++    .filter(function (item) { return item.event && typeof item.event.kind === 'string' && !bqIsRemoved_(item.event.recordId); });
+   return { items: items, next: start > 2 ? start - 1 : null, available: true };
+ }
+ 
+@@ -3177,6 +3198,7 @@
+ 
+ function bqFormalCorrection_(row, audit, accounts, status) {
+   if (status !== STATUS.CORRECTION_REQUESTED) return null;
++  const deadline = bqDeadline_(row);
+   const request = audit.lastCorrectionRequest || {};
+   const requestedAt = request.requestedAt || isoValue_(row[COL.REVIEWED_AT - 1]);
+   const reason = request.reason || row[COL.REASON - 1];
+@@ -3187,7 +3209,7 @@
+     && audit.lastCorrectionSubmission.requestedAt === correctionRequestedAt_(audit))) return null;
+   const elapsedHours = (Date.now() - Date.parse(requestedAt)) / 3600000;
+   const band = elapsedHours > 72 ? 72 : elapsedHours > 48 ? 48 : elapsedHours > 24 ? 24 : 0;
+-  return { requestedAt: requestedAt, reason: String(reason || ''), supervisor: String(supervisor || ''),
++  return { deadline: deadline, requestedAt: requestedAt, reason: String(reason || ''), supervisor: String(supervisor || ''),
+     responsible: route.routingVersion === 'LEGACY_FIELD' ? String(row[COL.USER - 1] || '') : route.assignedFiscal || '',
+     role: route.routingVersion === 'LEGACY_FIELD' ? 'field' : 'fiscal',
+     unassigned: route.assignmentStatus === 'WAITING_ASSIGNMENT', elapsedHours: Number.isFinite(elapsedHours) ? elapsedHours : null, band: band };

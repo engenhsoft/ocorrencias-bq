@@ -53,6 +53,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/occbq-audit-deps" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund fake-indexeddb@6.2.6
           NODE_PATH="$RUNNER_TEMP/occbq-audit-deps/node_modules" node tests/run-audit-20261018.mjs
+          NODE_PATH="$RUNNER_TEMP/occbq-audit-deps/node_modules" node tests/correction-deadline.mjs
       - name: Validar concorrência e recuperação operacional
         timeout-minutes: 3
         run: |

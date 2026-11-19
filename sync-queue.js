@@ -1,4 +1,4 @@
-import { escapeHtml, formatDateTime, normalizeOccurrenceTypes, normalizePhotoStates, RECORD_STATUS } from './core.js?v=2026.11.09.2';
+import { escapeHtml, formatDateTime, normalizeOccurrenceTypes, normalizePhotoStates, RECORD_STATUS } from './core.js?v=2026.11.19.1';
 
 const text = value => escapeHtml(String(value ?? ''));
 const syncable = new Set([RECORD_STATUS.PENDING, RECORD_STATUS.SYNCING_DATA, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.ERROR]);
@@ -10,7 +10,7 @@ export function prioritizeQueue(records) {
 }
 
 export function canQueueRetry(record, automatic = false) {
-  return syncable.has(record.status) && record.lastSyncError?.code !== 'DATA_COMMIT_CONFLICT' && (!automatic || (record.attempts || 0) < 3);
+  return !['CORRECTION_DEADLINE_EXPIRED', 'RECORD_REMOVED'].includes(record.lastSyncError?.code) && syncable.has(record.status) && record.lastSyncError?.code !== 'DATA_COMMIT_CONFLICT' && (!automatic || (record.attempts || 0) < 3);
 }
 
 export function synchronizationQueueState(record, { online, busy = false, localSlots }) {

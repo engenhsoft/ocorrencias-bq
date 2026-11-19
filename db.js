@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.11.09.2';
+import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.11.19.1';
 
 const DB_NAME = 'ocorrencias-bq-db';
 export const DB_VERSION = 1;
@@ -14,6 +14,8 @@ let connectionPromise;
 // Reuse the existing meta store without changing the IndexedDB schema. Fiscal
 // drafts must never overwrite a Campo record or its UUID/slot photo keys.
 export async function updateFiscalCorrectionDraft(key, mutate) {
+  const removed = await getMeta('occbq-removed-records', []);
+  if (removed.some(id => key.includes('"' + id + '"'))) throw Object.assign(new Error('Registro removido.'), { code: 'RECORD_REMOVED' });
   if (!String(key).startsWith('fiscalCorrection:')) throw new Error('Identificador de rascunho fiscal inválido.');
   const { transaction, store: objectStore } = await storeTransaction([STORE.meta], 'readwrite');
   const done = transactionDone(transaction), store = objectStore(STORE.meta);
@@ -143,6 +145,7 @@ async function readStoreValue(name, request) {
 }
 
 export async function putRecord(record, options = {}) {
+  await assertRecordNotRemoved(record.recordId);
   const next = { ...record, updatedAt: new Date().toISOString() };
   const { transaction, store } = await storeTransaction([STORE.records], 'readwrite');
   const done = transactionDone(transaction);
@@ -163,6 +166,7 @@ export async function putRecord(record, options = {}) {
 }
 
 export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, metadata = {}) {
+  await assertRecordNotRemoved(record.recordId);
   const now = new Date().toISOString();
   const nextRecord = { ...record, updatedAt: now };
   const photo = {
@@ -200,11 +204,17 @@ export async function putPhotoAndRecord(record, photoIndex, blob, uploadKey, met
 }
 
 export async function getRecord(recordId) {
+  const removed = await getMeta('occbq-removed-records', []);
+  if (removed.includes(recordId)) return null;
   return readStoreValue(STORE.records, store => store.get(recordId));
 }
 
 export async function getAllRecords() {
-  const records = await readStoreValue(STORE.records, store => store.getAll());
+  const { transaction, store } = await storeTransaction([STORE.records, STORE.meta]);
+  const done = transactionDone(transaction);
+  const [all, policy] = await Promise.all([requestResult(store(STORE.records).getAll(), transaction), requestResult(store(STORE.meta).get('occbq-removed-records'), transaction), done]);
+  const removed = policy?.value || [];
+  const records = all.filter(record => !removed.includes(record.recordId));
   return records.filter((record, index) => {
     const valid = record && typeof record === 'object' && !Array.isArray(record) && typeof record.recordId === 'string' && record.recordId.trim();
     if (!valid) console.warn('[Fila] Registro local inválido; os demais continuam disponíveis.', { index });
@@ -243,6 +253,7 @@ export async function deleteRecord(recordId, options = {}) {
 }
 
 export async function putPhoto(recordId, photoIndex, blob, uploadKey, metadata = {}) {
+  await assertRecordNotRemoved(recordId);
   const key = `${recordId}:${photoIndex}`;
   const photo = {
     key,
@@ -375,3 +386,41 @@ export async function getQueueSummary(owner) {
 }
 
 export { DB_NAME };
+
+const REMOVED_META = 'occbq-removed-records';
+const PROTECTED_RECORD = 'e11b519b-9f26-4854-8de0-b7c5d835bb7c';
+export async function assertRecordNotRemoved(recordId) {
+  const removed = await getMeta(REMOVED_META, []);
+  if (removed.includes(recordId)) throw Object.assign(new Error('Este registro foi excluído pelo proprietário.'), { code: 'RECORD_REMOVED' });
+}
+export async function purgeRemovedRecords(ids) {
+  const selected = [...new Set(ids)].filter(id => /^[a-f0-9-]{36}$/.test(id));
+  if (!selected.length) return;
+  if (selected.includes(PROTECTED_RECORD)) throw new Error('A ocorrência protegida não pode ser removida.');
+  const known = await getMeta(REMOVED_META, []);
+  const removed = [...new Set([...known, ...selected])];
+  const announce = selected.some(id => !known.includes(id));
+  const { transaction, store } = await storeTransaction([STORE.records, STORE.photos, STORE.meta], 'readwrite');
+  const done = transactionDone(transaction), targets = new Set(removed);
+  for (const name of [STORE.records, STORE.photos, STORE.meta]) {
+    const cursor = store(name).openCursor();
+    cursor.onsuccess = () => {
+      const item = cursor.result; if (!item) return;
+      const value = item.value;
+      const id = value.recordId || value.value?.recordId || value.value?.record?.recordId;
+      if (targets.has(id) || name === STORE.meta && (targets.has(value.value)
+        || removed.some(id => value.key?.startsWith('fiscalCorrection:') && value.key.includes('"' + id + '"'))
+        || value.key?.startsWith('dailyProduction:'))) item.delete();
+      item.continue();
+    };
+  }
+  store(STORE.meta).put({ key: REMOVED_META, value: removed, updatedAt: new Date().toISOString() });
+  await done;
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('occbq-records-removed', { detail: removed }));
+  try { if (announce) localStorage.setItem('occbq-removal-signal', JSON.stringify(removed)); } catch { /* Backend still blocks stale clients. */ }
+}
+if (typeof window !== 'undefined') window.addEventListener('storage', event => {
+  if (event.key === 'occbq-removal-signal' && event.newValue) {
+    try { void purgeRemovedRecords(JSON.parse(event.newValue)); } catch { /* Never broaden removal on invalid input. */ }
+  }
+});

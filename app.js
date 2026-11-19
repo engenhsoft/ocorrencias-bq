@@ -1,8 +1,8 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.09.2';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.09.2';
-import { createOperationalFeatures } from './operational-features.js?v=2026.11.09.2';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.19.1';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.19.1';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.19.1';
 import {
-  dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
+  correctionTiming, correctionDeadlineMarkup, correctionOverviewMarkup, observeServerClock, CORRECTION_EXPIRED_MESSAGE, dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
@@ -10,15 +10,15 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, sessionIdentityMatches, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.11.09.2';
+} from './core.js?v=2026.11.19.1';
 import {
-  DB_VERSION, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
+  DB_VERSION, purgeRemovedRecords, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.11.09.2';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.09.2';
-import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.09.2';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.09.2';
+} from './db.js?v=2026.11.19.1';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.19.1';
+import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.19.1';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -358,12 +358,13 @@ async function initialize() {
   elements.appBuild.textContent = `Build ${APP_BUILD}`;
   elements.loginAppVersion.textContent = `v${APP_VERSION}`;
   bindEvents();
+  bindCorrectionDeadlineEvents();
   renderPhotoGrid();
   renderMaterials();
   renderServices();
   updateNetworkUi();
   elements.loginUser.value = localStorage.getItem(LAST_USER_KEY) || '';
-  configureOperationalClient({ version: APP_VERSION, contract: API_CONTRACT, schema: DB_VERSION, getToken: () => session?.token });
+  configureOperationalClient({ version: APP_VERSION, contract: API_CONTRACT, schema: DB_VERSION, getToken: () => session?.token, onPolicy: async data => { observeServerClock(data.serverNow || data.timestamp); if (data.removedRecordIds?.length) await purgeRemovedRecords(data.removedRecordIds); if (data.error === 'RECORD_REMOVED' && data.details?.recordId) await purgeRemovedRecords([data.details.recordId]); } });
   compatibilityView = createCompatibilityView({ schema: DB_VERSION, onUpdate: showUpdateDialog, onChecked: sendPresence });
   setTimeout(() => void compatibilityView.check(), 700);
   setInterval(sendPresence, 120000);
@@ -619,7 +620,7 @@ function bindEvents() {
   elements.modeSupervisorButton.addEventListener('click', () => openProfileSwitch('supervisor'));
   elements.registerOccurrenceButton.addEventListener('click', () => openProfileSwitch('field'));
   elements.profileSwitchForm.addEventListener('submit', handleProfileSwitch);
-  $$('[data-close-profile-switch]').forEach((button) => button.addEventListener('click', () => elements.profileSwitchDialog.close()));
+  $$('[data-close-profile-switch]').forEach((button) => button.addEventListener('click', () => { elements.profileSwitchDialog.close(); localStorage.removeItem('occbq-replacement-intent'); }));
   elements.photoDialog.addEventListener('click', (event) => { if (event.target === elements.photoDialog) elements.photoDialog.close(); });
   elements.photoPreviousButton.addEventListener('click', () => movePhotoGallery(-1));
   elements.photoNextButton.addEventListener('click', () => movePhotoGallery(1));
@@ -857,8 +858,10 @@ function navigate(view) {
 
 function blankRecord() {
   const now = new Date().toISOString();
+  let replacementOf = '';
+  try { const intent = localStorage.getItem('occbq-replacement-intent'); if (/^[a-f0-9-]{36}$/.test(intent || '')) replacementOf = intent; localStorage.removeItem('occbq-replacement-intent'); } catch { /* Regular launch remains available. */ }
   return {
-    recordId: generateUuid(), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
+    recordId: generateUuid(), ...(replacementOf ? { replacementOf } : {}), status: RECORD_STATUS.DRAFT, serverStatus: '', serverConfirmed: false, step: 1,
     operationalDate: operationalDate(), formVersion: OCCURRENCE_FORM_VERSION,
     pgKeyRemoved: '', btoKeyRemoved: '', pgKeyInstalled: '', btoKeyInstalled: '',
     base: '', contract: '', team: '', crewLeader: '', occurrenceNumber: '', occurrenceTypes: [], otherOccurrenceType: '',
@@ -1501,11 +1504,12 @@ function correctionRequest(record) {
 function correctionRequestMarkup(record) {
   if ((record?.status || record?.serverStatus) !== RECORD_STATUS.CORRECTION_REQUESTED) return '';
   const request = correctionRequest(record);
+  const deadline = correctionDeadlineMarkup(record);
   const route = record.audit?.lastCorrectionRequest;
   const recipient = route?.routingVersion === 'FISCAL_ASSIGNED' ? route.assignmentStatus === 'WAITING_ASSIGNMENT' ? 'Aguardando atribuição de Fiscal pela conta mestra.' : `Fiscal responsável: ${route.assignedFiscal || 'aguardando atribuição'}` : '';
   const meta = [request.supervisor ? `Supervisor: ${request.supervisor}` : '', request.requestedAt ? formatDateTime(request.lastRequestedAt || request.requestedAt) : ''].filter(Boolean).join(' · ');
   const photos = request.photoIndexes.length ? `Fotos solicitadas: ${request.photoIndexes.map(photoIndexLabel).join(', ')}` : '';
-  return `<section class="correction-request-callout"><strong>CORREÇÃO SOLICITADA PELO SUPERVISOR</strong><p>${escapeHtml(request.note || request.reason || 'Consulte o Supervisor responsável.')}</p>${recipient ? `<p>${escapeHtml(recipient)}</p>` : ''}${photos ? `<small>${escapeHtml(photos)}</small>` : ''}${meta ? `<small>${escapeHtml(meta)}</small>` : ''}</section>`;
+  return `<section class="correction-request-callout"><strong>CORREÇÃO SOLICITADA PELO SUPERVISOR</strong><p>${escapeHtml(request.note || request.reason || 'Consulte o Supervisor responsável.')}</p>${recipient ? `<p>${escapeHtml(recipient)}</p>` : ''}${photos ? `<small>${escapeHtml(photos)}</small>` : ''}${meta ? `<small>${escapeHtml(meta)}</small>` : ''}${deadline}</section>`;
 }
 
 function auditMarkup(record) {
@@ -1755,7 +1759,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       next.status = RECORD_STATUS.SYNCING_DATA; next.syncPhase = 'sending'; await save();
       let submitResult;
       try { submitResult = await api.submitRecord(requestSession.token, {
-        recordId: next.recordId, ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}), ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt, supersedesRequestId: correctionPayload.supersedesRequestId,
+        recordId: next.recordId, ...(next.replacementOf ? { replacementOf: next.replacementOf } : {}), ...(next.fiscalCorrection ? { fiscalCorrection: next.fiscalCorrection } : {}), ...(correctionPayload ? { correctionRequestId: correctionPayload.correctionRequestId, correctionRequestedAt: correctionPayload.correctionRequestedAt, supersedesRequestId: correctionPayload.supersedesRequestId,
           ...(next.correctionOriginal ? { expectedPatch: correctionPayload.expectedPatch, beforePatch: correctionPayload.beforePatch } : {}), photoPatch: correctionPayload.photoPatch, evidencePatch: correctionPayload.evidencePatch } : {}), base: next.base, contract: next.contract, team: next.team, crewLeader: next.crewLeader, occurrenceNumber: next.occurrenceNumber,
         expectedPhotoIndexes: normalizePhotoStates(next.photoStates).filter((photo) => photo.localReady || photo.confirmed).map((photo) => photo.photoIndex),
         occurrenceTypes: next.occurrenceTypes, otherOccurrenceType: next.otherOccurrenceType,
@@ -1847,6 +1851,8 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     if (typeof reportOperationalError === 'function') reportOperationalError('localSync', next.lastSyncError.code, next.recordId,
       { stage: next.lastSyncError.stage, token: requestSession.token });
     console.error('[Sincronização] Falha recuperável.', { recordId: next.recordId, ...next.lastSyncError });
+    if (error?.code === 'RECORD_REMOVED') { if (activeRecord?.recordId === recordId) resetForm(); return null; }
+    if (error?.code === 'CORRECTION_DEADLINE_EXPIRED') next.correctionDeadline = error.details?.details?.correctionDeadline || error.details?.correctionDeadline;
     next.status = error?.code === 'NO_CORRECTION_CHANGES' ? RECORD_STATUS.CORRECTION_REQUESTED : RECORD_STATUS.ERROR;
     next.lastError = !next.correctionMode && photoSyncStarted && !['AUTH_REQUIRED', 'LOCAL_PHOTO_MISSING', 'DATA_COMMIT_CONFLICT', 'PHOTO_PLAN_UNCONFIRMED'].includes(error?.code)
       ? 'Não foi possível concluir a sincronização das fotos. Os dados e fotos locais pendentes foram preservados. Tente novamente.'
@@ -2050,7 +2056,7 @@ function renderMineList() {
   elements.mineList.innerHTML = failure + filtered.map((record) => {
     const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
     if (record.status === RECORD_STATUS.DRAFT) actions.push(`<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`);
-    else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED && record.audit?.lastCorrectionRequest?.routingVersion !== 'FISCAL_ASSIGNED') actions.push(`<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`);
+    else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED && !correctionTiming(record).expired && record.audit?.lastCorrectionRequest?.routingVersion !== 'FISCAL_ASSIGNED') actions.push(`<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`);
     else if (SYNCABLE_STATUSES.has(record.status)) actions.push(`<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">${dataCommitPendingPhotos(record) ? 'Sincronizar fotos' : 'Sincronizar agora'}</button>`);
     const action = `<div class="button-row">${actions.join('')}</div>`;
     return recordCard(record, action);
@@ -2169,7 +2175,7 @@ function recordCard(record, actionHtml = '') {
     actionHtml = `<button class="button button--warning button--small" type="button" data-review-sync-record="${escapeHtml(record.recordId)}">Revisar divergência</button>${actionHtml}`;
   }
   const correction = record?.audit?.lastSupervisorCorrection;
-  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${sync}${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${escapeHtml(photoSummary)}</span>${actionHtml}${[RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.APPROVED].includes(status) ? `<button class="button button--ghost" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button>` : ''}</footer></article>`;
+  return `<article class="record-card"><header class="record-card__header"><div><h3>${escapeHtml(record.occurrenceNumber ? `Ocorrência ${record.occurrenceNumber}` : 'Nova ocorrência')}</h3><small>${escapeHtml(record.recordId || '')}</small></div><span class="status-chip status-chip--${correctionTiming(record).expired ? 'danger' : statusTone(status)}">${escapeHtml(correctionTiming(record).expired ? 'FORA DO PRAZO DE CORREÇÃO' : statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Contrato</span><strong>${escapeHtml(record.contract || '—')}</strong></div><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Chefe de turma</span><strong>${escapeHtml(record.crewLeader || '—')}</strong></div><div class="record-meta"><span>Qtd. serviços</span><strong>${escapeHtml(formatNumber(serviceQuantity))}</strong></div><div class="record-meta"><span>Total</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div class="record-meta"><span>Registrado em</span><strong>${escapeHtml(formatDateTime(record.registeredAt || record.createdAt))}</strong></div></div>${sync}${correctionRequestMarkup(record)}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}${record.reason && status !== RECORD_STATUS.CORRECTION_REQUESTED ? `<div class="status-chip status-chip--warning">Motivo: ${escapeHtml(record.reason)}</div>` : ''}${record.lastError ? `<div class="status-chip status-chip--danger">${escapeHtml(record.lastError)}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 3 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">▧ ${escapeHtml(photoSummary)}</span>${actionHtml}${[RECORD_STATUS.WAITING_SUPERVISOR, RECORD_STATUS.PUBLISHED, RECORD_STATUS.APPROVED].includes(status) ? `<button class="button button--ghost" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button>` : ''}</footer></article>`;
 }
 
 function openScrollableDialog(dialog, body) {
@@ -2240,6 +2246,7 @@ async function handleMineAction(event) {
     elements.mineDetailContent.innerHTML = occurrenceDetails(detailRecord); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); return;
   }
   if (button.dataset.mineAction === 'correct') {
+    if (correctionTiming(record).expired) { toast(CORRECTION_EXPIRED_MESSAGE, 'error'); return; }
     if (session?.role !== 'field' || record.audit?.lastCorrectionRequest?.routingVersion === 'FISCAL_ASSIGNED') { toast('Esta correção está com o Fiscal responsável.', 'error'); return; }
     const requested = new Set(normalizeArray(record.audit?.requestedPhotoIndexes ?? correctionPhotoIndexes(record), 'requestedPhotoIndexes').map(Number));
     const requestAt = correctionRequest(record).lastRequestedAt || correctionRequest(record).requestedAt || '';
@@ -2564,6 +2571,7 @@ function filteredSupervisorRecords() {
 }
 
 function renderSupervisorNavigation() {
+  renderCorrectionPendingChart();
   const metrics = supervisorKpis(supervisorMetricRecords);
   const unavailable = supervisorLoadState === 'error' ? 'Erro' : '—';
   elements.supervisorKpis.setAttribute('aria-busy', String(supervisorLoading && !supervisorDataLoaded));
@@ -2629,7 +2637,7 @@ function pendingSupervisorCard(record) {
   const meta = status === RECORD_STATUS.CORRECTION_REQUESTED
     ? correctionRequestMarkup(record)
     : `<div class="status-chip status-chip--info">Fotos sendo sincronizadas · ${photoCount}/5</div>`;
-  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${statusTone(status)}">${escapeHtml(statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${syncRequest ? '<span class="status-chip status-chip--warning">SINCRONISMO SOLICITADO</span>' : ''}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><div class="button-row">${status === RECORD_STATUS.SYNCING_PHOTOS ? `<button class="button button--warning button--small" type="button" data-request-photo-sync="${escapeHtml(record.recordId)}" ${supervisorMutationRunning ? 'disabled' : ''}>${syncRequest ? 'Solicitar novamente' : 'Solicitar sincronismo'}</button>` : ''}<button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></div></footer></div></article>`;
+  return `<article class="record-card supervisor-card supervisor-card--pending"><div class="supervisor-card__content"><header class="record-card__header"><div><h3>Ocorrência ${escapeHtml(record.occurrenceNumber || '—')}</h3><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${correctionTiming(record).expired ? 'danger' : statusTone(status)}">${escapeHtml(correctionTiming(record).expired ? 'FORA DO PRAZO DE CORREÇÃO' : statusLabel(status, photoCount))}</span></header><p>${escapeHtml(occurrenceTypesText(record) || 'Tipo não informado')}</p><div class="record-card__body"><div class="record-meta"><span>Equipe</span><strong>${escapeHtml(record.team || '—')}</strong></div><div class="record-meta"><span>Sub-base</span><strong>${escapeHtml(record.base || '—')}</strong></div><div class="record-meta"><span>Enviado por</span><strong>${escapeHtml(record.user || '—')}</strong></div><div class="record-meta"><span>Fotos sincronizadas</span><strong>${photoCount}/5</strong></div></div>${meta}${syncRequest ? '<span class="status-chip status-chip--warning">SINCRONISMO SOLICITADO</span>' : ''}${status === RECORD_STATUS.CORRECTION_REQUESTED && request.photoIndexes.length ? `<div class="photo-count">▧ ${escapeHtml(request.photoIndexes.map(photoIndexLabel).join(', '))}</div>` : ''}<div class="record-progress"><span style="width:${Math.min(100, photoCount / 5 * 100)}%"></span></div><footer class="record-card__footer"><span class="photo-count">${escapeHtml(formatDateTime(record.updatedAt || record.reviewedAt || record.registeredAt))}</span><div class="button-row">${status === RECORD_STATUS.SYNCING_PHOTOS ? `<button class="button button--warning button--small" type="button" data-request-photo-sync="${escapeHtml(record.recordId)}" ${supervisorMutationRunning ? 'disabled' : ''}>${syncRequest ? 'Solicitar novamente' : 'Solicitar sincronismo'}</button>` : ''}<button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Ver ocorrência</button></div></footer></div></article>`;
 }
 
 function publishedSupervisorCard(record) {
@@ -3249,7 +3257,7 @@ async function openMonitoring(section, recordId = '') {
   const revision = sessionRevision;
   try {
     if (!monitorController) {
-      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.09.2').catch(error => { monitorImport = null; throw error; });
+      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.19.1').catch(error => { monitorImport = null; throw error; });
       const { createSupervisorMonitoring } = await monitorImport;
       if (sessionRevision !== revision) return;
       monitorController ||= createSupervisorMonitoring({ getSession: () => session, getRevision: () => sessionRevision, onDetail: openMonitoredOccurrence, onAuthFailure: logout });
@@ -3295,6 +3303,58 @@ function featuresController() {
     onOpenRecord: (record, { loading = false } = {}) => { elements.mineDetailTitle.textContent = `Ocorrência ${record.occurrenceNumber || 'sem número'}`; elements.mineDetailContent.innerHTML = loading ? '<p class="insight-empty" role="status">Carregando dados confirmados…</p>' : occurrenceDetails(record); openScrollableDialog(elements.mineDetailDialog, elements.mineDetailContent); }
   });
   return operationalFeatures;
+}
+
+
+
+function renderCorrectionPendingChart() {
+  const host = document.querySelector('#correctionPendingChart');
+  if (!host || session?.role !== 'supervisor') return;
+  if (!supervisorDataLoaded) { host.innerHTML = '<p role="status">Carregando pendências confirmadas…</p>'; return; }
+  const open = new Set([...host.querySelectorAll('details[open]')].map(el => el.querySelector('summary>span')?.textContent));
+  host.innerHTML = correctionOverviewMarkup(supervisorPendingRecords);
+  host.querySelectorAll('details').forEach(el => { el.open = open.has(el.querySelector('summary>span')?.textContent); });
+}
+async function startCorrectionReplacement(recordId) {
+  const sources = [...supervisorPendingRecords, ...mineRecords];
+  let record = sources.find(item => item.recordId === recordId);
+  if (!record && activeRecord?.recordId === recordId) record = activeRecord;
+  if (record && !correctionTiming(record).expired) return;
+  localStorage.setItem('occbq-replacement-intent', recordId);
+  document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
+  if (session?.role !== 'field') { openProfileSwitch('field'); return; }
+  if (activeRecord?.status === RECORD_STATUS.DRAFT) await saveActiveDraft();
+  resetForm(); await ensureActiveRecord(); navigate('new');
+  toast('Novo lançamento relacionado. Informe um novo número e preencha os campos obrigatórios.');
+}
+function bindCorrectionDeadlineEvents() {
+document.addEventListener('click', event => {
+  const replacement = event.target.closest('[data-replace-occurrence]');
+  if (replacement) { void runLocalAction(startCorrectionReplacement, replacement.dataset.replaceOccurrence); return; }
+  const detail = event.target.closest('#correctionPendingChart [data-review-record]');
+  if (detail) void openSupervisorReview(detail.dataset.reviewRecord);
+});
+window.addEventListener('occbq-records-removed', event => {
+  const removed = new Set(event.detail || []);
+  mineRecords = mineRecords.filter(record => !removed.has(record.recordId));
+  supervisorRecords = supervisorRecords.filter(record => !removed.has(record.recordId));
+  supervisorPendingRecords = supervisorPendingRecords.filter(record => !removed.has(record.recordId));
+  supervisorMetricRecords = supervisorMetricRecords.filter(record => !removed.has(record.recordId));
+  if (removed.has(activeRecord?.recordId)) resetForm();
+  if (removed.has(activeSupervisorRecord?.recordId)) elements.reviewDialog.close();
+});
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  if (session?.role === 'supervisor') {
+    renderCorrectionPendingChart();
+    if (supervisorTab === 'pending' && supervisorPendingFilter === 'correction' && !supervisorMutationRunning) renderSupervisorList();
+  }
+  document.querySelectorAll('[data-deadline-record]').forEach(el => {
+    const id = el.dataset.deadlineRecord;
+    const record = [...supervisorPendingRecords, ...mineRecords, ...(activeRecord ? [activeRecord] : [])].find(item => item.recordId === id);
+    if (record) el.outerHTML = correctionDeadlineMarkup(record);
+  });
+}, 30000);
 }
 
 initialize().catch((error) => { elements.loginMessage.textContent = friendlyError(error); toast(friendlyError(error), 'error'); });
