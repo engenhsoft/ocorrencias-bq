@@ -1,4 +1,4 @@
-# Prazo de correção e pendências por Fiscal — 2026.11.19.1
+# Prazo de correção e pendências por Fiscal — frontend 2026.11.19.2 / backend 2026.11.19.1
 
 Base verificada: frontend/backend 2026.11.09.2, contrato v12, Apps Script 46, main `5108009538bea0a66301fc341a284beaadce894d`. Não havia PR aberto. O endpoint e a planilha operacional foram conferidos em uso.
 
@@ -14,7 +14,7 @@ A cópia técnica da seleção contém dez registros principais, 18 linhas de hi
 
 ## Validação
 
-20 suítes executadas com sucesso, incluindo as verificações do workflow Pages e testes da fonte completa atual do Apps Script. São 19 novos cenários de backend e sete de interface/dados: limites 24/48/72 h, exatamente no vencimento, fim de semana, tentativa offline, idempotência, recibos perdidos, novas rodadas, novo lançamento, totais, ordenação, duplicatas, exclusão física, cache antigo e proteção das fotos/registro preservado.
+20 suítes executadas com sucesso, incluindo as verificações do workflow Pages e testes da fonte completa atual do Apps Script. São 19 novos cenários de backend e oito de interface/dados: limites 24/48/72 h, exatamente no vencimento, fim de semana, tentativa offline, idempotência, recibos perdidos, novas rodadas, novo lançamento, totais, ordenação, duplicatas, exclusão física, cache antigo e proteção das fotos/registro preservado.
 
 As fixtures legadas que verificam reenvio dentro de uma janela válida passam a usar uma solicitação de uma hora atrás; o novo teste de prazo cobre a recusa após 72 h. Mocks recebem os novos colaboradores. Asserções de integridade, autorização, concorrência e performance não foram removidas. O teste de fila continua exigindo duas transações.
 
@@ -23,3 +23,5 @@ As fixtures legadas que verificam reenvio dentro de uma janela válida passam a 
 Aplicar o patch incremental à fonte oficial correspondente e acrescentar `backend/CorrectionDeadline20261119.gs`; a manutenção usa `maintenance/targeted-removal-20261119.gs` com a lista privada validada. Não publicar a fonte integral privada ou propriedades. Atualizar o deployment existente, mantendo URL, permissões, contrato v12 e IndexedDB 1. Publicar frontend com todos os assets e Service Worker na mesma versão, sem limpar o banco local.
 
 Depois da limpeza, uma reversão de frontend não pode remover o bloqueio de UUIDs do backend. Não selecionar uma versão antiga do Apps Script que permita recriação: preparar uma versão de retorno que conserve a política de remoção. O backup de recuperação é privado, tem retenção administrativa de 30 dias registrada e nunca é consultado para restaurar automaticamente a seleção removida.
+
+A homologação publicada também verifica a abertura pelo gráfico a partir de outra aba ou com filtros incompatíveis. O acesso direciona para Correções e usa a conferência existente.

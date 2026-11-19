@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import vm from 'node:vm';
+import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { correctionTiming, buildCorrectionOverview, correctionDeadlineMarkup, correctionOverviewMarkup, RECORD_STATUS, correctionDate } from '../core.js';
 const require = createRequire(import.meta.url);
@@ -53,4 +55,11 @@ test('limpeza IndexedDB elimina dez filas e fotos, preserva a protegida, resiste
  await db.purgeRemovedRecords(ids);const raw=await new Promise((resolve,reject)=>{const req=database.transaction(['records']).objectStore('records').getAll();req.onsuccess=()=>resolve(req.result);req.onerror=reject;});
  assert.equal(raw.some(row=>ids.includes(row.recordId)),false);assert.ok(await db.getRecord(keep));assert.ok(await db.getRecord(id(12)));
  await assert.rejects(db.purgeRemovedRecords([keep]),/protegida/);assert.ok(await db.getRecord(keep));
+});
+
+test('abrir ocorrência pelo gráfico muda para correções e remove filtros incompatíveis',async()=>{
+ const app=await readFile(new URL('../app.js',import.meta.url),'utf8'), fn=app.match(/function openCorrectionFromChart\([^]*?\n\}/)[0];
+ const item={recordId:id(5)}, c={session:{role:'supervisor'},supervisorPendingRecords:[item],supervisorTab:'occurrences',supervisorPendingFilter:'photos',supervisorFiltersByTab:{pending:{search:'outra OC'}},emptySupervisorFilters:()=>({search:''}),saveSupervisorFilters(){},restoreSupervisorFilters(){},renderSupervisorList(){c.rendered=true;},filteredSupervisorRecords:()=>c.supervisorTab==='pending'&&c.supervisorPendingFilter==='correction'&&!c.supervisorFiltersByTab.pending.search?[item]:[],openSupervisorReview:uuid=>{assert.ok(c.filteredSupervisorRecords().some(row=>row.recordId===uuid));c.opened=uuid;}};
+ vm.createContext(c);vm.runInContext(fn,c);c.openCorrectionFromChart(item.recordId);assert.equal(c.opened,item.recordId);assert.equal(c.rendered,true);assert.equal(c.supervisorPendingFilter,'correction');assert.equal(c.supervisorTab,'pending');
+ c.opened=null;c.openCorrectionFromChart(id(6));assert.equal(c.opened,null);c.session.role='fiscal';c.openCorrectionFromChart(item.recordId);assert.equal(c.opened,null);
 });
