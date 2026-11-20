@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency, formatDateTime, statusLabel, statusTone, normalizeOccurrenceTypes, driveFileId } from './core.js?v=2026.11.19.2';
+import { escapeHtml, formatCurrency, formatDateTime, statusLabel, statusTone, normalizeOccurrenceTypes, driveFileId } from './core.js?v=2026.11.19.3';
 
 // Shared presentation only. Actions and permissions stay with each profile.
 export function cardMetadataMarkup(entries) {

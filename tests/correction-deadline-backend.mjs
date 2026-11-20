@@ -37,12 +37,13 @@ test('correção recebida antes do limite é aceita e não expira retroativament
 for(const hour of [72,72.001,120]) test(`backend rejeita correção em ${hour} h e horário offline forjado`,()=>{
  const h=fixture(), record=h.open(1), payload=h.payload(record,{observation:'Tardia',updatedAt:new Date(h.start).toISOString()});h.at(hour);
  assert.throws(()=>h.submit(payload),e=>e.code==='CORRECTION_DEADLINE_EXPIRED');assert.notEqual(h.row(1)[h.c.meta.COL.OBSERVATION-1],'Tardia');
+ h.c.bqRefreshDeadlines_();assert.equal(h.row(1)[h.c.meta.COL.STATUS-1],'REPROVADA');
  assert.equal(h.audit(1).lastCorrectionRequest.deadlineStatus,'FORA_DO_PRAZO_DE_CORRECAO');
 });
 test('foto tardia não entra no Drive e dados parciais não concluem correção',()=>{
  const h=fixture(), record=h.open(1), key=randomUUID(), states=plain(record.photoStates);states[0]={...states[0],localReady:true,replacePending:true,confirmed:false,uploadKey:key};
  h.submit(h.payload(record,{observation:'Parcial',photoStates:states}));const drive=h.drive();h.at(72);
- assert.throws(()=>h.upload(1,1,key,record.fiscalCorrection),e=>e.code==='CORRECTION_DEADLINE_EXPIRED');assert.equal(drive.created(),0);assert.equal(h.row(1)[h.c.meta.COL.STATUS-1],'CORRECAO_SOLICITADA');
+ assert.throws(()=>h.upload(1,1,key,record.fiscalCorrection),e=>e.code==='CORRECTION_DEADLINE_EXPIRED');assert.equal(drive.created(),0);h.c.bqRefreshDeadlines_();assert.equal(h.row(1)[h.c.meta.COL.STATUS-1],'REPROVADA');
 });
 test('resposta perdida de correção concluída antes do prazo reconcilia sem escrita tardia',()=>{
  const h=fixture(), payload=h.payload(h.open(1),{observation:'Concluída'});h.submit(payload);const snapshot=JSON.stringify(h.row(1));h.at(96);
@@ -85,4 +86,38 @@ test('limpeza física de dez UUIDs é idempotente e protege o registro e seu his
  assert.equal(JSON.stringify(keepRow),before);assert.equal(JSON.stringify(h.row(12)),other);assert.equal(JSON.stringify(h.sheet(h.c.meta.APP.historySheet).rows.filter(r=>r[0]===keep)),keptHistory);
  for(const sheet of h.sheets.values()) assert.equal(sheet.rows.some(r=>ids.includes(r[0])),false);
  assert.equal(h.c.bqExecuteRemoval_(ids,keep).ok,true);assert.throws(()=>h.c.bqAssertNotRemoved_(id(1)),e=>e.code==='RECORD_REMOVED');
+});
+
+test('ao completar 72 h, consultas retiram a OC das pendências sem depender do agendamento',()=>{
+ const h=fixture(), before=JSON.stringify(h.row(1));h.at(72);
+ const r=h.c.listPending_({token:h.token('supervisor')});
+ assert.equal(r.pendingRecords.some(r=>r.recordId===id(1)),false);
+ assert.equal(r.metricRecords.find(r=>r.recordId===id(1)).status,'REPROVADA');
+ assert.equal(h.c.listMine_({token:h.token('field')}).records.find(r=>r.recordId===id(1)).status,'REPROVADA');
+ assert.equal(JSON.stringify(h.row(1)),before,'consulta continua sem escrita');
+});
+test('rotina autônoma reprova com histórico único, mantém fotos e bloqueia reenvios posteriores',()=>{
+ const h=fixture(), record=h.open(1), payload=h.payload(record,{observation:'Tardia'}), photos=JSON.stringify(h.row(1).slice(18,23)), request=plain(h.audit(1).lastCorrectionRequest);h.at(72);
+ assert.equal(h.c.bqRefreshDeadlines_().rejected,1);const after=JSON.stringify(h.row(1));
+ assert.equal(h.row(1)[h.c.meta.COL.STATUS-1],'REPROVADA');assert.equal(JSON.stringify(h.row(1).slice(18,23)),photos);
+ assert.equal(h.audit(1).lastCorrectionRequest.requestedAt,request.requestedAt);
+ assert.equal(h.c.bqDeadline_(h.row(1)).status,'FORA_DO_PRAZO_DE_CORRECAO');
+ assert.throws(()=>h.submit(payload),e=>e.code==='CORRECTION_DEADLINE_EXPIRED');
+ assert.equal(h.c.bqRefreshDeadlines_().rejected,0);assert.equal(JSON.stringify(h.row(1)),after);
+ const history=h.sheet(h.c.meta.APP.historySheet).rows.filter(r=>r[0]===id(1)&&r[3]==='REPROVADA_POR_PRAZO');assert.equal(history.length,1);assert.equal(history[0][5],'REPROVADA');
+});
+test('recibo integral verificado antes do prazo reconcilia e nunca é reprovado por atraso de finalização',()=>{
+ const h=fixture();h.at(71);const record=h.open(1);h.submit(h.payload(record,{observation:'Tempestiva'}));
+ const a=h.audit(1);a.lastCorrectionSubmission.phase='DATA_VERIFIED';delete a.lastCorrectionSubmission.completedAt;h.setAudit(1,a);h.row(1)[h.c.meta.COL.STATUS-1]='CORRECAO_SOLICITADA';h.at(80);
+ assert.equal(h.c.bqDeadline_(h.row(1)).status,'RECONCILIACAO_TEMPESTIVA');
+ const late=h.payload(record,{observation:'Nova alteração tardia',correctionRequestId:randomUUID()});
+ assert.throws(()=>h.submit(late),e=>e.code==='CORRECTION_DEADLINE_EXPIRED');
+ const drive=h.drive();assert.throws(()=>h.upload(1,1,randomUUID(),record.fiscalCorrection),e=>e.code==='CORRECTION_DATA_UNCONFIRMED');assert.equal(drive.created(),0);
+ h.c.bqRefreshDeadlines_();
+ assert.equal(h.row(1)[h.c.meta.COL.STATUS-1],'AGUARDANDO_SUPERVISOR');assert.equal(h.audit(1).lastCorrectionSubmission.phase,'COMPLETE');
+});
+test('instalação do agendamento mantém um único gatilho de cinco minutos e preserva os demais',()=>{
+ const h=fixture(), triggers=[{getHandlerFunction:()=> 'outroHandler'}];let minutes=0;
+ h.c.ScriptApp={getProjectTriggers:()=>triggers,newTrigger:handler=>({timeBased(){return this;},everyMinutes(n){minutes=n;return this;},create(){triggers.push({getHandlerFunction:()=>handler});}}),deleteTrigger:t=>triggers.splice(triggers.indexOf(t),1)};
+ h.c.instalarPrazosCorrecaoBQ();h.c.instalarPrazosCorrecaoBQ();assert.equal(minutes,5);assert.equal(triggers.length,2);
 });

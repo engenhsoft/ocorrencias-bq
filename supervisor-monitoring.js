@@ -1,5 +1,5 @@
-import { api, confirmedCompatibility } from './api.js?v=2026.11.19.2';
-import { escapeHtml, formatCurrency, formatDateTime, formatNumber, operationalDate, RECORD_STATUS, statusLabel, validDateRange } from './core.js?v=2026.11.19.2';
+import { api, confirmedCompatibility } from './api.js?v=2026.11.19.3';
+import { escapeHtml, formatCurrency, formatDateTime, formatNumber, operationalDate, RECORD_STATUS, statusLabel, validDateRange } from './core.js?v=2026.11.19.3';
 
 const text = value => escapeHtml(String(value ?? ''));
 const date = value => value ? formatDateTime(value) : 'Sem confirmação';

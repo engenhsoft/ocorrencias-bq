@@ -1,9 +1,9 @@
-import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.19.2';
-import { api, ApiError } from './api.js?v=2026.11.19.2';
-import { correctionTiming, correctionDeadlineMarkup, synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.19.2';
-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.19.2';
-import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.19.2';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.2';
+import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.19.3';
+import { api, ApiError } from './api.js?v=2026.11.19.3';
+import { correctionTiming, correctionDeadlineMarkup, synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.19.3';
+import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.19.3';
+import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.19.3';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.3';
 
 const text = value => escapeHtml(String(value ?? ''));
 export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, isSyncing = () => false, topThreeMarkup, barsMarkup }) {

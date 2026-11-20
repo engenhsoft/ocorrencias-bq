@@ -1,0 +1,41 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -5,7 +5,7 @@
+ 
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.11.19.1',
++  version: '2026.11.19.3',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+   pendingSheet: 'OCORRENCIAS_AGUARDANDO_SUPERVISOR',
+@@ -803,7 +803,7 @@
+     const previous = pendingRowsById[recordId];
+     if (!previous || String(values[COL.UPDATED_AT - 1] || '') >= String(previous[COL.UPDATED_AT - 1] || '')) {
+       pendingRowsById[recordId] = values;
+-      metricById[recordId] = { recordId: recordId, status: operationalStatusFromValues_(values) };
++      metricById[recordId] = { recordId: recordId, status: operationalStatusFromValues_(values), correctionDeadline: bqDeadline_(values) };
+     }
+   });
+   officialRows.forEach(function (values) {
+@@ -1080,6 +1080,12 @@
+ }
+ 
+ function operationalStatusFromValues_(values) {
++  const status = operationalStatusBeforeDeadline_(values);
++  if (status === STATUS.CORRECTION_REQUESTED && bqDeadline_(values)?.status === BQ_DEADLINE.expired) return STATUS.REJECTED;
++  return status;
++}
++
++function operationalStatusBeforeDeadline_(values) {
+   const status = String(values[COL.STATUS - 1] || '');
+   if ([STATUS.WAITING_SUPERVISOR, STATUS.SYNCING_PHOTOS].indexOf(status) < 0) return status;
+   const audit = safeJson_(values[COL.AUDIT - 1], {}); const receipt = audit.lastCorrectionSubmission;
+@@ -2649,6 +2655,7 @@
+   if (context && (context.routingRequestId !== request.routingRequestId || context.assignmentRevision !== request.assignmentRevision)) throw apiError_('FISCAL_ASSIGNMENT_CHANGED', 'A atribuição mudou. Seu rascunho foi preservado; atualize a solicitação.');
+   const status = operationalStatusFromValues_(values);
+   const completedStatus = status === STATUS.WAITING_SUPERVISOR || allowComplete === 'read' && [STATUS.PUBLISHED, STATUS.REJECTED].indexOf(status) >= 0;
++  if (status === STATUS.REJECTED && bqDeadline_(values)?.status === BQ_DEADLINE.expired) return request;
+   if (status !== STATUS.CORRECTION_REQUESTED && !(allowComplete && completedStatus && request.assignmentStatus === 'COMPLETE')) throw apiError_('CORRECTION_CLOSED', 'A solicitação já foi concluída ou recebeu uma decisão.');
+   return request;
+ }
