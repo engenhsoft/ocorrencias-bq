@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
+import { canQueueRetry, catalogQueueIssue, prioritizeQueue } from '../sync-queue.js';
 
 const [fixed, baseline, coreSource, persistenceTests, createTests, appSource, apiSource] = await Promise.all([
   readFile(process.argv[2], 'utf8'), readFile(process.argv[3], 'utf8'),
@@ -12,7 +13,7 @@ const extract = (s, name) => { const m = s.match(new RegExp('(?:async )?function
 const factory = vm.runInNewContext(persistenceTests.match(/class MemorySheet \{[^]*?\n\}/)[0] + '\n' + extract(persistenceTests, 'harness') + '\nharness', { vm, backend: fixed, createHash, assert, core });
 const record = vm.runInNewContext(extract(createTests, 'record') + '\nrecord', { core, UUID: '11111111-1111-4111-8111-111111111111', key: n => `${String(n).padStart(8, '0')}-2222-4222-8222-222222222222` });
 const fakeDrive = vm.runInNewContext(extract(persistenceTests, 'fakePhotoDrive') + '\nfakePhotoDrive', { Buffer });
-const client = vm.runInNewContext(extract(createTests, 'client') + '\nclient', { core, record, appSource, apiSource, extract, Buffer, Blob, Map, Set, Date, JSON, structuredClone, vm, URL, AbortController, setTimeout, clearTimeout, UUID: '11111111-1111-4111-8111-111111111111', key: n => `${String(n).padStart(8, '0')}-2222-4222-8222-222222222222` });
+const client = vm.runInNewContext(extract(createTests, 'client') + '\nclient', { core, record, appSource, apiSource, extract, Buffer, Blob, Map, Set, Date, JSON, structuredClone, vm, URL, AbortController, setTimeout, clearTimeout, canQueueRetry, catalogQueueIssue, prioritizeQueue, UUID: '11111111-1111-4111-8111-111111111111', key: n => `${String(n).padStart(8, '0')}-2222-4222-8222-222222222222` });
 const tests = []; const test = (name, run) => tests.push({ name, run });
 function harness(source = fixed) {
   const h = factory([['SDMMU4201II', 'AVISO DE DESLIGAMENTO POR TRAFO', 'UD', 'REDES EMERGÊNCIA', '', '', '', '96,96', '96,96']], source);
@@ -61,7 +62,10 @@ test('baseline CORRECTION grava os identificadores mas deixa recibo STAGED', () 
 test('retry de recibo STAGED confirma delta, fingerprint e histórico uma única vez', () => {
   const old = harness(baseline), p = { ...record(), transformer: trafo().transformer, expectedPhotoIndexes: [1, 2, 3], correctionRequestId: 'aaaaaaaa-1111-4111-8111-111111111111', correctionRequestedAt: '' };
   old.seed(record(), { status: old.c.meta.STATUS.CORRECTION_REQUESTED }); assert.throws(() => old.submit(p));
-  const h = harness(); h.sheet(h.c.meta.APP.pendingSheet).rows = structuredClone(old.sheet(old.c.meta.APP.pendingSheet).rows);
+  const h = harness();
+  const pending = h.sheet(h.c.meta.APP.pendingSheet);
+  const oldRow = structuredClone(old.sheet(old.c.meta.APP.pendingSheet).rows[1]);
+  pending.appendRow([...oldRow, ...Array(Math.max(0, pending.rows[0].length - oldRow.length)).fill('')]);
   const r = h.submit(p); assert.equal(r.record.audit.lastCorrectionSubmission.phase, 'COMPLETE');
   assert.equal(r.status, 'AGUARDANDO_SUPERVISOR'); assert.deepEqual(JSON.parse(JSON.stringify(r.record.transformer)), p.transformer);
   const history = h.sheet(h.c.meta.APP.historySheet).getLastRow(); h.submit(p);

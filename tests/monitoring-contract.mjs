@@ -18,8 +18,9 @@ test('contratos compatíveis permitem versão de servidor anterior', () => {
 });
 
 test('release disponível, servidor ausente e asset divergente são estados distintos', () => {
-  assert.equal(current({ published: { version: '2026.11.10.1' } }).state, 'ATUALIZAÇÃO DISPONÍVEL');
-  assert.equal(current({ waiting: '2026.11.10.1' }).state, 'ATUALIZAÇÃO DISPONÍVEL');
+  const next = APP_VERSION.replace(/\d+$/, last => String(Number(last) + 1));
+  assert.equal(current({ published: { version: next } }).state, 'ATUALIZAÇÃO DISPONÍVEL');
+  assert.equal(current({ waiting: next }).state, 'ATUALIZAÇÃO DISPONÍVEL');
   assert.equal(current({ backend: null }).state, 'VERSÃO NÃO CONFIRMADA');
   assert.equal(current({ localSchema: 2 }).state, 'ATUALIZAÇÃO NECESSÁRIA');
   assert.equal(current({ assets: [APP_VERSION, '2026.11.06.1'] }).state, 'ATUALIZAÇÃO NECESSÁRIA');

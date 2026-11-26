@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
+import { canQueueRetry, catalogQueueIssue, prioritizeQueue } from '../sync-queue.js';
 
 if (!process.argv[2] || !process.argv[3]) throw Error('Informe backend corrigido e baseline 2026.10.07.1.');
 const [fixed, baseline, appSource, coreSource, apiSource, correctionTests, stabilityTests, oldApp] = await Promise.all([
@@ -43,7 +44,7 @@ function client(h, source=appSource, existing, existingPhotos) {
   if(!existingPhotos)for(let i=1;i<=5;i++)photos.set(UUID+':'+i,{recordId:UUID,photoIndex:i,uploadKey:key(i),blob:new Blob(['photo'+i],{type:'image/jpeg'})});
   const events=[], uploads=[], submitted=[],deleted=[],errors=[];let loseResponse=false, failSlot=0;
   const c=vm.createContext({...core, Blob, Map, Set, JSON, Date, structuredClone, session:{role:'field',user:'Campo FICTÍCIO',token:'fixture'}, sessionRevision:1,navigator:{onLine:true},
-    dailyProduction:{totalExcludingRecord:0}, TYPE_TRAFO:'SUBSTITUIÇÃO DE TRAFO',recordSyncPromises:new Map(),syncRunning:false,elements:{syncNowButton:{}},SYNCABLE_STATUSES:new Set([core.RECORD_STATUS.PENDING,core.RECORD_STATUS.ERROR]),
+    dailyProduction:{totalExcludingRecord:0}, TYPE_TRAFO:'SUBSTITUIÇÃO DE TRAFO',recordSyncPromises:new Map(),syncRunning:false,elements:{syncNowButton:{}},SYNCABLE_STATUSES:new Set([core.RECORD_STATUS.PENDING,core.RECORD_STATUS.ERROR]),canQueueRetry,catalogQueueIssue,prioritizeQueue,
     getRecord:async id=>structuredClone(saved.get(id)),getAllRecords:async()=>Array.from(saved.values()).map(r=>structuredClone(r)),
     putRecord:async(r,opts={})=>{if(opts.expectedUpdatedAt!==undefined && opts.expectedUpdatedAt!==String(saved.get(r.recordId)?.updatedAt||''))throw new c.ApiError('Local mudou','LOCAL_RECORD_CHANGED');const next={...r,updatedAt:new Date(Math.max(Date.now(),Date.parse(saved.get(r.recordId)?.updatedAt||'')+1||0)).toISOString()};saved.set(r.recordId,structuredClone(next));return next;},
     getPhoto:async(id,i)=>photos.get(id+':'+i),deletePhoto:async(id,i,k)=>{if(photos.get(id+':'+i)?.uploadKey!==k)return false;deleted.push(i);photos.delete(id+':'+i);return true;},
@@ -52,7 +53,7 @@ function client(h, source=appSource, existing, existingPhotos) {
     fetch:async(_,options)=>{const p=JSON.parse(options.body);events.push(p.action);
       if(p.action==='submitRecord')submitted.push(p.record.recordId);
       if(p.action==='uploadPhoto'){uploads.push(p.photoIndex);if(failSlot===p.photoIndex)throw Error('network');}
-      let data;try{data=p.action==='submitRecord'?h.c.submitRecord_(p):p.action==='uploadPhoto'?h.c.uploadPhoto_(p):h.c.getRecordState_(p);}catch(e){data={ok:false,error:e.code||'SERVER_ERROR',message:e.message};}
+      let data;try{data=p.action==='submitRecord'?h.c.submitRecord_(p):p.action==='uploadPhoto'?h.c.uploadPhoto_(p):h.c.getRecordState_(p);}catch(e){data={ok:false,error:e.code||'SERVER_ERROR',message:e.message,details:e.details};}
       if(p.action==='uploadPhoto' && loseResponse){loseResponse=false;throw Error('response lost');}
       return {ok:true,status:200,text:async()=>JSON.stringify(data)};
     }});

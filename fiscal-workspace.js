@@ -1,9 +1,9 @@
-import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.26.1';
-import { api, ApiError } from './api.js?v=2026.11.26.1';
-import { correctionTiming, correctionDeadlineMarkup, synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.26.1';
-import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.26.1';
-import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.26.1';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.1';
+import { getFiscalCorrectionDrafts } from './db.js?v=2026.11.26.2';
+import { api, ApiError } from './api.js?v=2026.11.26.2';
+import { correctionTiming, correctionDeadlineMarkup, synchronizationFeedback, escapeHtml, formatNumber, normalizeText, sameUser, isUuid, operationalDate } from './core.js?v=2026.11.26.2';
+import { buildConformityComparison, conformityMarkup } from './supervisor-conformity.js?v=2026.11.26.2';
+import { buildFinancialComparison, financialMarkup, financialPeriodOptions, financialFilterValues } from './supervisor-financial.js?v=2026.11.26.2';
+import { canQueueRetry, catalogQueueIssue, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.2';
 
 const text = value => escapeHtml(String(value ?? ''));
 export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCorrection, onRetry, isSyncing = () => false, topThreeMarkup, barsMarkup }) {
@@ -52,11 +52,11 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
     const completed = [...latestDrafts().values()].filter(record => allowedBase(record.base) && record.syncPhase === 'confirmed')
       .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, 5);
     section.hidden = Boolean(getSession()?.canManageFiscals);
-    $('#fiscalSyncAll').disabled = queueRunning || !items.length || !navigator.onLine;
+    $('#fiscalSyncAll').disabled = queueRunning || !items.some(record => !catalogQueueIssue(record)?.reason) || !navigator.onLine;
     $('#fiscalSyncItems').innerHTML = (!items.length ? '<p class="insight-empty">Nenhum envio de correção pendente neste aparelho.</p>' : '')
       + [...items, ...completed].map(record => {
         const busy = queueActive.has(record.fiscalDraftKey) || isSyncing(record.fiscalDraftKey);
-        const controls = record.syncPhase === 'confirmed' ? '' : '<button class="button button--ghost" type="button" data-fiscal-retry="'
+        const controls = record.syncPhase === 'confirmed' || catalogQueueIssue(record)?.reason ? '' : '<button class="button button--ghost" type="button" data-fiscal-retry="'
           + text(record.recordId) + '" ' + (busy || !navigator.onLine ? 'disabled' : '') + '>' + (record.lastError ? 'Tentar novamente' : 'Sincronizar agora') + '</button>';
         return syncQueueMarkup(record, { online: navigator.onLine, busy, localSlots: record.queueLocalPhotoSlots }, controls);
       }).join('');
@@ -78,7 +78,7 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
       const busy = local && (queueActive.has(local.fiscalDraftKey) || isSyncing(local.fiscalDraftKey));
       const sync = feedback ? `<p class="sync-feedback" role="status" aria-live="polite"><strong>${text(feedback.label)}</strong><br>${text(feedback.detail)}</p>` : '';
       const expired = correctionTiming(record).expired;
-      const retry = !expired && (local && local.correctionMode && !['saved', 'confirmed'].includes(feedback?.phase) || record.retryLocal);
+      const retry = !expired && !catalogQueueIssue(local || record)?.reason && (local && local.correctionMode && !['saved', 'confirmed'].includes(feedback?.phase) || record.retryLocal);
       const route = record.fiscalCorrection, legacy = route.routingVersion === 'LEGACY_FIELD', waiting = route.assignmentStatus === 'WAITING_ASSIGNMENT';
       const candidates = accounts.filter(account => account.active && account.bases.includes(route.base));
       const assignment = getSession()?.canManageFiscals && !legacy ? `<div class="fiscal-assignment"><label class="field"><span>Fiscal responsável · ${text(route.base)}</span><select data-assignment-for="${text(record.recordId)}"><option value="">Selecionar Fiscal ativo</option>${candidates.map(account => `<option value="${text(account.user)}"${account.user === route.assignedFiscal ? ' selected' : ''}>${text(account.user)}</option>`).join('')}</select></label><button class="button button--ghost" type="button" data-fiscal-assign="${text(record.recordId)}">Atribuir / transferir</button></div>` : '';
@@ -205,7 +205,7 @@ export function createFiscalWorkspace({ getSession, getRevision, onLogout, onCor
   async function retry(id) {
     const assigned = records.find(record => record.recordId === id);
     const record = assigned?.canCorrect ? localDraftFor(assigned) : assigned ? null : latestDrafts().get(id);
-    if (!record || !onRetry || !navigator.onLine || !allowedBase(record.base) || queueActive.has(record.fiscalDraftKey)) return;
+    if (!record || catalogQueueIssue(record)?.reason || !onRetry || !navigator.onLine || !allowedBase(record.base) || queueActive.has(record.fiscalDraftKey)) return;
     const key = scope(); queueActive.add(record.fiscalDraftKey); renderCorrections();
     try { await onRetry(id, record.fiscalDraftKey); }
     catch (failure) { if (current(key)) error($('#fiscalCorrectionsStatus'), failure); }

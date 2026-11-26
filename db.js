@@ -1,4 +1,4 @@
-import { dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.11.26.1';
+import { catalogServiceIdentity, dedupeMaterialCatalog, materialKey, summarizeQueue, sameUser } from './core.js?v=2026.11.26.2';
 
 const DB_NAME = 'ocorrencias-bq-db';
 export const DB_VERSION = 1;
@@ -310,10 +310,15 @@ export async function searchCachedCatalog(query, limit = 25) {
   const normalized = String(query || '').trim().toUpperCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const rows = await readStoreValue(STORE.catalog, store => store.getAll());
-  return rows
-    .filter((item) => item.kind !== 'material' && item.contractValues && typeof item.contractValues === 'object' && [item.code, item.catalogText, item.group]
-      .some((value) => String(value || '').toUpperCase().normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '').includes(normalized)))
+  const newest = new Map();
+  for (const item of rows) {
+    if (item.kind === 'material' || !item.contractValues || typeof item.contractValues !== 'object') continue;
+    const key = catalogServiceIdentity(item);
+    if (!newest.has(key) || String(item.cachedAt || '') > String(newest.get(key).cachedAt || '')) newest.set(key, item);
+  }
+  return [...newest.values()]
+    .filter((item) => [item.code, item.catalogText, item.group].some((value) => String(value || '').toUpperCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(normalized)))
     .sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt-BR'))
     .slice(0, limit);
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 if (!process.argv[2]) throw Error('Informe o fonte oficial do backend como argumento.');
 const backend = await readFile(process.argv[2], 'utf8');
@@ -18,6 +19,10 @@ const historical = (code = 'A', options = {}) => ({
   ...options
 });
 const catalogRow = (code = 'D', h = 150, i = 250) => [code, 'Descrição atual ' + code, 'M', 'Grupo atual', '999,00', '', '', String(h).replace('.', ','), String(i).replace('.', ',')];
+const selected = (code, quantity, price, contract = '4600080938') => ({
+  lineId: 'new-' + code, catalogKey: 'Emergência:3', code, catalogText: 'Descrição atual ' + code,
+  unit: 'M', group: 'Grupo atual', origin: 'Emergência', contract, quantity, referenceValue: price, totalValue: price * quantity
+});
 const recordFixture = (services = [historical()], options = {}) => ({
   recordId: UUID, registeredAt: '2026-09-25T11:00:00-03:00', user: 'Equipe TESTE', base: 'CARAÚBAS',
   contract: '4600080938', team: 'LM TESTE', crewLeader: 'Chefe TESTE', occurrenceNumber: 'NÚMERO-REPETÍVEL',
@@ -64,8 +69,11 @@ function harness(catalog = [catalogRow()], source = backend) {
   const context = vm.createContext({
     console, Date, JSON, Math, Number, String,
     SpreadsheetApp: { openById: () => spreadsheet, flush() {} },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     LockService: { getScriptLock: () => ({ waitLock() { lockDepth++; }, releaseLock() { lockDepth--; } }) },
     Utilities: {
+      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      computeDigest: (_, value) => Array.from(createHash('sha256').update(String(value)).digest()),
       formatDate: (date, zone, pattern) => { const local = new Date(new Date(date).getTime() - 3 * 3600000).toISOString(); return pattern === 'yyyy-MM-dd' ? local.slice(0, 10) : local.slice(0, 19) + '-03:00'; }
     }
   });
@@ -158,7 +166,7 @@ test('Nº repetido não confunde duas UUIDs na publicação', () => {
 });
 test('D: ocorrência nova consulta apenas os valores atuais H/I', () => {
   for (const [base, price, contract] of [['CARAÚBAS', 150, '4600080938'], ['MOSSORÓ', 250, '4600080939']]) {
-    const h = harness(); const input = recordFixture([historical('D', { quantity: '2,5', referenceValue: 1, totalValue: 2.5 })], { base, contract });
+    const h = harness(); const input = recordFixture([{ ...selected('D', 2.5, price, contract), quantity: '2,5' }], { base, contract });
     const model = h.c.validateAndNormalizeRecord_(input);
     assert.equal(model.services[0].referenceValue, price); assert.equal(model.services[0].quantity, 2.5);
     assert.equal(model.totalServices, price * 2.5); assert.ok(h.catalog.reads > 0);
@@ -184,7 +192,7 @@ test('E: editar QTD somente em B conserva A/C e o preço histórico de B', () =>
 });
 test('F: adicionar D usa catálogo atual e conserva integralmente A/B', () => {
   const h = harness(); const record = recordFixture([historical('A'), historical('B', { catalogKey: 'Emergência:4' })]); h.seed(record);
-  const submitted = plain(record); submitted.services.push(historical('D', { lineId: 'new-D', referenceValue: 1, quantity: 2, totalValue: 2 }));
+  const submitted = plain(record); submitted.services.push(selected('D', 2, 150));
   const result = h.correct(submitted);
   assert.deepEqual(plain(result.record.services.slice(0, 2)), record.services);
   assert.equal(result.record.services[2].referenceValue, 150); assert.equal(result.record.services[2].totalValue, 300);
@@ -192,7 +200,7 @@ test('F: adicionar D usa catálogo atual e conserva integralmente A/B', () => {
 });
 test('substituir B por D usa catálogo atual somente na nova linha', () => {
   const h = harness(); const record = recordFixture([historical('A'), historical('B', { catalogKey: 'Emergência:4' }), historical('C', { catalogKey: 'Emergência:5' })]); h.seed(record);
-  const submitted = plain(record); submitted.services[1] = historical('D', { lineId: 'new-D', quantity: 1 });
+  const submitted = plain(record); submitted.services[1] = selected('D', 1, 150);
   const result = h.correct(submitted);
   assert.deepEqual(plain(result.record.services[0]), record.services[0]); assert.deepEqual(plain(result.record.services[2]), record.services[2]);
   assert.equal(result.record.services[1].referenceValue, 150); assert.equal(result.record.totalServices, 550);
@@ -233,16 +241,18 @@ test('troca de Base não reprecifica itens existentes; item novo usa o contrato 
   const h = harness(); const record = recordFixture(); h.seed(record);
   h.c.assertTeamDirectorySelection_ = () => {}; // relação mockada, sem alteração de cadastro
   const submitted = plain(record); submitted.base = 'MOSSORÓ'; submitted.contract = '4600080939';
-  submitted.services.push(historical('D', { lineId: 'new-D', quantity: 1 }));
+  submitted.services.push(selected('D', 1, 250, '4600080939'));
   const result = h.correct(submitted);
   assert.deepEqual(plain(result.record.services[0]), record.services[0]); assert.equal(result.record.services[1].referenceValue, 250);
   assert.equal(result.record.services[1].contract, '4600080939'); assert.equal(result.record.totalServices, 450);
 });
 test('alteração do preço enviada pelo cliente não forja valor legado', () => {
   const h = harness([catalogRow('A', 150)]); const record = recordFixture(); h.seed(record); const submitted = plain(record);
-  submitted.services[0].referenceValue = 1; submitted.services[0].totalValue = 10;
-  const result = h.correct(submitted); assert.equal(result.record.services[0].referenceValue, 150);
-  assert.ok(result.changes.some(change => change.field === 'Valor unitário do serviço A'));
+  submitted.services[0] = { ...selected('A', 10, 1), lineId: record.services[0].lineId };
+  const pending = h.sheet(h.c.meta.APP.pendingSheet);
+  const original = plain(pending.rows[1]);
+  assert.throws(() => h.correct(submitted), error => error.code === 'CATALOG_MISMATCH' && error.details.catalogIssue.reason === 'PRICE_CHANGED');
+  assert.deepEqual(plain(pending.rows[1]), original);
 });
 test('alterar somente total sem QTD ou substituição válida é rejeitado', () => {
   const h = harness([]); const record = recordFixture(); h.seed(record); const submitted = plain(record); submitted.services[0].totalValue = 1;
@@ -291,7 +301,7 @@ test('frontend usa validação histórica apenas na edição do Supervisor', () 
 test('troca de Base no editor não reprecifica a lista; seleção de serviço novo mantém catálogo atual', () => {
   assert.doesNotMatch(extractApp('handleSupervisorBaseChange'), /applyContractToRecord|repriceServicesForBase/);
   assert.match(extractApp('selectSupervisorCatalogItem'), /priceServiceForContract/);
-  assert.match(extractApp('selectSupervisorCatalogItem'), /service.code === item.code/);
+  assert.match(extractApp('selectSupervisorCatalogItem'), /catalogServiceIdentity\(service\) === catalogServiceIdentity\(item\)/);
 });
 
 const failures = [];
