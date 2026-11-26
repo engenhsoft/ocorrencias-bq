@@ -1,6 +1,6 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.26.2';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.26.2';
-import { createOperationalFeatures } from './operational-features.js?v=2026.11.26.2';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.26.3';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.26.3';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.26.3';
 import {
   correctionTiming, correctionDeadlineMarkup, correctionOverviewMarkup, observeServerClock, CORRECTION_EXPIRED_MESSAGE, dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   catalogServiceIdentity, contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
@@ -10,15 +10,15 @@ import {
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, sessionIdentityMatches, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.11.26.2';
+} from './core.js?v=2026.11.26.3';
 import {
   DB_VERSION, purgeRemovedRecords, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.11.26.2';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.26.2';
-import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.26.2';
-import { canQueueRetry, catalogQueueIssue, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.2';
+} from './db.js?v=2026.11.26.3';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.26.3';
+import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.26.3';
+import { canQueueRetry, catalogQueueIssue, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.3';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -1551,7 +1551,7 @@ function displayAuditValue(value) {
 }
 
 function dailyDetailMarkup(record) {
-  const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction;
+  const total = record.totalServices ?? occurrenceSnapshotTotal(record.services); const daily = record.dailyProduction;
   const totalSent = Number(daily?.totalSent) || (record.serverConfirmed ? total : 0); const progress = goalProgress(totalSent, Number(daily?.goal) || TEAM_GOAL);
   return `<section class="daily-detail"><span class="live-indicator"><i></i> Ao vivo</span><div class="daily-detail__values"><div><span>Valor desta ocorrência</span><strong>${escapeHtml(formatCurrency(total))}</strong></div><div><span>Produção da equipe no dia</span><strong>${escapeHtml(formatCurrency(totalSent))} / ${escapeHtml(formatCurrency(Number(daily?.goal) || TEAM_GOAL))}</strong></div><div><span>Percentual diário</span><strong>${escapeHtml(formatNumber(progress.percentage))}%</strong></div></div></section>`;
 }
@@ -1563,7 +1563,7 @@ function occurrenceTypesText(record = {}) {
 }
 
 function occurrenceDetails(record, includePhotos = true) {
-  const total = occurrenceTotal(record.services || []);
+  const total = record.totalServices ?? occurrenceSnapshotTotal(record.services);
   const occurrenceTypes = normalizeOccurrenceTypes(record.occurrenceTypes);
   const transformer = (occurrenceTypes.includes(TYPE_TRAFO) || Object.values(record.transformer || {}).some(value => String(value ?? '').trim())) ? `<div class="detail-section"><h4>Transformadores</h4><div class="review-data__grid"><div><dt>Transformador retirado</dt><dd>Série: ${escapeHtml(record.transformer?.removedCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.removedCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.removedBto || '—')}</dd>${transformerPhotoMarkup(record, 'removed')}</div><div><dt>Transformador instalado</dt><dd>Série: ${escapeHtml(record.transformer?.newCode || '—')}<br>CIA: ${escapeHtml(record.transformer?.newCia || '—')}<br>BTO: ${escapeHtml(record.transformer?.newBto || '—')}</dd>${transformerPhotoMarkup(record, 'installed')}</div></div></div>` : '';
   const pgPost = (occurrenceTypes.includes(TYPE_POST) || record.pgPostRemoved || record.pgPostInstalled) ? `<div class="detail-section"><h4>PG do Poste</h4><div class="review-data__grid"><div><dt>PG retirado</dt><dd>${escapeHtml(record.pgPostRemoved || '—')}</dd></div><div><dt>PG instalado</dt><dd>${escapeHtml(record.pgPostInstalled || '—')}</dd></div></div></div>` : '';
@@ -2858,7 +2858,7 @@ function renderSupervisorList(error = null) {
     const failures = supervisorPhotoFailures.get(record.recordId) || new Set(); const issues = photoIssueIndexes(record, failures); const pricingIssues = supervisorPricingIssues(record); const eligible = !issues.length && !pricingIssues.length && record.status === RECORD_STATUS.WAITING_SUPERVISOR; const photoCount = Math.max(countConfirmedPhotos(record), countReadyPhotoStates(record));
     const checked = eligible && selectedSupervisorIds.has(record.recordId); const urls = photoUrlsForRecord(record);
     const thumbs = cardThumbnailsMarkup(record, urls.map((url, index) => ({ url, photoIndex: index + 1 })));
-    const total = occurrenceTotal(record.services || []); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
+    const total = record.totalServices ?? occurrenceSnapshotTotal(record.services); const daily = record.dailyProduction || {}; const dailyProgress = goalProgress(Number(daily.totalSent) || 0, Number(daily.goal) || TEAM_GOAL);
     const correction = record?.audit?.lastSupervisorCorrection;
     return `<article class="record-card supervisor-card"><input type="checkbox" aria-label="Selecionar ocorrência ${escapeHtml(record.occurrenceNumber)}" data-supervisor-select="${escapeHtml(record.recordId)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'} /><div class="supervisor-card__content"><header class="record-card__header"><div><div class="supervisor-title-line"><h3>Ocorrência ${escapeHtml(record.occurrenceNumber)}</h3>${correctedAfterResend(record) ? '<span class="status-chip status-chip--success corrected-badge">CORRIGIDO</span>' : ''}</div><small>${escapeHtml(record.recordId)}</small></div><span class="status-chip status-chip--${issues.length ? 'danger' : 'warning'}">${photoCount}/5 fotos gerais</span></header><p>${escapeHtml(occurrenceTypesText(record))}</p><div class="record-card__body">${cardMetadataMarkup([['Sub-base', record.base || '—'], ['Contrato', record.contract || '—'], ['Equipe', record.team], ['Chefe de turma', record.crewLeader || '—'], ['Valor desta ocorrência', formatCurrency(total)], ['Produção da equipe hoje', formatCurrency(dailyProgress.total)], ['Meta diária · Ao vivo', `${formatNumber(dailyProgress.percentage)}%`]])}</div>${pricingIssues.length ? `<div class="status-chip status-chip--danger">${escapeHtml(pricingIssues[0])}</div>` : ''}${correction ? `<div class="supervisor-correction-badge">✓ Corrigido pelo supervisor — ${escapeHtml(correction.supervisor || 'Supervisor')} · ${escapeHtml(formatDateTime(correction.correctedAt))}</div>` : ''}<div class="supervisor-thumbs">${thumbs}</div><footer class="record-card__footer"><span class="live-indicator"><i></i> Ao vivo</span><div class="button-row"><button class="button button--ghost button--small" type="button" data-export-record="${escapeHtml(record.recordId)}">Gerar PDF</button><button class="button button--ghost button--small" type="button" data-export-excel="${escapeHtml(record.recordId)}">GERAR EXCEL</button><button class="button button--primary button--small" type="button" data-review-record="${escapeHtml(record.recordId)}">Conferir ocorrência</button></div></footer></div></article>`;
   }); updateSupervisorSelectionUi();
@@ -3180,7 +3180,9 @@ async function decideSupervisor(decision) {
     const beforeIds = [...reviewOrder];
     const decisionResult = await api.supervisorAction(requestSession.token, decision, reviewedId, reason, decision === 'request_correction' ? (note || reason) : note, decision === 'request_correction' ? selectedPhotoIndexes : []);
     if (!isCurrent()) return;
-    toast(decision === 'approve' ? 'Ocorrência aprovada e publicada.' : decision === 'reject' ? 'Ocorrência reprovada.' : decisionResult.record?.audit?.lastCorrectionRequest?.assignmentStatus === 'WAITING_ASSIGNMENT' ? 'Correção registrada. Aguardando atribuição de Fiscal pela conta mestra.' : `Correção solicitada ao Fiscal ${decisionResult.record?.audit?.lastCorrectionRequest?.assignedFiscal || 'responsável'}.`, 'success');
+    const approvalMessage = decisionResult.alreadyPublished ? 'Publicação anterior confirmada.'
+      : decisionResult.reconciliationState === 'PARTIAL_RECONCILABLE' ? 'Publicação retomada e confirmada.' : 'Ocorrência aprovada e publicada.';
+    toast(decision === 'approve' ? approvalMessage : decision === 'reject' ? 'Ocorrência reprovada.' : decisionResult.record?.audit?.lastCorrectionRequest?.assignmentStatus === 'WAITING_ASSIGNMENT' ? 'Correção registrada. Aguardando atribuição de Fiscal pela conta mestra.' : `Correção solicitada ao Fiscal ${decisionResult.record?.audit?.lastCorrectionRequest?.assignedFiscal || 'responsável'}.`, 'success');
     applyConfirmedSupervisorResult(decisionResult);
     advanceSupervisorAfterAction(beforeIds, reviewedId);
   } catch (error) { if (!isCurrent()) return; toast(friendlyError(error), 'error'); }
@@ -3401,7 +3403,7 @@ async function openMonitoring(section, recordId = '') {
   const revision = sessionRevision;
   try {
     if (!monitorController) {
-      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.26.2').catch(error => { monitorImport = null; throw error; });
+      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.26.3').catch(error => { monitorImport = null; throw error; });
       const { createSupervisorMonitoring } = await monitorImport;
       if (sessionRevision !== revision) return;
       monitorController ||= createSupervisorMonitoring({ getSession: () => session, getRevision: () => sessionRevision, onDetail: openMonitoredOccurrence, onAuthFailure: logout });

@@ -1,4 +1,4 @@
-import { escapeHtml, formatDateTime, normalizeOccurrenceTypes, normalizePhotoStates, RECORD_STATUS } from './core.js?v=2026.11.26.2';
+import { escapeHtml, formatDateTime, normalizeOccurrenceTypes, normalizePhotoStates, RECORD_STATUS } from './core.js?v=2026.11.26.3';
 
 const text = value => escapeHtml(String(value ?? ''));
 const syncable = new Set([RECORD_STATUS.PENDING, RECORD_STATUS.SYNCING_DATA, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.ERROR]);
