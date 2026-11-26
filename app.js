@@ -1,24 +1,24 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.26.1';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.26.1';
-import { createOperationalFeatures } from './operational-features.js?v=2026.11.26.1';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.26.2';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.26.2';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.26.2';
 import {
   correctionTiming, correctionDeadlineMarkup, correctionOverviewMarkup, observeServerClock, CORRECTION_EXPIRED_MESSAGE, dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
-  contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
+  catalogServiceIdentity, contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
   correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, correctionReceiptHasChanges, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, sessionIdentityMatches, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.11.26.1';
+} from './core.js?v=2026.11.26.2';
 import {
   DB_VERSION, purgeRemovedRecords, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.11.26.1';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.26.1';
-import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.26.1';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.1';
+} from './db.js?v=2026.11.26.2';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.26.2';
+import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.26.2';
+import { canQueueRetry, catalogQueueIssue, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.2';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -548,6 +548,8 @@ function bindEvents() {
   elements.testConnectionButton.addEventListener('click', testConnection);
   elements.syncNowButton.addEventListener('click', () => syncAll(true));
   elements.syncQueueList.addEventListener('click', (event) => {
+    const catalog = event.target.closest('[data-review-queue-service]');
+    if (catalog) return void runLocalAction(reviewQueuedService, catalog.dataset.reviewQueueService);
     const review = event.target.closest('[data-review-sync-record]');
     if (review) return void runLocalAction(reviewDataCommitConflict, review.dataset.reviewSyncRecord);
     const button = event.target.closest('[data-sync-record]');
@@ -1145,24 +1147,24 @@ function renderCatalogResults(error = null) {
   }
   elements.serviceResults.innerHTML = catalogResults.map((item, index) => {
     const priced = priceServiceForContract(item, contract);
-    return `<button class="search-result" type="button" role="option" data-catalog-index="${index}">
+    return `<button class="search-result" type="button" role="option" data-catalog-index="${index}" ${item.catalogAmbiguous ? 'disabled' : ''}>
     <span class="search-result__top"><strong>${escapeHtml(item.code)}</strong><small>Emergência</small></span>
     <span>${escapeHtml(item.catalogText || 'Sem descrição')}</span>
-    <span class="search-result__meta"><b>${escapeHtml(item.unit || '—')}</b><span>${escapeHtml(item.group || '')}</span><span>Contrato ${escapeHtml(contract)}</span><span>${escapeHtml(servicePriceText(priced))}</span></span>
+    <span class="search-result__meta"><b>${escapeHtml(item.unit || '—')}</b><span>${escapeHtml(item.group || '')}</span><span>Contrato ${escapeHtml(contract)}</span><span>${item.catalogAmbiguous ? 'Cadastro duplicado · consulte o Supervisor' : escapeHtml(servicePriceText(priced))}</span></span>
   </button>`;
   }).join('');
   elements.serviceSearchHint.textContent = `${catalogResults.length} resultado(s). Toque para adicionar.`;
 }
 
 async function selectCatalogItem(item) {
-  if (!item) return; const revision = sessionRevision; const record = await ensureActiveRecord();
+  if (!item || item.catalogAmbiguous) return; const revision = sessionRevision; const record = await ensureActiveRecord();
   if (revision !== sessionRevision || !activeRecord || (record && activeRecord.recordId !== record.recordId)) return;
   const contract = contractForBase(elements.operationBase.value);
   if (!contract) { toast('Selecione a Sub-base para definir o contrato e os valores dos serviços.', 'error'); return; }
   const priced = priceServiceForContract(item, contract);
   if (priced.referenceValue == null) { toast(`Serviço sem valor cadastrado para o contrato ${contract}.`, 'error'); return; }
   const catalogKey = item.catalogKey || item.catalogKeys?.[0] || '';
-  if (activeRecord.services.some((service) => service.catalogKey === catalogKey)) { toast('Este serviço já foi adicionado.', 'error'); return; }
+  if (activeRecord.services.some(service => catalogServiceIdentity(service) === catalogServiceIdentity(item))) { toast('Este serviço já foi adicionado.', 'error'); return; }
   activeRecord.contract = contract;
   activeRecord.services.push({ ...priced, lineId: generateUuid(), catalogKey, code: item.code, catalogText: item.catalogText || '', unit: item.unit || '', group: item.group || '', quantity: 1, totalValue: priced.referenceValue, origin: 'Emergência' });
   elements.serviceSearch.value = ''; elements.serviceResults.hidden = true; catalogResults = [];
@@ -1883,6 +1885,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       : !next.correctionMode && error?.code === 'CORRECTION_PERSISTENCE_MISMATCH'
         ? 'O servidor ainda não confirmou os dados da ocorrência. Os dados locais foram preservados; tente novamente.' : friendlyError(error);
     if (next.correctionMode) next.lastError = synchronizationFailureMessage(next.lastSyncError, next.lastError);
+    if (next.lastSyncError.catalogIssue) next.lastError += ' Os dados e as fotos neste aparelho foram preservados.';
     await save();
     if (error instanceof ApiError && error.code === 'AUTH_REQUIRED' && revision === sessionRevision) logout(); if (notify) toast(next.lastError, 'error', 5200); return next;
   } finally {
@@ -1896,7 +1899,8 @@ async function syncAll(notify = false) {
   if (syncRunning || !requestSession || requestSession.role !== 'field' || !navigator.onLine || (typeof updateApplying !== 'undefined' && updateApplying)) return;
   syncRunning = true; setBusy(elements.syncNowButton, true, 'Sincronizando…');
   try {
-    const queue = prioritizeQueue((await getAllRecords()).filter(record => sameUser(record.user, requestSession.user) && canQueueRetry(record, !notify)));
+    const owned = (await getAllRecords()).filter(record => sameUser(record.user, requestSession.user) && canQueueRetry(record, !notify));
+    const queue = prioritizeQueue(owned.filter(record => !catalogQueueIssue(record)));
     let completed = 0; let pending = 0;
     for (const record of queue) {
       if (session?.token !== requestSession.token) break;
@@ -1906,7 +1910,7 @@ async function syncAll(notify = false) {
       }
       catch (error) { pending += 1; console.error('[Fila] Falha local em uma ocorrência; os próximos itens continuam.', { recordId: record.recordId, code: error?.code || error?.name }); }
     }
-    if (notify && session?.token === requestSession.token) toast(queue.length ? `${completed} ${completed === 1 ? 'ocorrência sincronizada' : 'ocorrências sincronizadas'}; ${pending} ${pending === 1 ? 'continua pendente' : 'continuam pendentes'}.${pending ? ' Consulte os erros e tente novamente.' : ''}` : 'Nenhum registro pendente.', pending ? 'error' : 'success');
+    if (notify && session?.token === requestSession.token) toast(queue.length ? `${completed} ${completed === 1 ? 'ocorrência sincronizada' : 'ocorrências sincronizadas'}; ${pending} ${pending === 1 ? 'continua pendente' : 'continuam pendentes'}.${pending ? ' Consulte a fila de sincronização.' : ''}` : owned.length ? 'Confira os serviços indicados na fila de sincronização.' : 'Nenhum registro pendente.', pending ? 'error' : 'success');
   } catch (error) {
     console.error('[Fila] Falha ao verificar a fila.', error);
     if (notify) toast('Não foi possível verificar a fila. Tente novamente.', 'error');
@@ -1948,9 +1952,15 @@ function renderSyncQueue(summary) {
       const busy = recordSyncPromises.has(record.recordId);
       const controls = record.lastSyncError?.code === 'DATA_COMMIT_CONFLICT'
         ? `<button class="button button--warning button--small" type="button" data-review-sync-record="${escapeHtml(record.recordId)}">Revisar divergência</button>`
-        : canQueueRetry(record) ? `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}" ${busy || !navigator.onLine ? 'disabled' : ''}>${record.lastError ? 'Tentar novamente' : 'Sincronizar agora'}</button>` : '';
+        : catalogQueueButton(record, busy) || (canQueueRetry(record) ? `<button class="button button--ghost button--small" type="button" data-sync-record="${escapeHtml(record.recordId)}" ${busy || !navigator.onLine ? 'disabled' : ''}>${record.lastError ? 'Tentar novamente' : 'Sincronizar agora'}</button>` : '');
       return syncQueueMarkup(record, { online: navigator.onLine, busy, localSlots: slots.get(record.recordId) || [] }, controls);
     }).join('');
+}
+
+function catalogQueueButton(record, busy = false) {
+  const issue = catalogQueueIssue(record);
+  if (!issue || !canQueueRetry(record)) return '';
+  return `<button class="button button--warning button--small" type="button" data-review-queue-service="${escapeHtml(record.recordId)}" ${busy ? 'disabled' : ''}>${issue.reason ? 'Revisar serviço ' + issue.serviceIndex : 'Verificar catálogo e sincronizar'}</button>`;
 }
 
 async function testConnection(notify = true) {
@@ -2081,7 +2091,7 @@ function renderMineList() {
     const actions = [`<button class="button button--ghost button--small" type="button" data-mine-action="view" data-record-id="${escapeHtml(record.recordId)}">Ver ocorrência</button>`];
     if (record.status === RECORD_STATUS.DRAFT) actions.push(`<button class="button button--primary button--small" type="button" data-mine-action="continue" data-record-id="${escapeHtml(record.recordId)}">Continuar</button>`);
     else if (record.status === RECORD_STATUS.CORRECTION_REQUESTED && !correctionTiming(record).expired && record.audit?.lastCorrectionRequest?.routingVersion !== 'FISCAL_ASSIGNED') actions.push(`<button class="button button--warning button--small" type="button" data-mine-action="correct" data-record-id="${escapeHtml(record.recordId)}">Corrigir</button>`);
-    else if (SYNCABLE_STATUSES.has(record.status)) actions.push(`<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">${dataCommitPendingPhotos(record) ? 'Sincronizar fotos' : 'Sincronizar agora'}</button>`);
+    else if (SYNCABLE_STATUSES.has(record.status)) actions.push(catalogQueueButton(record, recordSyncPromises.has(record.recordId)) || `<button class="button button--ghost button--small" type="button" data-mine-action="sync" data-record-id="${escapeHtml(record.recordId)}">${dataCommitPendingPhotos(record) ? 'Sincronizar fotos' : 'Sincronizar agora'}</button>`);
     const action = `<div class="button-row">${actions.join('')}</div>`;
     return recordCard(record, action);
   }).join('');
@@ -2209,6 +2219,110 @@ function openScrollableDialog(dialog, body) {
   requestAnimationFrame(() => { body.scrollTop = 0; });
 }
 
+async function reviewQueuedService(recordId) {
+  const requestSession = session, revision = sessionRevision;
+  if (requestSession?.role !== 'field' || recordSyncPromises.has(recordId)) return;
+  const sameSession = () => revision === sessionRevision && session?.token === requestSession.token;
+  const local = await getRecord(recordId);
+  if (!sameSession() || !local || !sameUser(local.user, requestSession.user) || !canQueueRetry(local)) return;
+  const issue = catalogQueueIssue(local);
+  if (!issue) return;
+  if (!issue.reason) {
+    if (navigator.onLine) return syncSingleRecord(recordId);
+    toast('Conecte-se à internet para conferir o catálogo da Emergência.');
+    return;
+  }
+  const position = issue.serviceIndex - 1;
+  const previous = local.services?.[position];
+  const contract = contractForBase(local.base);
+  if (!previous || !contract || local.syncProgress?.dataConfirmed || local.syncProgress?.serverRecordSeen) {
+    toast('Solicite ao Supervisor a conferência desta ocorrência. O registro local foi preservado.', 'error');
+    return;
+  }
+  const quantityOnly = issue.reason === 'INVALID_QUANTITY';
+  const { mineDetailDialog: dialog, mineDetailContent: content } = elements;
+  elements.mineDetailTitle.textContent = `Revisar serviço ${issue.serviceIndex} · ${local.occurrenceNumber || 'Ocorrência'}`;
+  content.innerHTML = `<section class="audit-entry">
+    <strong>${escapeHtml(previous.code || 'Serviço sem código')}</strong>
+    <p>${escapeHtml(previous.catalogText || 'Sem descrição')} · ${escapeHtml(previous.unit || '—')} · ${escapeHtml(previous.group || '—')}</p>
+    <p>Valor unitário salvo: ${escapeHtml(servicePriceText(previous))} · Contrato ${escapeHtml(contract)}</p>
+    <p>${escapeHtml(local.lastError || 'Confira o catálogo da Emergência.')}</p>
+    <div class="readonly-grid">
+      <label class="field"><span>Quantidade</span><input data-queue-quantity inputmode="decimal" value="${escapeHtml(previous.quantity ?? '')}" /></label>
+      ${quantityOnly ? '' : `<label class="field"><span>Código ou descrição</span><input data-queue-search maxlength="120" value="${escapeHtml(previous.code || '')}" /></label>`}
+    </div>
+    ${quantityOnly ? '' : `<button class="button button--ghost" type="button" data-queue-find>Buscar em Emergência</button>
+      <label class="field"><span>Serviço no catálogo</span><select data-queue-selection disabled><option value="">Selecione um serviço</option></select></label>`}
+    <p data-queue-review-status role="status" aria-live="polite"></p>
+    <button class="button button--primary" type="button" data-queue-save>Salvar e sincronizar</button>
+  </section>`;
+  const status = $('[data-queue-review-status]', content);
+  const save = $('[data-queue-save]', content);
+  const quantityInput = $('[data-queue-quantity]', content);
+  const search = $('[data-queue-search]', content);
+  const find = $('[data-queue-find]', content);
+  const select = $('[data-queue-selection]', content);
+  const isCurrent = () => sameSession() && dialog.open && content.contains(save);
+  let results = [], searchId = 0;
+  const lookup = async () => {
+    const query = search.value.trim(), id = ++searchId;
+    select.disabled = true;
+    select.length = 1;
+    results = [];
+    if (!navigator.onLine || query.length < 2) {
+      status.textContent = navigator.onLine ? 'Digite pelo menos dois caracteres.' : 'Conecte-se à internet para consultar a aba Emergência.';
+      return;
+    }
+    status.textContent = 'Consultando a aba Emergência…';
+    try {
+      const response = await api.searchCatalog(requestSession.token, query, 40, contract);
+      if (!isCurrent() || searchId !== id) return;
+      results = normalizeServices(response.results).map(item => priceServiceForContract(item, contract));
+      for (const [index, item] of results.entries()) {
+        const note = item.catalogAmbiguous ? 'Cadastro duplicado · consulte o Supervisor' : servicePriceText(item);
+        const option = new Option([item.code, item.catalogText, item.unit, item.group, note].filter(Boolean).join(' · '), index);
+        option.disabled = item.catalogAmbiguous || item.referenceValue == null || item.referenceValue < 0 || !item.unit;
+        select.add(option);
+      }
+      select.disabled = results.length === 0;
+      status.textContent = results.length ? 'Confira a descrição, a unidade e o valor antes de salvar.' : 'Nenhum serviço encontrado. Pesquise por outro código ou descrição.';
+    } catch (error) { if (isCurrent() && id === searchId) status.textContent = friendlyError(error); }
+  };
+  find?.addEventListener('click', lookup);
+  search?.addEventListener('input', () => { searchId++; select.disabled = true; select.length = 1; results = []; });
+  search?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); void lookup(); }
+  });
+  save.addEventListener('click', async () => {
+    if (!isCurrent()) return;
+    if (!navigator.onLine) { status.textContent = 'Conecte-se à internet para continuar.'; return; }
+    const quantity = parseServiceQuantity(quantityInput.value);
+    if (!Number.isFinite(quantity) || quantity <= 0) { status.textContent = 'Informe uma quantidade positiva.'; return; }
+    const chosen = quantityOnly ? previous : select.value && results[Number(select.value)];
+    if (!chosen || (!quantityOnly && (select.selectedOptions[0]?.disabled || select.disabled))) {
+      status.textContent = 'Selecione o serviço correto no catálogo.'; return;
+    }
+    const totalValue = Math.round(chosen.referenceValue * quantity * 100) / 100;
+    if (!Number.isFinite(totalValue)) { status.textContent = 'Informe uma quantidade que resulte em um total válido.'; return; }
+    const services = local.services.slice();
+    services[position] = { ...chosen, lineId: quantityOnly ? previous.lineId : generateUuid(), quantity, totalValue };
+    const updated = { ...local, services, totalServices: occurrenceSnapshotTotal(services, local.audit?.pendingServices, recordId),
+      status: RECORD_STATUS.PENDING, syncPhase: 'saved', lastError: '', lastSyncError: null };
+    setBusy(save, true, 'Salvando…');
+    try {
+      await putRecord(updated, { expectedUpdatedAt: String(local.updatedAt || '') });
+      if (!sameSession()) return;
+      if (dialog.open && content.contains(save)) dialog.close();
+      await syncSingleRecord(recordId);
+    } catch (error) {
+      if (isCurrent()) status.textContent = friendlyError(error);
+      else if (sameSession()) toast(friendlyError(error), 'error');
+    } finally { setBusy(save, false); }
+  });
+  openScrollableDialog(dialog, content);
+  if (search?.value.trim().length >= 2) void lookup();
+}
+
 async function reviewDataCommitConflict(recordId) {
   const requestSession = session, revision = sessionRevision;
   if (requestSession?.role !== 'field') return;
@@ -2253,6 +2367,8 @@ async function reviewDataCommitConflict(recordId) {
 
 async function handleMineAction(event) {
   if (event.target.closest('[data-mine-retry]')) return refreshMine(true);
+  const catalog = event.target.closest('[data-review-queue-service]');
+  if (catalog) return runLocalAction(reviewQueuedService, catalog.dataset.reviewQueueService);
   const review = event.target.closest('[data-review-sync-record]');
   if (review) return runLocalAction(reviewDataCommitConflict, review.dataset.reviewSyncRecord);
   const button = event.target.closest('[data-mine-action]'); if (!button) return; const recordId = button.dataset.recordId;
@@ -2949,11 +3065,12 @@ function searchSupervisorCatalog() {
 function selectSupervisorCatalogItem(event) {
   const button = event.target.closest('[data-edit-catalog-index]'); if (!button || !supervisorEditRecord) return;
   const item = supervisorEditCatalogResults[Number(button.dataset.editCatalogIndex)]; if (!item) return;
+  if (item.catalogAmbiguous) { elements.supervisorEditErrors.textContent = 'Cadastro duplicado. Solicite a conferência da aba Emergência.'; return; }
   const contract = contractForBase(elements.editOperationBase.value);
   if (!contract) { elements.supervisorEditErrors.textContent = 'Selecione a Sub-base para definir o contrato e os valores dos serviços.'; return; }
   const priced = priceServiceForContract(item, contract);
   if (priced.referenceValue == null) { elements.supervisorEditErrors.textContent = `Serviço sem valor cadastrado para o contrato ${contract}.`; return; }
-  const existing = supervisorEditRecord.services.find((service) => service.catalogKey === item.catalogKey && service.code === item.code);
+  const existing = supervisorEditRecord.services.find(service => catalogServiceIdentity(service) === catalogServiceIdentity(item));
   if (existing) existing.quantity = Math.max(1, parseServiceQuantity(existing.quantity) || 1);
   else supervisorEditRecord.services.push({ ...priced, lineId: generateUuid(), quantity: 1, totalValue: priced.referenceValue });
   elements.editServiceSearch.value = ''; elements.editServiceResults.hidden = true; renderSupervisorEditServices();
@@ -2964,6 +3081,9 @@ function handleSupervisorServiceEdit(event) {
   const remove = event.target.closest('[data-edit-remove-service]'); if (remove) { supervisorEditRecord.services = supervisorEditRecord.services.filter((service) => service.lineId !== remove.dataset.editRemoveService); renderSupervisorEditServices(); return; }
   const input = event.target.closest('[data-edit-service-quantity]'); if (!input) return;
   const service = supervisorEditRecord.services.find((item) => item.lineId === input.dataset.editServiceQuantity); if (!service) return;
+  if (parseServiceQuantity(service.quantity) !== parseServiceQuantity(input.value)) {
+    service.totalValue = occurrenceSnapshotTotal([{ ...service, quantity: input.value }], activeSupervisorRecord?.services, supervisorEditRecord.recordId);
+  }
   service.quantity = input.value; if (event.type === 'input') { const total = input.closest('.selected-service')?.querySelector('.field--wide strong'); if (total) total.textContent = formatCurrency(serviceTotal(service)); }
 }
 
@@ -3281,7 +3401,7 @@ async function openMonitoring(section, recordId = '') {
   const revision = sessionRevision;
   try {
     if (!monitorController) {
-      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.26.1').catch(error => { monitorImport = null; throw error; });
+      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.26.2').catch(error => { monitorImport = null; throw error; });
       const { createSupervisorMonitoring } = await monitorImport;
       if (sessionRevision !== revision) return;
       monitorController ||= createSupervisorMonitoring({ getSession: () => session, getRevision: () => sessionRevision, onDetail: openMonitoredOccurrence, onAuthFailure: logout });

@@ -1,8 +1,14 @@
-import { escapeHtml, formatDateTime, normalizeOccurrenceTypes, normalizePhotoStates, RECORD_STATUS } from './core.js?v=2026.11.26.1';
+import { escapeHtml, formatDateTime, normalizeOccurrenceTypes, normalizePhotoStates, RECORD_STATUS } from './core.js?v=2026.11.26.2';
 
 const text = value => escapeHtml(String(value ?? ''));
 const syncable = new Set([RECORD_STATUS.PENDING, RECORD_STATUS.SYNCING_DATA, RECORD_STATUS.SYNCING_PHOTOS, RECORD_STATUS.ERROR]);
 export const partiallyConfirmed = record => record.syncProgress?.dataConfirmed === true || record.serverConfirmed === true;
+
+export function catalogQueueIssue(record) {
+  if (record.lastSyncError?.catalogIssue) return record.lastSyncError.catalogIssue;
+  if (record.lastSyncError?.code === 'CATALOG_MISMATCH' || /O serviço \d+ diverge da aba Emergência\./i.test(record.lastError || '')) return {};
+  return null;
+}
 
 export function prioritizeQueue(records) {
   return [...records].sort((left, right) => Number(partiallyConfirmed(right)) - Number(partiallyConfirmed(left))
@@ -10,7 +16,8 @@ export function prioritizeQueue(records) {
 }
 
 export function canQueueRetry(record, automatic = false) {
-  return !['CORRECTION_DEADLINE_EXPIRED', 'RECORD_REMOVED'].includes(record.lastSyncError?.code) && syncable.has(record.status) && record.lastSyncError?.code !== 'DATA_COMMIT_CONFLICT' && (!automatic || (record.attempts || 0) < 3);
+  return !['CORRECTION_DEADLINE_EXPIRED', 'RECORD_REMOVED', 'DATA_COMMIT_CONFLICT'].includes(record.lastSyncError?.code)
+    && syncable.has(record.status) && (!automatic || (!catalogQueueIssue(record) && (record.attempts || 0) < 3));
 }
 
 export function synchronizationQueueState(record, { online, busy = false, localSlots }) {
@@ -24,11 +31,13 @@ export function synchronizationQueueState(record, { online, busy = false, localS
   const data = partiallyConfirmed(record);
   const complete = record.syncPhase === 'confirmed';
   const error = record.status === RECORD_STATUS.ERROR || record.syncPhase === 'error';
+  const catalogIssue = catalogQueueIssue(record);
   const phase = complete ? 'CONCLUÍDO' : !online ? 'AGUARDANDO CONEXÃO'
     : busy ? record.syncPhase === 'photos' ? 'SINCRONIZANDO FOTOS' : record.syncPhase === 'confirming' ? 'AGUARDANDO CONFIRMAÇÃO' : 'ENVIANDO DADOS'
-      : error ? 'ERRO RECUPERÁVEL' : data ? 'DADOS CONFIRMADOS' : 'SALVO LOCALMENTE';
+      : catalogIssue?.reason ? 'REVISÃO DE SERVIÇO' : error ? 'ERRO RECUPERÁVEL' : data ? 'DADOS CONFIRMADOS' : 'SALVO LOCALMENTE';
   const action = complete ? 'Envio confirmado' : !online ? 'Aguardar conexão'
     : record.lastSyncError?.code === 'DATA_COMMIT_CONFLICT' ? 'Revisar divergência'
+      : !busy && catalogIssue ? catalogIssue.reason ? 'Revisar serviço ' + catalogIssue.serviceIndex : 'Conferir catálogo'
       : busy && record.syncPhase === 'confirming' ? 'Conferir recibo do servidor' : next && data ? 'Foto ' + next.photoIndex
         : data ? 'Conferir recibo do servidor' : 'Confirmar dados no servidor';
   return { phase, action, complete, data, local: photos.filter(photo => local.has(photo.photoIndex)).length, confirmed: confirmed.length, total: target.length };

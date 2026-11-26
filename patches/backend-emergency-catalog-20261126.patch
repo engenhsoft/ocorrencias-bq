@@ -1,0 +1,197 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -6,5 +6,5 @@
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.11.26.1',
++  version: '2026.11.26.2',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+@@ -165,28 +165,48 @@
+ }
+
++function readServiceCatalog_() {
++  const sheet = sheet_(APP.catalogSheet);
++  const lastRow = sheet.getLastRow();
++  const rows = lastRow < 3 ? [] : sheet.getRange(3, 1, lastRow - 2, 9).getDisplayValues();
++  const entries = [];
++  const byCode = new Map();
++  rows.forEach(function (row, offset) {
++    const code = cleanText_(row[0], 120);
++    if (!code) return;
++    const entry = { catalogKey: APP.catalogSheet + ':' + (offset + 3), code: code,
++      catalogText: cleanText_(row[1], 1000), unit: cleanText_(row[2], 80), group: cleanText_(row[3], 180),
++      contractValues: { '4600080938': parseOptionalNumber_(row[7]), '4600080939': parseOptionalNumber_(row[8]) } };
++    entries.push(entry);
++    if (!byCode.has(code)) byCode.set(code, []);
++    byCode.get(code).push(entry);
++  });
++  return { entries: entries, byCode: byCode };
++}
++
++const BQ_CATALOG_IDENTITY_FIELDS = ['catalogText', 'unit', 'group'];
++
++function catalogIdentityMatches_(left, right) {
++  return BQ_CATALOG_IDENTITY_FIELDS.every(function (field) {
++    return Object.prototype.hasOwnProperty.call(left, field) && String(left[field] == null ? '' : left[field]).trim() === right[field];
++  });
++}
++
+ function searchCatalog_(payload) {
+   requireSession_(payload.token, ['field', 'supervisor', 'fiscal']);
+   const query = cleanText_(payload.query, 120);
+   if (query.length < 2) return { ok: true, success: true, results: [] };
+-  const normalized = normalize_(query);
+-  const terms = normalized.split(/\s+/).filter(Boolean);
++  const terms = normalize_(query).split(/\s+/).filter(Boolean);
+   const limit = Math.min(APP.maxCatalogResults, Math.max(1, Number(payload.limit) || 25));
+-  const sheet = sheet_(APP.catalogSheet);
+-  const lastRow = sheet.getLastRow();
+-  if (lastRow < 3) return { ok: true, success: true, results: [] };
+-  const values = sheet.getRange(3, 1, lastRow - 2, 9).getDisplayValues();
++  const catalog = readServiceCatalog_();
+   const requestedContract = validContract_(payload.contract) ? String(payload.contract) : '';
+   const results = [];
+-  for (let offset = 0; offset < values.length && results.length < limit; offset += 1) {
+-    const row = values[offset];
+-    const code = cleanText_(row[0], 120);
+-    const description = cleanText_(row[1], 1000);
+-    const unit = cleanText_(row[2], 80);
+-    const group = cleanText_(row[3], 180);
+-    const contractValues = { '4600080938': parseOptionalNumber_(row[7]), '4600080939': parseOptionalNumber_(row[8]) };
+-    if (!code || !description) continue;
+-    const haystack = normalize_([code, description, group].join(' '));
++  for (const entry of catalog.entries) {
++    if (results.length >= limit) break;
++    if (!entry.catalogText) continue;
++    const haystack = normalize_([entry.code, entry.catalogText, entry.group].join(' '));
+     if (!terms.every(function (term) { return haystack.indexOf(term) >= 0; })) continue;
+-    results.push({ catalogKey: APP.catalogSheet + ':' + (offset + 3), code: code, catalogText: description, unit: unit, group: group, contractValues: contractValues, referenceValue: requestedContract ? contractValues[requestedContract] : null, contract: requestedContract, origin: APP.catalogSheet });
++    const catalogAmbiguous = catalog.byCode.get(entry.code).filter(function (candidate) { return catalogIdentityMatches_(entry, candidate); }).length > 1;
++    results.push(Object.assign({}, entry, { catalogAmbiguous: catalogAmbiguous,
++      referenceValue: requestedContract ? entry.contractValues[requestedContract] : null, contract: requestedContract, origin: APP.catalogSheet }));
+   }
+   return { ok: true, success: true, results: results };
+@@ -1286,5 +1306,8 @@
+   else if (options.serviceMode === 'edit') model.services = servicesForSupervisorEdit_(record.services, options.original.services, contractForBase_(model.base));
+   else if (options.serviceMode === 'fieldEdit') model.services = servicesForSupervisorEdit_(record.services, options.original.services, contractForBase_(model.base), model.recordId);
+-  else model.services = record.services.map(function (service, index) { return validateCatalogService_(service, index, model.contract); });
++  else {
++    const catalog = readServiceCatalog_();
++    model.services = record.services.map(function (service, index) { return validateCatalogService_(service, index, model.contract, catalog); });
++  }
+   if (!Array.isArray(record.materials) || (!record.materials.length && options.serviceMode !== 'snapshot')) throw apiError_('MATERIAL_REQUIRED', 'Informe o material aplicado.');
+   model.materials = record.materials.map(function (material, index) {
+@@ -1334,5 +1357,5 @@
+
+ function servicesForSupervisorEdit_(submitted, original, contract, fieldRecordId) {
+-  const used = {};
++  const used = {}; let catalog;
+   return submitted.map(function (service, index) {
+     const previousIndex = (original || []).findIndex(function (previous, position) {
+@@ -1344,5 +1367,8 @@
+     const previous = previousIndex >= 0 ? original[previousIndex] : null;
+     if (previousIndex >= 0) used[previousIndex] = true;
+-    if (!previous || !sameSnapshotService_(previous, service)) return validateCatalogService_(service, index, contract);
++    if (!previous || !sameSnapshotService_(previous, service)) {
++      catalog = catalog || readServiceCatalog_();
++      return validateCatalogService_(service, index, contract, catalog);
++    }
+     const snapshot = validateServiceSnapshot_(previous, index);
+     if (fieldRecordId && (!cleanText_(snapshot.unit, 80) || ['4600080938', '4600080939'].indexOf(String(snapshot.contract || '')) < 0)) throw apiError_('INVALID_SERVICE_SNAPSHOT', 'O snapshot histórico do serviço ' + (index + 1) + ' não possui unidade ou contrato válido.');
+@@ -1359,16 +1385,61 @@
+ }
+
+-function validateCatalogService_(service, index, contract) {
+-  const catalogKey = cleanText_(service.catalogKey, 160); const match = catalogKey.match(/^Emergência:(\d+)$/);
+-  if (!match) throw apiError_('INVALID_SERVICE', 'O serviço ' + (index + 1) + ' não pertence à aba Emergência.');
+-  const rowNumber = Number(match[1]); if (rowNumber < 3) throw apiError_('INVALID_SERVICE', 'Serviço inválido.');
+-  const row = sheet_(APP.catalogSheet).getRange(rowNumber, 1, 1, 9).getDisplayValues()[0];
+-  const valueColumn = contract === '4600080938' ? 7 : 8;
+-  const authoritative = { code: cleanText_(row[0], 120), catalogText: cleanText_(row[1], 1000), unit: cleanText_(row[2], 80), group: cleanText_(row[3], 180), referenceValue: parseOptionalNumber_(row[valueColumn]) };
+-  if (!authoritative.code || normalize_(authoritative.code) !== normalize_(service.code)) throw apiError_('CATALOG_MISMATCH', 'O serviço ' + (index + 1) + ' diverge da aba Emergência. Pesquise novamente.');
+-  if (authoritative.referenceValue == null) throw apiError_('SERVICE_PRICE_NOT_FOUND', 'O serviço ' + authoritative.code + ' não possui valor para o contrato ' + contract + '.');
+-  if (!authoritative.catalogText || !authoritative.unit || !Number.isFinite(authoritative.referenceValue) || authoritative.referenceValue < 0) throw apiError_('INVALID_SERVICE', 'O serviço ' + (index + 1) + ' possui dados inválidos no catálogo atual.');
+-  const quantityText = String(service.quantity == null ? '' : service.quantity).trim().replace(',', '.'); const quantity = /^\d+(?:\.\d+)?$/.test(quantityText) ? Number(quantityText) : NaN; if (!Number.isFinite(quantity) || quantity <= 0) throw apiError_('INVALID_QUANTITY', 'Informe uma QTD positiva no serviço ' + (index + 1) + '.');
+-  return { lineId: cleanText_(service.lineId, 80), catalogKey: catalogKey, code: authoritative.code, catalogText: authoritative.catalogText, unit: authoritative.unit, group: authoritative.group, contract: contract, referenceValue: authoritative.referenceValue, quantity: quantity, totalValue: roundMoney_(authoritative.referenceValue * quantity), origin: APP.catalogSheet };
++function validateCatalogService_(service, index, contract, catalog) {
++  const fail = function (code, reason, message, fields) {
++    throw apiError_(code, 'Serviço ' + (index + 1) + ': ' + message,
++      { catalogIssue: { serviceIndex: index + 1, reason: reason, fields: fields } });
++  };
++  const catalogKey = cleanText_(service?.catalogKey, 160);
++  const code = cleanText_(service?.code, 120);
++  const match = catalogKey.match(/^Emergência:(\d+)$/);
++  if (!code || !match || !Number.isSafeInteger(Number(match[1])) || Number(match[1]) < 3) {
++    fail('INVALID_SERVICE', 'INVALID_REFERENCE', 'selecione um serviço válido da aba Emergência.', ['code', 'catalogKey']);
++  }
++  if (!validContract_(contract)) fail('INVALID_SERVICE', 'INVALID_CONTRACT', 'o contrato da ocorrência está inválido.', ['contract']);
++  const candidates = (catalog || readServiceCatalog_()).byCode.get(code) || [];
++  if (!candidates.length) fail('CATALOG_MISMATCH', 'NOT_FOUND', 'o código não foi localizado na aba Emergência. Pesquise e selecione o serviço correto.', ['code']);
++  const atReference = candidates.find(function (entry) { return entry.catalogKey === catalogKey; });
++  const authoritative = candidates.length === 1 ? candidates[0] : atReference;
++  if (candidates.length > 1) {
++    const equivalent = candidates.filter(function (entry) { return catalogIdentityMatches_(service, entry); });
++    if (equivalent.length !== 1 || equivalent[0] !== atReference) {
++      fail('CATALOG_MISMATCH', 'AMBIGUOUS', 'há mais de um serviço com este código. Confira descrição, unidade e grupo. Se continuarem iguais, procure o Supervisor.', ['code', 'catalogText', 'unit', 'group']);
++    }
++  }
++  const moved = authoritative.catalogKey !== catalogKey;
++  const includes = function (field) { return Object.prototype.hasOwnProperty.call(service, field); };
++  const changed = BQ_CATALOG_IDENTITY_FIELDS.filter(function (field) {
++    return (moved || includes(field)) && (!includes(field) || String(service[field] == null ? '' : service[field]).trim() !== authoritative[field]);
++  });
++  if ((moved || includes('origin')) && cleanText_(service.origin, 80) !== APP.catalogSheet) changed.push('origin');
++  if (changed.length) fail('CATALOG_MISMATCH', 'IDENTITY_CHANGED', 'os campos selecionados divergem da aba Emergência. Confira o serviço atual antes de continuar.', changed);
++  if ((moved || includes('contract')) && String(service.contract || '').trim() !== contract) {
++    fail('CATALOG_MISMATCH', 'CONTRACT_CHANGED', 'o contrato diverge do autorizado para a ocorrência. Confira o serviço para o contrato ' + contract + '.', ['contract']);
++  }
++  const referenceValue = authoritative.contractValues[contract];
++  if (referenceValue == null) fail('SERVICE_PRICE_NOT_FOUND', 'PRICE_NOT_FOUND', 'o catálogo não tem valor para o contrato ' + contract + '. Consulte o Supervisor ou selecione outro serviço válido.', ['referenceValue']);
++  if (!authoritative.catalogText || !authoritative.unit || !Number.isFinite(referenceValue) || referenceValue < 0) {
++    fail('INVALID_SERVICE', 'INVALID_CATALOG_ENTRY', 'há dados inválidos no cadastro deste serviço. Consulte o Supervisor ou selecione outro serviço válido.', ['catalogText', 'unit', 'referenceValue']);
++  }
++  const quantity = snapshotQuantity_(service.quantity);
++  if (!Number.isFinite(quantity) || quantity <= 0) fail('INVALID_QUANTITY', 'INVALID_QUANTITY', 'informe uma quantidade positiva.', ['quantity']);
++  const totalValue = roundMoney_(referenceValue * quantity);
++  if (!Number.isFinite(totalValue)) fail('INVALID_QUANTITY', 'INVALID_QUANTITY', 'informe uma quantidade que resulte em um total válido.', ['quantity']);
++  if ((moved || includes('referenceValue')) && !catalogAmountMatches_(service.referenceValue, referenceValue)) {
++    fail('CATALOG_MISMATCH', 'PRICE_CHANGED', 'o valor unitário diverge do catálogo vigente. Confira e confirme o serviço com o valor atual.', ['referenceValue']);
++  }
++  if ((moved || includes('totalValue')) && !catalogAmountMatches_(service.totalValue, totalValue)) {
++    fail('CATALOG_MISMATCH', 'TOTAL_CHANGED', 'o total diverge do valor calculado para esta quantidade. Confira o serviço e a quantidade.', ['totalValue']);
++  }
++  // The submitted key identifies the selection in legacy readback receipts.
++  // The current row and all financial values were resolved using the sheet.
++  return { lineId: cleanText_(service.lineId, 80), catalogKey: catalogKey, code: authoritative.code,
++    catalogText: authoritative.catalogText, unit: authoritative.unit, group: authoritative.group,
++    contract: contract, referenceValue: referenceValue, quantity: quantity, totalValue: totalValue, origin: APP.catalogSheet };
++}
++
++function catalogAmountMatches_(reported, expected) {
++  const value = snapshotNumber_(reported);
++  return Number.isFinite(value) && Math.abs(value - expected) <= Number.EPSILON * Math.max(1, expected);
+ }
+
+@@ -3088,5 +3159,5 @@
+ }
+
+-function bqTechnicalError_(action, code, auth, id, correlation, version, origin, stage, fields) {
++function bqTechnicalError_(action, code, auth, id, correlation, version, origin, stage, fields, catalogIssue) {
+   if (!Object.prototype.hasOwnProperty.call(BQ_MONITOR.errorModules, action)) return false;
+   const normalized = bqKnownError_(String(code || '')) ? String(code) : 'SERVER_ERROR';
+@@ -3109,5 +3180,5 @@
+     module: module, role: role, recordId: recordId, severity: critical ? 'CRÍTICO' : 'ATENÇÃO',
+     correlationId: bqUuid_(correlation) || Utilities.getUuid(), frontendVersion: bqVersion_(version),
+-    origin: origin, resolution: 'SEM_RESOLUÇÃO_REGISTRADA', ...(columns.length ? { columns: columns } : {}) });
++    origin: origin, resolution: 'SEM_RESOLUÇÃO_REGISTRADA', ...(columns.length ? { columns: columns } : {}), ...(catalogIssue ? { catalogIssue: catalogIssue } : {}) });
+ }
+
+@@ -3121,5 +3192,6 @@
+       PHOTO_WRITE_FAILED: 'upload_photo', PHOTO_COMMIT_UNCONFIRMED: 'confirm_photo' }[error.code];
+     bqTechnicalError_(action, error.code || 'SERVER_ERROR', auth, payload.recordId || payload.record && payload.record.recordId,
+-      payload.correlationId, payload.clientVersion, 'SERVIDOR', stage, error.details?.columns);
++      payload.correlationId, payload.clientVersion, 'SERVIDOR', error.details?.catalogIssue ? 'submit_data' : stage,
++      error.details?.columns, error.details?.catalogIssue);
+   } catch (failure) { /* Monitoring must never replace the original error. */ }
+ }

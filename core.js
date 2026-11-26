@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.11.26.1';
-export const APP_BUILD = '2026-11-26-hotfix-persistencia';
+export const APP_VERSION = '2026.11.26.2';
+export const APP_BUILD = '2026-11-26-hotfix-catalogo-emergencia';
 
 export const TEAM_GOAL = 6000;
 
@@ -64,6 +64,10 @@ export function contractValuesForService(service = {}) {
 export function serviceValueForContract(service, contract) {
   const value = contractValuesForService(service)[String(contract || '')];
   return Number.isFinite(value) ? value : null;
+}
+
+export function catalogServiceIdentity(service) {
+  return JSON.stringify(['code', 'catalogText', 'unit', 'group'].map(field => String(service?.[field] ?? '').trim()));
 }
 
 export function priceServiceForContract(service = {}, contract = '') {
@@ -362,9 +366,15 @@ export function synchronizationDiagnostic(error, progress = {}) {
   const types = ['TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'EvalError', 'URIError', 'NotReadableError', 'DataCloneError', 'QuotaExceededError', 'InvalidStateError'];
   const exception = types.find(type => error?.name === type || new RegExp(`\\b${type}\\b`).test(String(error?.message || ''))) || '';
   const code = /^[A-Z][A-Z0-9_]{1,63}$/.test(String(error?.code || '')) ? String(error.code) : exception ? exception.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase() : 'UNEXPECTED_ERROR';
+  const issue = error?.details?.details?.catalogIssue;
+  const catalogIssue = ['CATALOG_MISMATCH', 'SERVICE_PRICE_NOT_FOUND', 'INVALID_SERVICE', 'INVALID_QUANTITY'].includes(code)
+    && Number.isSafeInteger(issue?.serviceIndex) && issue.serviceIndex > 0
+    && ['INVALID_REFERENCE', 'INVALID_CONTRACT', 'NOT_FOUND', 'AMBIGUOUS', 'IDENTITY_CHANGED', 'CONTRACT_CHANGED',
+      'PRICE_NOT_FOUND', 'INVALID_CATALOG_ENTRY', 'INVALID_QUANTITY', 'PRICE_CHANGED', 'TOTAL_CHANGED'].includes(issue.reason)
+    ? { serviceIndex: issue.serviceIndex, reason: issue.reason } : null;
   return { stage: stages.includes(progress.stage) ? progress.stage : 'prepare', code, exception,
     photoIndex: Number.isInteger(progress.photoIndex) && progress.photoIndex >= 1 && progress.photoIndex <= 7 ? progress.photoIndex : 0,
-    dataConfirmed: progress.dataConfirmed === true };
+    dataConfirmed: progress.dataConfirmed === true, ...(catalogIssue ? { catalogIssue } : {}) };
 }
 
 export function synchronizationFailureMessage(diagnostic, fallback = '') {

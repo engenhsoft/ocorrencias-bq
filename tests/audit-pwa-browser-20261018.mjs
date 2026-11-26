@@ -72,6 +72,7 @@ const evidence = { suite: 'audit-pwa-browser-20261018', executedAt: new Date().t
 let executablePath = process.env.OCCBQ_CHROMIUM_EXECUTABLE;
 if (!executablePath) { try { await access('/usr/bin/chromium'); executablePath = '/usr/bin/chromium'; } catch { /* Use Playwright's configured browser. */ } }
 let browser, context;
+let pageNetwork;
 const external = [];
 async function check(name, run) {
   const started = performance.now();
@@ -162,9 +163,14 @@ try {
   await check('Offline reload serves the new release shell and matching core from its Service Worker', async () => {
     refuseSourceNetwork = true;
     await context.setOffline(true);
+    pageNetwork = await context.newCDPSession(page);
+    await pageNetwork.send('Network.overrideNetworkState', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(version => document.querySelector('#loginAppVersion')?.textContent === `v${version}`, newVersion);
     assert.equal(await page.evaluate(async version => (await import(`./core.js?v=${version}`)).APP_VERSION, newVersion), newVersion);
+    // Reloading a worker-controlled navigation can replace its renderer.
+    await pageNetwork.send('Network.overrideNetworkState', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await page.waitForFunction(() => navigator.onLine === false);
     assert.equal(await page.evaluate(() => navigator.onLine), false);
   });
   await check('The preserved UUID and Blob remain readable after the offline reload', async () => {
@@ -172,6 +178,8 @@ try {
   });
   await check('Safe update waits for a shared synchronization lock in another tab', async () => {
     refuseSourceNetwork = false; await context.setOffline(false);
+    await pageNetwork.send('Network.overrideNetworkState', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await pageNetwork.detach();
     const working = await context.newPage(); await working.goto(appUrl);
     await working.evaluate(async () => {
       await new Promise(ready => {

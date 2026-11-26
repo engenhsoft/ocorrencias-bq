@@ -19,6 +19,10 @@ const historical = (code = 'A', options = {}) => ({
   ...options
 });
 const catalogRow = (code = 'D', h = 150, i = 250) => [code, 'Descrição atual ' + code, 'M', 'Grupo atual', '999,00', '', '', String(h).replace('.', ','), String(i).replace('.', ',')];
+const selected = (code, quantity, price, contract = '4600080938') => ({
+  lineId: 'new-' + code, catalogKey: 'Emergência:3', code, catalogText: 'Descrição atual ' + code,
+  unit: 'M', group: 'Grupo atual', origin: 'Emergência', contract, quantity, referenceValue: price, totalValue: price * quantity
+});
 const recordFixture = (services = [historical()], options = {}) => ({
   recordId: UUID, registeredAt: '2026-09-25T11:00:00-03:00', user: 'Equipe TESTE', base: 'CARAÚBAS',
   contract: '4600080938', team: 'LM TESTE', crewLeader: 'Chefe TESTE', occurrenceNumber: 'NÚMERO-REPETÍVEL',
@@ -169,18 +173,18 @@ test('quantidade 3 → 4 usa 36,19 históricos e resulta em 144,76', () => {
 });
 test('historical A + novo B: somente B consulta H atual', () => {
   const h = fieldHarness([catalogRow('B', 15)]); const before = pgRecord([historical()]); h.seedCorrection(before);
-  const submitted = changePg(before); submitted.services.push(historical('B', { lineId: 'new-B', quantity: 2, referenceValue: 1, totalValue: 2 }));
+  const submitted = changePg(before); submitted.services.push(selected('B', 2, 15));
   assertResent(h, before, submitted, [before.services[0], { lineId: 'new-B', catalogKey: 'Emergência:3', code: 'B', catalogText: 'Descrição atual B', unit: 'M', group: 'Grupo atual', contract: '4600080938', referenceValue: 15, quantity: 2, totalValue: 30, origin: 'Emergência' }], 1);
 });
 test('remover A e selecionar B usa somente B atual', () => {
   const h = fieldHarness([catalogRow('B', 15)]); const before = pgRecord([historical()]); h.seedCorrection(before);
-  const submitted = changePg(before); submitted.services = [historical('B', { lineId: 'new-B', quantity: 1 })];
+  const submitted = changePg(before); submitted.services = [selected('B', 1, 15)];
   const expected = [{ lineId: 'new-B', catalogKey: 'Emergência:3', code: 'B', catalogText: 'Descrição atual B', unit: 'M', group: 'Grupo atual', contract: '4600080938', referenceValue: 15, quantity: 1, totalValue: 15, origin: 'Emergência' }];
   assertResent(h, before, submitted, expected, 1);
 });
 test('remover e reselecionar o mesmo código é seleção atual', () => {
   const h = fieldHarness([catalogRow('A', 15)]); const before = pgRecord([historical('A', { referenceValue: 10, totalValue: 100 })]); h.seedCorrection(before);
-  const submitted = changePg(before); submitted.services = [{ ...before.services[0], lineId: 'new-A', quantity: 2 }];
+  const submitted = changePg(before); submitted.services = [selected('A', 2, 15)];
   const result = h.submit(submitted); assert.equal(result.ok, true); assert.equal(result.record.services[0].referenceValue, 15); assert.equal(result.record.services[0].totalValue, 30); assert.equal(h.catalog.reads, 1);
 });
 test('A/B/C permanecem integralmente históricos após correção do PG', () => {
@@ -290,7 +294,7 @@ function fieldFormHarness() {
     clearPreviewUrls() {}, renderServices() {}, renderMaterials() {}, renderFieldCorrectionBanner() {}, updateContractOutput() {},
     renderAssignmentControls(edit, record) { elements.team.value = record.team || ''; elements.crewLeader.value = record.crewLeader || ''; },
     showDraftId() {}, updatePhotoGrid() {}, goToStep() {}, navigate() {}, assignmentError: () => '',
-    toast() {}, localStorage: { setItem() {} }, LAST_TEAM_KEY: 'fixture-team', getPhotosForRecord: async () => [], loadDailyProduction: async () => {},
+    toast() {}, localStorage: { setItem() {} }, LAST_TEAM_KEY: 'fixture-team', editingStorage: () => ({ getPhotosForRecord: async () => [] }), loadDailyProduction: async () => {},
     ensureActiveRecord: async () => context.activeRecord, saveActiveDraft: async () => {}, updateGoal() {}, putRecord: async () => {}
   });
   for (const name of ['syncFormToRecord', 'validateStepOne', 'loadRecordIntoForm', 'handleServiceChange', 'selectCatalogItem', 'applyContractToRecord']) vm.runInContext(extractApp(name), context);
@@ -344,7 +348,7 @@ test('troca de Base preserva histórico e reprecifica somente seleção atual', 
   assert.equal(c.activeRecord.services[1].contract, '4600080939');
 });
 for (const [base, contract, expected] of [['CAICÓ', '4600080938', 150], ['MOSSORÓ', '4600080939', 250]]) test('nova seleção em ' + base + ' usa H/I, nunca E', () => {
-  const h = fieldHarness(); const submitted = pgRecord([historical('D', { lineId: 'new-D', quantity: 2 })], { base, contract });
+  const h = fieldHarness(); const submitted = pgRecord([selected('D', 2, expected, contract)], { base, contract });
   const result = h.submit(submitted); assert.equal(result.record.services[0].referenceValue, expected); assert.equal(result.record.totalServices, expected * 2); assert.equal(h.catalog.reads, 1);
 });
 if (process.argv[3]) test('fixture operacional somente leitura: serviços, fotos e total preservados', async () => {
