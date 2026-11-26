@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.11.26.2';
-export const APP_BUILD = '2026-11-26-hotfix-catalogo-emergencia';
+export const APP_VERSION = '2026.11.26.3';
+export const APP_BUILD = '2026-11-26-hotfix-publicacao';
 
 export const TEAM_GOAL = 6000;
 

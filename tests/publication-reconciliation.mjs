@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 
 if (isMainThread && !process.argv[2]) throw Error('Informe o fonte privado do backend; fixtures read-only são um argumento opcional.');
@@ -53,6 +54,7 @@ class MemorySheet {
     const range = {
       getRow: () => row, getValues: read, getDisplayValues: () => read().map(r => r.map(v => String(v ?? ''))),
       getDisplayValue: () => String(read()[0][0]),
+      getFormula: () => h.formulas?.get(`${sheet.name}:${row}:${column}`) || '',
       setNumberFormat: () => range,
       setValue: value => range.setValues([[value]]),
       setValues: values => {
@@ -60,7 +62,15 @@ class MemorySheet {
         const event = { table: sheet.name, row, column, height, width, kind: 'setValues' };
         const prefixFailure = h.prefixFault && h.prefixFault.table === sheet.name && column === 1;
         const count = prefixFailure ? h.prefixFault.count : values.length;
-        sheet.mutate(rows => values.slice(0, count).forEach((r, y) => { const target = rows[row + y - 1] ||= []; r.forEach((value, x) => { target[column + x - 1] = value ?? ''; }); }));
+        sheet.mutate(rows => values.slice(0, count).forEach((r, y) => {
+          const target = rows[row + y - 1] ||= [];
+          r.forEach((value, x) => {
+            if (typeof value === 'string' && value.startsWith("'")) target[column + x - 1] = value.slice(1);
+            else if (h.parseLeadingZeros && [h.meta.APP.officialSheet, h.meta.APP.historySheet].includes(sheet.name)
+              && typeof value === 'string' && /^0\d+$/.test(value)) target[column + x - 1] = Number(value);
+            else target[column + x - 1] = value ?? '';
+          });
+        }));
         h.wrote(event);
         if (prefixFailure) { h.prefixFault = null; throw Error('Falha depois do prefixo já persistido'); }
         return range;
@@ -103,7 +113,11 @@ function harness({ source = backend, shared = null, actor = 'Supervisor FICTÍCI
     CacheService: { getScriptCache: () => ({ get: () => '1', getAll: keys => Object.fromEntries(keys.map(key => [key, '1'])), put() {} }) },
     DriveApp: { getFileById() { throw Error('Operação externa de Drive proibida'); } },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => properties.get(k), setProperty(k, v) { properties.set(k, v); h.propertyHook?.(k); }, deleteProperty: k => properties.delete(k) }) },
-    Utilities: { formatDate(date, zone, pattern) { const local = new Date(new Date(date).getTime() - 3 * 3600000).toISOString(); return pattern === 'yyyy-MM-dd' ? local.slice(0, 10) : local.slice(0, 19) + '-03:00'; } }
+    Utilities: {
+      formatDate(date, zone, pattern) { const local = new Date(new Date(date).getTime() - 3 * 3600000).toISOString(); return pattern === 'yyyy-MM-dd' ? local.slice(0, 10) : local.slice(0, 19) + '-03:00'; },
+      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      computeDigest: (_, value) => Array.from(createHash('sha256').update(String(value)).digest())
+    }
   });
   vm.runInContext(source + '\nthis.meta = { APP, COL, STATUS, MAIN_HEADERS, SERVICE_HEADERS, MATERIAL_HEADERS, HISTORY_HEADERS };', c); h.c = c; h.meta = c.meta;
   const { APP } = h.meta;
@@ -144,6 +158,99 @@ function seedPartial(h, tables) {
   if (tables.history) h.add(APP.historySheet, [expected.history]);
   return expected;
 }
+
+function seedPublicationWithPG(h, interrupted = false) {
+  const record = h.seed(fixture({ occurrenceTypes: ['SUBSTITUIÇÃO DE POSTE', 'SUBSTITUIÇÃO DE CONDUTOR'],
+    pgPostRemoved: '000000', pgPostInstalled: '001281', pgConductorStart: '001213', pgConductorEnd: '001214' }));
+  const { APP, COL } = h.meta;
+  const source = h.rows(APP.pendingSheet)[0];
+  const audit = JSON.parse(source[COL.AUDIT - 1]);
+  audit.lastCorrectionSubmission = { phase: 'COMPLETE', dataVerifiedAt: '2026-09-25T11:00:00-03:00',
+    expectedFingerprint: h.c.correctionFingerprint_(h.c.correctionDataFromValues_(source)) };
+  source[COL.AUDIT - 1] = JSON.stringify(audit);
+  const { expected } = h.plan();
+  if (interrupted) {
+    expected.main[COL.PG_POST_REMOVED - 1] = 0;
+    h.add(APP.officialSheet, [expected.main]);
+    h.add(APP.servicesSheet, expected.services);
+    h.add(APP.materialsSheet, expected.materials);
+  }
+  return { record, expected };
+}
+
+test('publicação nova preserva PGs no oficial e no histórico mesmo com conversão numérica da planilha', () => {
+  const h = harness(); const { record } = seedPublicationWithPG(h);
+  const { APP, COL } = h.meta;
+  h.parseLeadingZeros = true;
+  const result = h.approve();
+  assertComplete(h, record);
+  assert.equal(result.record.pgPostRemoved, '000000');
+  assert.equal(h.rows(APP.officialSheet)[0][COL.PG_POST_REMOVED - 1], '000000');
+  assert.deepEqual(h.rows(APP.historySheet)[0].slice(13, 17), ['000000', '001281', '001213', '001214']);
+});
+
+test('aprovação em lote restaura somente o identificador literal de uma linha parcial e conclui sobre os mesmos itens', () => {
+  const h = harness(); const { record } = seedPublicationWithPG(h, true); const { APP, COL } = h.meta;
+  const before = [plain(h.rows(APP.servicesSheet)), plain(h.rows(APP.materialsSheet))];
+  h.parseLeadingZeros = true;
+  const result = h.batch([UUID, UUID]);
+  assert.equal(result.approvedCount, 1);
+  assert.deepEqual([plain(h.rows(APP.servicesSheet)), plain(h.rows(APP.materialsSheet))], before);
+  assertComplete(h, record);
+  const row = h.rows(APP.officialSheet)[0];
+  assert.equal(row[COL.PG_POST_REMOVED - 1], '000000');
+  assert.deepEqual(JSON.parse(row[COL.AUDIT - 1]).publicationIdentifierRecovery.columns, ['PG POSTE RETIRADO']);
+  assert.ok(JSON.parse(row[COL.AUDIT - 1]).publicationIdentifierRecovery.confirmedAt);
+  assert.equal(h.approve().alreadyPublished, true);
+});
+
+for (const [name, alter] of [
+  ['valor textual diferente', (h, row) => { row[h.meta.COL.PG_POST_REMOVED - 1] = '0'; }],
+  ['outro valor numérico', (h, row) => { row[h.meta.COL.PG_POST_REMOVED - 1] = 1; }],
+  ['recibo divergente', (h, row) => {
+    const audit = JSON.parse(row[h.meta.COL.AUDIT - 1]);
+    audit.lastCorrectionSubmission.expectedFingerprint = 'outro';
+    row[h.meta.COL.AUDIT - 1] = JSON.stringify(audit);
+  }],
+  ['serviço divergente', h => { h.rows(h.meta.APP.servicesSheet)[0][5] = 15; }],
+  ['material divergente', h => { h.rows(h.meta.APP.materialsSheet)[0][2] = 30; }],
+  ['registro definitivo', (h, row) => {
+    const audit = JSON.parse(row[h.meta.COL.AUDIT - 1]);
+    audit.publicationState = 'PUBLICADA';
+    row[h.meta.COL.AUDIT - 1] = JSON.stringify(audit);
+  }],
+  ['evento final existente', (h, row, expected) => h.add(h.meta.APP.historySheet, [expected.history])],
+  ['correção posterior à preparação parcial', h => {
+    h.rows(h.meta.APP.pendingSheet)[0][h.meta.COL.OBSERVATION - 1] = 'Correção legítima posterior';
+  }]
+]) test('recuperação de identificador recusa ' + name + ' com zero escritas', () => {
+  const h = harness(); const { expected } = seedPublicationWithPG(h, true);
+  alter(h, h.rows(h.meta.APP.officialSheet)[0], expected);
+  assert.throws(() => h.approve(), error => error.code === 'PUBLISHED_RECONCILIATION_CONFLICT');
+  assert.equal(h.writes.length, 0);
+});
+
+test('uma fórmula numérica no campo oficial pede análise e permanece intacta', () => {
+  const h = harness(); seedPublicationWithPG(h, true);
+  const { APP, COL } = h.meta;
+  h.formulas = new Map([[`${APP.officialSheet}:2:${COL.PG_POST_REMOVED}`, '=0']]);
+  assert.throws(() => h.approve(), error => error.code === 'PUBLICATION_SOURCE_CHANGED');
+  assert.equal(h.writes.length, 0);
+});
+
+for (const edge of ['intenção', 'PG']) test('retomada após interrupção na recuperação do ' + edge + ' preserva a auditoria', () => {
+  const h = harness(); const { record } = seedPublicationWithPG(h, true);
+  const { APP, COL } = h.meta;
+  h.parseLeadingZeros = true;
+  h.failAfter(event => event.table === APP.officialSheet && event.column === (edge === 'PG' ? COL.PG_POST_REMOVED : COL.AUDIT));
+  assert.throws(() => h.approve(), error => error.code === 'PUBLICATION_INTERRUPTED');
+  assert.equal(h.rows(APP.pendingSheet).length, 1);
+  assert.equal(h.rows(APP.historySheet).length, 0);
+  h.approve(); assertComplete(h, record);
+  const audit = JSON.parse(h.rows(APP.officialSheet)[0][COL.AUDIT - 1]);
+  assert.deepEqual(audit.publicationIdentifierRecovery.columns, ['PG POSTE RETIRADO']);
+  assert.ok(audit.publicationIdentifierRecovery.confirmedAt);
+});
 
 test('publicação normal, preços históricos, evidências e UUID intactos', () => {
   const h = harness(); const record = h.seed(fixture()); const response = h.approve();

@@ -45,7 +45,9 @@ class MemorySheet {
         values.forEach((valuesRow, y) => {
           assert.equal(valuesRow.length, width);
           const target = sheet.rows[row + y - 1] ||= [];
-          valuesRow.forEach((value, x) => { target[column + x - 1] = value ?? ''; });
+          valuesRow.forEach((value, x) => {
+            target[column + x - 1] = typeof value === 'string' && value.startsWith("'") ? value.slice(1) : value ?? '';
+          });
         });
         return range;
       },

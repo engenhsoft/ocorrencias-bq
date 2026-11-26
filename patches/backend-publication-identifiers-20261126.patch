@@ -1,0 +1,153 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -6,5 +6,5 @@
+ const APP = Object.freeze({
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.11.26.2',
++  version: '2026.11.26.3',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+   spreadsheetId: '1dpbK_vJ7KNv1fFaLCxixB7jMBdVS-Q5FFjKVoUvXWH0',
+@@ -2114,8 +2114,18 @@
+ }
+
+-function publicationConflict_(recordId, table, expected, existing) {
+-  const details = { recordId: recordId, state: 'CONFLICT', table: table, expected: expected, existing: existing };
++function publicationConflict_(recordId, table, expected, existing, columns) {
++  const details = { recordId: recordId, state: 'CONFLICT', table: table };
++  if (typeof expected === 'number' && typeof existing === 'number') {
++    details.expectedCount = expected;
++    details.existingCount = existing;
++  }
++  if (columns && columns.length) details.columns = columns;
+   console.error('[Publication conflict] ' + publicationJson_(details));
+-  throw apiError_('PUBLISHED_RECONCILIATION_CONFLICT', 'Esta ocorrência tem registros publicados que divergem da conferência. Os dados foram preservados. Solicite a análise do responsável pelo aplicativo.', details);
++  const part = table === APP.pendingSheet ? 'na fila de conferência'
++    : table === APP.historySheet ? 'no histórico de publicação'
++      : [APP.servicesSheet, APP.officialSheet + '.finalServices'].indexOf(table) >= 0 ? 'nos serviços publicados'
++        : [APP.materialsSheet, APP.officialSheet + '.finalMaterials'].indexOf(table) >= 0 ? 'nos materiais publicados'
++          : 'na linha oficial da ocorrência';
++  throw apiError_('PUBLISHED_RECONCILIATION_CONFLICT', 'A aprovação encontrou uma divergência ' + part + '. Informe o identificador ' + recordId + ' ao responsável pela conferência.', details);
+ }
+
+@@ -2169,5 +2179,5 @@
+ function publicationAuditSource_(audit) {
+   const source = JSON.parse(JSON.stringify(audit || {}));
+-  ['pendingServices', 'pendingMaterials', 'finalServices', 'finalMaterials', 'pricingValidation', 'publicationState', 'publicationStartedAt', 'publishedAt', 'lastPublicationError', 'transformerIntegration', 'lastTransformerIntegration', 'integrity'].forEach(function (key) { delete source[key]; });
++  ['pendingServices', 'pendingMaterials', 'finalServices', 'finalMaterials', 'pricingValidation', 'publicationState', 'publicationStartedAt', 'publishedAt', 'lastPublicationError', 'publicationIdentifierRecovery', 'transformerIntegration', 'lastTransformerIntegration', 'integrity'].forEach(function (key) { delete source[key]; });
+   if (Array.isArray(source.timeline)) source.timeline = source.timeline.filter(function (event) { return !event || event.action !== 'APROVADA_E_PUBLICADA'; });
+   return source;
+@@ -2191,5 +2201,7 @@
+   }
+   if (!state.pending.length && !state.official.length) throw apiError_('RECORD_NOT_FOUND', 'A origem da ocorrência não está mais disponível.');
+-  if (snapshot.sourceKind === 'official' && state.pending.length) throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A ocorrência voltou à fila durante a conferência. Abra novamente antes de aprovar.');
++  if (snapshot.sourceKind === 'official' && (state.pending.length || publicationJson_(state.official[0].values) !== snapshot.sourceFingerprint)) {
++    throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A ocorrência mudou durante a conferência. Abra novamente antes de aprovar.');
++  }
+   const existing = state.official[0] && state.official[0].values; const history = state.history[0] && state.history[0].values;
+   const actor = existing ? publicationText_(existing[COL.SUPERVISOR - 1]) : (history ? publicationText_(history[2]) : snapshot.actor);
+@@ -2220,5 +2232,10 @@
+   if (state.official.length) {
+     const values = state.official[0].values;
+-    if (publicationMainSignature_(values) !== publicationMainSignature_(expected.main)) publicationConflict_(recordId, APP.officialSheet, publicationMainSignature_(expected.main), publicationMainSignature_(values));
++    const expectedMain = publicationMainSignature_(expected.main), existingMain = publicationMainSignature_(values);
++    if (expectedMain !== existingMain) {
++      const desired = JSON.parse(expectedMain), actual = JSON.parse(existingMain);
++      const columns = MAIN_HEADERS.filter(function (header, index) { return JSON.stringify(desired[index]) !== JSON.stringify(actual[index]); });
++      publicationConflict_(recordId, APP.officialSheet, null, null, columns);
++    }
+     const audit = safeJson_(values[COL.AUDIT - 1], {});
+     // Snapshots completos no oficial também não podem ocultar uma divergência da origem.
+@@ -2237,4 +2254,49 @@
+ }
+
++function publicationLeadingZeroText_(value) {
++  return typeof value === 'string' && /^0\d+$/.test(value);
++}
++
++/** A conferência e o recibo comprovam somente a recuperação de zeros em um estágio aberto. */
++function recoverPublicationIdentifiers_(recordId, expected, state, snapshot) {
++  if (snapshot.sourceKind !== 'pending' || state.pending.length !== 1 || state.official.length !== 1 || state.history.length) return false;
++  const item = state.official[0];
++  const audit = safeJson_(item.values[COL.AUDIT - 1], {});
++  if (audit.publicationState !== 'RECONCILIACAO_NECESSARIA' || audit.publishedAt || finalPublicationEvent_(audit)
++    || isoValue_(audit.publicationStartedAt) !== expected.reviewedAt
++    || !Array.isArray(audit.finalServices) || !Array.isArray(audit.finalMaterials)) return false;
++  const columns = MAIN_IDENTIFIER_COLUMNS_.filter(function (column) {
++    const desired = expected.main[column - 1], actual = item.values[column - 1];
++    return publicationLeadingZeroText_(desired) && Number.isSafeInteger(actual) && Number(desired) === actual;
++  });
++  if (!columns.length) return false;
++  const receipt = audit.lastCorrectionSubmission;
++  if (receipt?.phase !== 'COMPLETE' || !receipt.dataVerifiedAt
++    || correctionFingerprint_(correctionDataFromValues_(state.pending[0].values)) !== receipt.expectedFingerprint) return false;
++  const projectedValues = item.values.slice();
++  columns.forEach(function (column) { projectedValues[column - 1] = expected.main[column - 1]; });
++  inspectPublication_(recordId, expected, Object.assign({}, state, { official: [{ row: item.row, values: projectedValues }] }));
++
++  const sheet = snapshot.sheets.official;
++  const targets = columns.map(function (column) { return sheet.getRange(item.row, column); });
++  if (publicationJson_(sheet.getRange(item.row, 1, 1, COL.WIDTH).getValues()[0]) !== publicationJson_(item.values)
++    || targets.some(function (range) { return range.getFormula(); })) {
++    throw apiError_('PUBLICATION_SOURCE_CHANGED', 'A linha oficial mudou durante a conferência. Abra novamente antes de aprovar.', { recordId: recordId });
++  }
++  const prior = audit.publicationIdentifierRecovery;
++  const names = columns.map(function (column) { return MAIN_HEADERS[column - 1]; });
++  const pendingColumns = Array.isArray(prior?.columns) ? prior.columns : [];
++  audit.publicationIdentifierRecovery = { columns: [...new Set(pendingColumns.concat(names))],
++    startedAt: prior?.startedAt || nowIso_(), actor: snapshot.actor };
++  // Guardar a intenção antes de mudar os campos evita perder a trilha se houver interrupção.
++  sheet.getRange(item.row, COL.AUDIT).setValue(JSON.stringify(audit));
++  targets.forEach(function (range, index) {
++    range.setNumberFormat('@');
++    range.setValue("'" + expected.main[columns[index] - 1]);
++  });
++  flushSheets_();
++  return true;
++}
++
+ function appendPublicationRows_(sheet, rows, textColumns) {
+   if (!rows.length) return;
+@@ -2242,6 +2304,15 @@
+   if (typeof sheet.getMaxRows === 'function' && start + rows.length - 1 > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), start + rows.length - 1 - sheet.getMaxRows());
+   (textColumns || []).forEach(function (column) { const range = sheet.getRange(start, column, rows.length, 1); if (typeof range.setNumberFormat === 'function') range.setNumberFormat('@'); });
+-  if ([APP.pendingSheet, APP.officialSheet].indexOf(sheet.getName()) >= 0) formatMainIdentifierColumns_(sheet, start, rows.length);
+-  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows.map(bqLiteralRow_));
++  const mainSheet = [APP.pendingSheet, APP.officialSheet].indexOf(sheet.getName()) >= 0;
++  if (mainSheet) formatMainIdentifierColumns_(sheet, start, rows.length);
++  const identifiers = mainSheet ? MAIN_IDENTIFIER_COLUMNS_ : (sheet.getName() === APP.historySheet ? textColumns || [] : []);
++  const literalRows = rows.map(function (row) {
++    const literal = bqLiteralRow_(row);
++    identifiers.forEach(function (column) {
++      if (publicationLeadingZeroText_(row[column - 1])) literal[column - 1] = "'" + row[column - 1];
++    });
++    return literal;
++  });
++  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(literalRows);
+   flushSheets_();
+ }
+@@ -2257,6 +2328,9 @@
+     let state = publicationStateForId_(sheets, recordId);
+     const expected = bindPublicationExpectation_(recordId, snapshot, state);
++    const identifiersRecovered = recoverPublicationIdentifiers_(recordId, expected, state, snapshot);
++    if (identifiersRecovered) state = publicationStateForId_(sheets, recordId);
+     const initial = inspectPublication_(recordId, expected, state); stage('inspectMs');
+-    const repairs = []; let transformerIntegration = state.official.length ? (safeJson_(state.official[0].values[COL.AUDIT - 1], {}).transformerIntegration || null) : null;
++    const repairs = identifiersRecovered ? ['IDENTIFICADORES'] : [];
++    let transformerIntegration = state.official.length ? (safeJson_(state.official[0].values[COL.AUDIT - 1], {}).transformerIntegration || null) : null;
+     if (!initial.complete) {
+       if (!state.official.length) { appendPublicationRows_(sheets.official, [expected.main], [COL.ID, COL.OCCURRENCE_NUMBER, COL.CONTRACT]); repairs.push('OCORRENCIAS'); }
+@@ -2270,5 +2344,5 @@
+       transformerIntegration = integrateTransformersOnApproval_(integrationRecord); stage('integrationMs');
+       // O evento final só é gravado depois de confirmar os três conjuntos finais.
+-      if (!state.history.length) { appendPublicationRows_(sheets.history, [expected.history], [1, 9]); repairs.push('HISTORICO'); }
++      if (!state.history.length) { appendPublicationRows_(sheets.history, [expected.history], [1, 9, 14, 15, 16, 17]); repairs.push('HISTORICO'); }
+     }
+     // Retomada após o histórico: a integração pode ter ocorrido antes de seu resultado entrar na auditoria.
+@@ -2281,4 +2355,7 @@
+       delete audit.pendingServices; delete audit.pendingMaterials; delete audit.lastPublicationError;
+       audit.publicationState = 'PUBLICADA'; audit.publishedAt = expected.reviewedAt;
++      if (currentAudit.publicationIdentifierRecovery) {
++        audit.publicationIdentifierRecovery = Object.assign({}, currentAudit.publicationIdentifierRecovery, { confirmedAt: nowIso_() });
++      }
+       transformerIntegration = transformerIntegration || currentAudit.transformerIntegration || currentAudit.lastTransformerIntegration || { applies: false, removed: 'NÃO_SE_APLICA', installed: 'NÃO_SE_APLICA', processedAt: expected.reviewedAt };
+       audit.transformerIntegration = transformerIntegration; audit.lastTransformerIntegration = transformerIntegration;
