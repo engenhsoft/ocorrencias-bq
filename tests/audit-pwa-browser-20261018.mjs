@@ -118,7 +118,7 @@ try {
   phase = 'after';
   await check('Normal update installs a waiting worker while the current page stays on its initial release', async () => {
     await page.evaluate(async () => { const registration = await navigator.serviceWorker.getRegistration(); await registration.update(); });
-    await page.locator('#updateDialog[open]').waitFor();
+    await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting));
     assert.equal(await page.locator('#loginAppVersion').textContent(), `v${oldVersion}`);
     assert.equal(await page.evaluate(() => Boolean(navigator.serviceWorker.controller)), true);
   });
@@ -127,9 +127,13 @@ try {
     await page.waitForFunction(version => document.querySelector('#loginAppVersion')?.textContent === `v${version}`, oldVersion);
     const src = await page.locator('script[type="module"][src*="app.js"]').getAttribute('src');
     assert.ok(src.includes(`?v=${oldVersion}`));
-    await page.locator('#updateDialog[open]').waitFor();
+    await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting));
   });
   await check('The existing update button sends SKIP_WAITING, activates and reloads the new HTML/core', async () => {
+    if (!await page.locator('#updateDialog[open]').isVisible()) {
+      await page.locator('#loginView [data-compatibility]').click();
+      await page.locator('#compatibilityUpdate').click();
+    }
     await page.locator('#updateNowButton').click();
     await page.waitForFunction(version => document.querySelector('#loginAppVersion')?.textContent === `v${version}`, newVersion);
     const loaded = await page.evaluate(async version => ({

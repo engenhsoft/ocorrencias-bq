@@ -1,5 +1,5 @@
-import { correctionConfirmationMatches } from './core.js?v=2026.11.19.3';
-import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.11.19.3';
+import { correctionConfirmationMatches } from './core.js?v=2026.11.26.1';
+import { API_ENDPOINT, MATERIAL_CATALOG_SOURCE } from './config.js?v=2026.11.26.1';
 
 export const REMOTE_WRITES = ['submitRecord', 'uploadPhoto', 'supervisorCorrectRecord', 'supervisorAction',
   'requestPhotoSyncBatch', 'approveBatch', 'saveFiscalAccount', 'changeFiscalMasterPassword', 'reassignFiscalCorrection'];

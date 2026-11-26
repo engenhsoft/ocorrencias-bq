@@ -65,6 +65,7 @@ function harness(catalog = [catalogRow()], source = backend) {
   const context = vm.createContext({
     console, Date, JSON, Math, Number, String,
     SpreadsheetApp: { openById: () => spreadsheet, flush() {} },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     LockService: { getScriptLock: () => ({ waitLock() { lockDepth++; }, releaseLock() { lockDepth--; } }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },

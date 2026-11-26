@@ -1,5 +1,5 @@
-export const APP_VERSION = '2026.11.19.3';
-export const APP_BUILD = '2026-11-19-prazo-correcao';
+export const APP_VERSION = '2026.11.26.1';
+export const APP_BUILD = '2026-11-26-hotfix-persistencia';
 
 export const TEAM_GOAL = 6000;
 
@@ -334,6 +334,7 @@ export function synchronizationFeedback(record = {}) {
   const confirmed = applicable.filter(photo => photo.confirmed).length;
   const pending = applicable.filter(photo => !photo.confirmed && (photo.localReady || photo.replacePending)).length;
   const progress = record.syncProgress || {};
+  if (phase === 'confirmed' && progress.responseRecovered) return { phase, label: phases.confirmed, detail: 'Confirmação recuperada por releitura no servidor.' };
   const photoLabel = Number.isInteger(progress.photoIndex) && progress.photoIndex >= 1 && progress.photoIndex <= 7 ? `Foto ${progress.photoIndex}` : '';
   const progressLabels = { read_photo: 'lendo neste aparelho', encode_photo: 'preparando envio', upload_photo: 'enviando', confirm_photo: 'confirmando no servidor' };
   const progressDetail = photoLabel && progressLabels[progress.stage] ? `${progress.dataConfirmed ? 'Dados confirmados · ' : ''}${photoLabel}: ${progressLabels[progress.stage]}` : '';
@@ -368,6 +369,15 @@ export function synchronizationDiagnostic(error, progress = {}) {
 
 export function synchronizationFailureMessage(diagnostic, fallback = '') {
   if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED', 'FISCAL_CORRECTION_REQUIRED', 'SESSION_CHANGED', 'CORRECTION_DEADLINE_EXPIRED', 'RECORD_REMOVED'].includes(diagnostic.code)) return fallback;
+  const messages = {
+    CORRECTION_WRITE_FAILED: 'A gravação da correção foi interrompida. Tente sincronizar novamente. O rascunho foi preservado.',
+    CORRECTION_PERSISTENCE_MISMATCH: 'A planilha devolveu dados diferentes dos enviados. A correção permanece pendente e o rascunho foi preservado.',
+    CORRECTION_STATUS_UNCONFIRMED: 'Dados confirmados. A situação final da correção ainda precisa ser confirmada. Tente sincronizar novamente.',
+    CORRECTION_UPDATE_CONFLICT: 'Os dados no servidor mudaram durante a correção. O rascunho foi preservado. Solicite a conferência do Supervisor.',
+    PHOTO_WRITE_FAILED: 'A gravação da fotografia foi interrompida. Tente sincronizar novamente.',
+    PHOTO_CONFIRMATION_PENDING: 'Ainda há fotografias pendentes de confirmação. Tente sincronizar novamente.'
+  };
+  if (messages[diagnostic.code]) return `${messages[diagnostic.code]} Referência: ${diagnostic.code}.`;
   const stageLabels = { read_photo: 'ler a foto neste aparelho', encode_photo: 'preparar a foto', upload_photo: 'enviar a foto', confirm_photo: 'confirmar a foto no servidor', confirm_correction: 'confirmar a correção no servidor' };
   const label = stageLabels[diagnostic.stage];
   if (!label) return fallback;

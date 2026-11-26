@@ -1,0 +1,239 @@
+--- a/ApprovalIntegrity20260911.gs
++++ b/ApprovalIntegrity20260911.gs
+@@ -7,3 +7,3 @@
+   name: 'OCORRÊNCIAS B&Q',
+-  version: '2026.11.19.3',
++  version: '2026.11.26.1',
+   contract: 'OCORRENCIAS-BQ-CORRECTION-PERSISTENCE-v12',
+@@ -50,2 +50,7 @@
+
++const MAIN_IDENTIFIER_COLUMNS_ = Object.freeze([COL.CONTRACT, COL.OCCURRENCE_NUMBER, COL.PG_POST_REMOVED,
++  COL.PG_POST_INSTALLED, COL.PG_CONDUCTOR_START, COL.PG_CONDUCTOR_END, COL.REMOVED_CODE, COL.REMOVED_CIA,
++  COL.REMOVED_BTO, COL.NEW_CODE, COL.NEW_CIA, COL.NEW_BTO, COL.PG_KEY_REMOVED, COL.BTO_KEY_REMOVED,
++  COL.PG_KEY_INSTALLED, COL.BTO_KEY_INSTALLED]);
++
+ const TYPES = Object.freeze(['SUBSTITUIÇÃO DE TRAFO', 'SUBSTITUIÇÃO DE POSTE', 'SUBSTITUIÇÃO DE CONDUTOR', 'PODA', 'LINHA VIVA', 'CAVA & ROCHA', 'OUTRO', 'CHAVES']);
+@@ -266,2 +271,4 @@
+     const receipt = correction ? prepareCorrectionReceipt_(existing, model, submitted, auth.user) : null;
++    const previousReceipt = existingAudit.lastCorrectionSubmission;
++    const retry = receipt && previousReceipt && receipt.requestId === previousReceipt.requestId && receipt.requestedAt === previousReceipt.requestedAt;
+     if (receipt && receipt.beforeTotal == null) receipt.beforeTotal = Number(existing[COL.TOTAL - 1]);
+@@ -272,2 +279,9 @@
+     }
++    if (retry && receipt.phase === 'DATA_VERIFIED') {
++      if (!receipt.dataVerifiedAt || correctionFingerprint_(original) !== receipt.expectedFingerprint) throw correctionRetryConflict_(recordId);
++      authorizedWrite = true;
++      const finalized = finishCorrection_(pending, found, auth.user);
++      return stateResponse_(recordFromValuesAt_(finalized.values), false, auth.role !== 'fiscal');
++    }
++    if (retry) assertStagedCorrectionRetry_(existing, original, receipt, auth.user);
+     if (found && !correction && existingAudit.lastDataConfirmation
+@@ -305,4 +319,4 @@
+     if (replacementOriginal) audit.replacementOf = String(replacementOriginal.values[COL.ID - 1]);
+-    if (receipt) {
+-      if (auth.role === 'fiscal') Object.assign(receipt, { routingRequestId: submitted.fiscalCorrection.routingRequestId, assignmentRevision: submitted.fiscalCorrection.assignmentRevision, actorRole: 'fiscal' });
++    if (receipt && auth.role === 'fiscal') Object.assign(receipt, { routingRequestId: submitted.fiscalCorrection.routingRequestId, assignmentRevision: submitted.fiscalCorrection.assignmentRevision, actorRole: 'fiscal' });
++    if (receipt && !retry) {
+       // Persist the team's intent before any data mutation, on the same UUID.
+@@ -317,5 +331,5 @@
+       staged[COL.STATUS - 1] = STATUS.CORRECTION_REQUESTED;
+-      writeAndReadCorrection_(pending, found.row, staged);
+-      audit.lastCorrectionSubmission = receipt;
++      writeAndReadCorrection_(pending, found.row, staged, 'CORRECTION_STAGE');
+     }
++    if (receipt) audit.lastCorrectionSubmission = receipt;
+     resolvePhotoSyncRequest_(audit, status, auth.user);
+@@ -325,5 +339,17 @@
+     let persisted;
+-    if (found) persisted = writeAndReadCorrection_(pending, found.row, row, receipt ? 'CORRECTION_RESUBMIT' : 'CREATE_DATA');
+-    else { formatChavesRow_(pending, pending.getLastRow() + 1, 1); pending.appendRow(bqLiteralRow_(row)); flushSheets_(); persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA'); }
++    if (retry) {
++      const delta = receipt.expectedPatch || {};
++      const remaining = correctionPatchedValues_(existing, model, delta, audit);
++      remaining[COL.STATUS - 1] = STATUS.CORRECTION_REQUESTED;
++      if (['team', 'services', 'totalServices'].some(function (key) { return Object.prototype.hasOwnProperty.call(delta, key); })) remaining[COL.GOAL_PERCENTAGE - 1] = row[COL.GOAL_PERCENTAGE - 1];
++      if (correctionChangedColumns_(remaining, existing).some(function (column) { return column !== COL.AUDIT && column !== COL.STATUS; })) remaining[COL.UPDATED_AT - 1] = row[COL.UPDATED_AT - 1];
++      persisted = writeAndReadCorrection_(pending, found.row, remaining, 'CORRECTION_RESUBMIT', existing);
++    } else if (found) persisted = writeAndReadCorrection_(pending, found.row, row, receipt ? 'CORRECTION_RESUBMIT' : 'CREATE_DATA');
++    else {
++      try { formatMainIdentifierColumns_(pending, pending.getLastRow() + 1, 1); pending.appendRow(bqLiteralRow_(row)); flushSheets_(); }
++      catch (error) { throw correctionWriteError_(error, 'CREATE_DATA'); }
++      persisted = assertCorrectionRow_(pending, row, 'CREATE_DATA');
++    }
+     if (receipt) {
++      if (correctionFingerprint_(correctionDataFromValues_(persisted.values)) !== receipt.expectedFingerprint) throw apiError_('CORRECTION_DATA_UNCONFIRMED', 'Os dados gravados divergem do recibo da correção. A edição permanece pendente.');
+       const confirmedAudit = safeJson_(persisted.values[COL.AUDIT - 1], {});
+@@ -461,2 +487,34 @@
+ }
++
++function correctionRetryConflict_(recordId) {
++  return apiError_('CORRECTION_UPDATE_CONFLICT', 'Os dados da ocorrência mudaram durante a correção. A edição foi preservada. Solicite a conferência do Supervisor.', { recordId: recordId });
++}
++
++function assertStagedCorrectionRetry_(values, current, receipt, actor) {
++  const expected = receipt.expectedPatch || {}, before = receipt.beforePatch || {};
++  if (receipt.phase !== 'STAGED' || !sameUser_(receipt.actor, actor) || correctionFingerprint_(mergeCorrectionPatch_(current, expected)) !== receipt.expectedFingerprint) throw correctionRetryConflict_(current.recordId);
++  const identifiers = { occurrenceNumber: COL.OCCURRENCE_NUMBER, contract: COL.CONTRACT,
++    pgPostRemoved: COL.PG_POST_REMOVED, pgPostInstalled: COL.PG_POST_INSTALLED,
++    pgConductorStart: COL.PG_CONDUCTOR_START, pgConductorEnd: COL.PG_CONDUCTOR_END,
++    pgKeyRemoved: COL.PG_KEY_REMOVED, btoKeyRemoved: COL.BTO_KEY_REMOVED,
++    pgKeyInstalled: COL.PG_KEY_INSTALLED, btoKeyInstalled: COL.BTO_KEY_INSTALLED };
++  const transformer = { removedCode: COL.REMOVED_CODE, removedCia: COL.REMOVED_CIA, removedBto: COL.REMOVED_BTO,
++    newCode: COL.NEW_CODE, newCia: COL.NEW_CIA, newBto: COL.NEW_BTO };
++  const matchesIdentifier = function (actual, desired, prior) {
++    return publicationText_(actual) === publicationText_(desired) || publicationText_(actual) === publicationText_(prior)
++      // Only the exact literal in the staged receipt may restore lost zeros.
++      || (Number.isSafeInteger(actual) && typeof desired === 'string' && /^0\d+$/.test(desired) && actual === Number(desired));
++  };
++  const comparable = function (key, value) { return publicationJson_(correctionComparableValue_(key, value)); };
++  const matches = Object.keys(expected).every(function (key) {
++    if (!Object.prototype.hasOwnProperty.call(before, key)) return false;
++    if (identifiers[key]) return matchesIdentifier(values[identifiers[key] - 1], expected[key], before[key]);
++    if (key === 'transformer') return Object.keys(transformer).every(function (field) {
++      return matchesIdentifier(values[transformer[field] - 1], expected[key]?.[field], before[key]?.[field]);
++    });
++    const actual = comparable(key, current[key]);
++    return actual === comparable(key, expected[key]) || actual === comparable(key, before[key]);
++  });
++  if (!matches) throw correctionRetryConflict_(current.recordId);
++}
+ function correctionPhotoPatch_(patch, values, first, last) {
+@@ -503,3 +561,3 @@
+
+-function pendingPersistenceSnapshot_(values) {
++function pendingPersistenceValues_(values) {
+   const snapshot = values.slice();
+@@ -507,9 +565,13 @@
+   // String conserva o valor exato: "000123" continua diferente de 123.
+-  [COL.CONTRACT, COL.OCCURRENCE_NUMBER, COL.PG_POST_REMOVED, COL.PG_POST_INSTALLED,
+-    COL.PG_CONDUCTOR_START, COL.PG_CONDUCTOR_END, COL.REMOVED_CODE, COL.REMOVED_CIA,
+-    COL.REMOVED_BTO, COL.NEW_CODE, COL.NEW_CIA, COL.NEW_BTO,
+-    COL.PG_KEY_REMOVED, COL.BTO_KEY_REMOVED, COL.PG_KEY_INSTALLED, COL.BTO_KEY_INSTALLED].forEach(function (column) {
++  MAIN_IDENTIFIER_COLUMNS_.forEach(function (column) {
+     snapshot[column - 1] = String(snapshot[column - 1] == null ? '' : snapshot[column - 1]);
+   });
+-  return publicationJson_(snapshot);
++  return snapshot;
++}
++
++function pendingPersistenceSnapshot_(values) { return publicationJson_(pendingPersistenceValues_(values)); }
++
++function correctionChangedColumns_(expected, actual) {
++  const left = pendingPersistenceValues_(expected), right = pendingPersistenceValues_(actual);
++  return left.map(function (value, index) { return publicationJson_(value) === publicationJson_(right[index]) ? 0 : index + 1; }).filter(Boolean);
+ }
+@@ -518,2 +580,3 @@
+   const recordId = String(expected[COL.ID - 1]);
++  let found = null;
+   // Uma segunda leitura limitada nao repete a escrita nem enfraquece a comparacao.
+@@ -521,3 +584,3 @@
+     const hinted = rowHint ? sheet.getRange(rowHint, 1, 1, COL.WIDTH).getValues()[0] : null;
+-    const found = hinted && String(hinted[COL.ID - 1]) === recordId ? { row: rowHint, values: hinted } : uniqueCorrectionRow_(sheet, recordId);
++    found = hinted && String(hinted[COL.ID - 1]) === recordId ? { row: rowHint, values: hinted } : uniqueCorrectionRow_(sheet, recordId);
+     if (found && pendingPersistenceSnapshot_(found.values) === pendingPersistenceSnapshot_(expected)) return found;
+@@ -525,11 +588,27 @@
+   }
+-  const code = operation === 'CREATE_DATA' ? 'DATA_COMMIT_UNCONFIRMED' : operation === 'PHOTO_SYNC' ? 'PHOTO_COMMIT_UNCONFIRMED' : 'CORRECTION_PERSISTENCE_MISMATCH';
++  const code = operation === 'CREATE_DATA' ? 'DATA_COMMIT_UNCONFIRMED' : operation === 'PHOTO_SYNC' ? 'PHOTO_COMMIT_UNCONFIRMED'
++    : operation === 'CORRECTION_FINAL_STATUS' ? 'CORRECTION_STATUS_UNCONFIRMED' : 'CORRECTION_PERSISTENCE_MISMATCH';
+   const message = operation === 'CREATE_DATA' ? 'A releitura não confirmou os dados da ocorrência. Os dados locais foram preservados; tente novamente.'
+     : operation === 'PHOTO_SYNC' ? 'Não foi possível concluir a sincronização das fotos. Os dados foram preservados. Tente novamente.'
++    : operation === 'CORRECTION_FINAL_STATUS' ? 'Os dados foram gravados, mas a situação final da correção não foi confirmada.'
+     : 'A releitura não confirmou a gravação completa. A correção permanece pendente.';
+-  throw apiError_(code, message, { recordId: recordId, operation: operation || 'CORRECTION_RESUBMIT' });
++  const columns = found ? correctionChangedColumns_(expected, found.values).map(function (column) { return MAIN_HEADERS[column - 1]; }) : [];
++  throw apiError_(code, message, { recordId: recordId, operation: operation || 'CORRECTION_RESUBMIT', columns: columns, rowFound: Boolean(found) });
+ }
+-function writeAndReadCorrection_(sheet, row, values, operation) {
+-  formatChavesRow_(sheet, row, 1);
+-  sheet.getRange(row, 1, 1, COL.WIDTH).setValues([bqLiteralRow_(values)]); flushSheets_();
++function correctionWriteError_(error, operation) {
++  if (typeof error.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(error.code)) return error;
++  if (operation === 'PHOTO_SYNC') return apiError_('PHOTO_WRITE_FAILED', 'Não foi possível gravar a confirmação da foto. Tente novamente.');
++  if (operation === 'CREATE_DATA') return apiError_('DATA_WRITE_FAILED', 'Não foi possível gravar os dados da ocorrência. O rascunho foi preservado.');
++  if (operation === 'CORRECTION_FINAL_STATUS') return apiError_('CORRECTION_STATUS_UNCONFIRMED', 'Os dados foram gravados, mas a situação final da correção não foi confirmada.');
++  return apiError_('CORRECTION_WRITE_FAILED', 'A gravação dos dados da correção foi interrompida. O rascunho foi preservado.', { operation: operation || 'CORRECTION_RESUBMIT' });
++}
++function writeAndReadCorrection_(sheet, row, values, operation, current) {
++  try {
++    const cells = bqLiteralRow_(values);
++    const columns = current ? correctionChangedColumns_(values, current) : null;
++    if (!columns || columns.some(function (column) { return MAIN_IDENTIFIER_COLUMNS_.indexOf(column) >= 0; })) formatMainIdentifierColumns_(sheet, row, 1);
++    if (columns) columns.forEach(function (column) { sheet.getRange(row, column).setValue(cells[column - 1]); });
++    else sheet.getRange(row, 1, 1, COL.WIDTH).setValues([cells]);
++    if (!columns || columns.length) flushSheets_();
++  } catch (error) { throw correctionWriteError_(error, operation); }
+   return assertCorrectionRow_(sheet, values, operation, row);
+@@ -538,3 +617,4 @@
+   const expected = found.values.slice(); expected[COL.AUDIT - 1] = correctionAuditJson_(audit);
+-  sheet.getRange(found.row, COL.AUDIT).setValue(expected[COL.AUDIT - 1]); flushSheets_();
++  try { sheet.getRange(found.row, COL.AUDIT).setValue(expected[COL.AUDIT - 1]); flushSheets_(); }
++  catch (error) { throw correctionWriteError_(error, operation || 'CORRECTION_RECEIPT'); }
+   return assertCorrectionRow_(sheet, expected, operation, found.row);
+@@ -551,4 +631,7 @@
+   const expected = found.values.slice(); expected[COL.STATUS - 1] = STATUS.WAITING_SUPERVISOR;
+-  sheet.getRange(found.row, COL.STATUS).setValue(STATUS.WAITING_SUPERVISOR); flushSheets_();
+-  found = assertCorrectionRow_(sheet, expected, undefined, found.row);
++  if (found.values[COL.STATUS - 1] !== STATUS.WAITING_SUPERVISOR) {
++    try { sheet.getRange(found.row, COL.STATUS).setValue(STATUS.WAITING_SUPERVISOR); flushSheets_(); }
++    catch (error) { throw correctionWriteError_(error, 'CORRECTION_FINAL_STATUS'); }
++  }
++  found = assertCorrectionRow_(sheet, expected, 'CORRECTION_FINAL_STATUS', found.row);
+   const validReceivedAt = bqValidCorrectionReceivedAt_(found.values, receipt.requestId);
+@@ -560,3 +643,3 @@
+   appendAuditTimeline_(audit, 'CORRECAO_REENVIADA', actor, receipt.completedAt, 'Correção confirmada por releitura; envio ' + receipt.requestId);
+-  found = writeCorrectionAudit_(sheet, found, audit);
++  found = writeCorrectionAudit_(sheet, found, audit, 'CORRECTION_FINAL_STATUS');
+   ensureCorrectionHistory_(found.values, actor);
+@@ -908,3 +991,3 @@
+     const row = buildMainRow_(model, original.user, original.registeredAt, photoUrls, uploadKeys, transformerPhotoUrls, transformerUploadKeys, nextStatus, found.values[COL.REASON - 1], found.values[COL.SUPERVISOR_NOTE - 1], auth.user, correctedAt, audit);
+-    formatChavesRow_(pending, found.row, 1);
++    formatMainIdentifierColumns_(pending, found.row, 1);
+     pending.getRange(found.row, 1, 1, COL.WIDTH).setValues([bqLiteralRow_(row)]);
+@@ -2089,3 +2172,3 @@
+   (textColumns || []).forEach(function (column) { const range = sheet.getRange(start, column, rows.length, 1); if (typeof range.setNumberFormat === 'function') range.setNumberFormat('@'); });
+-  if ([APP.pendingSheet, APP.officialSheet].indexOf(sheet.getName()) >= 0) formatChavesRow_(sheet, start, rows.length);
++  if ([APP.pendingSheet, APP.officialSheet].indexOf(sheet.getName()) >= 0) formatMainIdentifierColumns_(sheet, start, rows.length);
+   sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows.map(bqLiteralRow_));
+@@ -2808,2 +2891,18 @@
+
++function formatMainIdentifierColumns_(sheet, row, height) {
++  const end = row + height - 1;
++  if (typeof sheet.getRangeList === 'function') {
++    if (end > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), end - sheet.getMaxRows());
++    sheet.getRangeList(['E' + row + ':E' + end, 'G' + row + ':M' + end, 'AJ' + row + ':AK' + end,
++      'AM' + row + ':AM' + end, 'AT' + row + ':AX' + end]).setNumberFormat('@');
++    return;
++  }
++  formatChavesRow_(sheet, row, height);
++  [[COL.OCCURRENCE_NUMBER, 1], [COL.PG_POST_REMOVED, 7], [COL.REMOVED_BTO, 2],
++    [COL.PG_CONDUCTOR_END, 1], [COL.CONTRACT, 1]].forEach(function (block) {
++    const range = sheet.getRange(row, block[0], height, block[1]);
++    if (typeof range.setNumberFormat === 'function') range.setNumberFormat('@');
++  });
++}
++
+ // Install in the existing Apps Script project. All helpers stay private.
+@@ -2990,3 +3089,3 @@
+
+-function bqTechnicalError_(action, code, auth, id, correlation, version, origin, stage) {
++function bqTechnicalError_(action, code, auth, id, correlation, version, origin, stage, fields) {
+   if (!Object.prototype.hasOwnProperty.call(BQ_MONITOR.errorModules, action)) return false;
+@@ -3005,2 +3104,3 @@
+   const module = BQ_MONITOR.errorModules[action];
++  const columns = Array.isArray(fields) ? MAIN_HEADERS.filter(function (name) { return fields.indexOf(name) >= 0; }) : [];
+   const message = authentication ? 'Autenticação ou permissão recusada.'
+@@ -3010,3 +3110,3 @@
+     correlationId: bqUuid_(correlation) || Utilities.getUuid(), frontendVersion: bqVersion_(version),
+-    origin: origin, resolution: 'SEM_RESOLUÇÃO_REGISTRADA' });
++    origin: origin, resolution: 'SEM_RESOLUÇÃO_REGISTRADA', ...(columns.length ? { columns: columns } : {}) });
+ }
+@@ -3018,4 +3118,7 @@
+     const auth = verifyToken_(payload.token) || (action === 'login' && ['field', 'fiscal', 'supervisor'].includes(payload.role) ? { role: payload.role } : null);
++    const stage = { CORRECTION_PERSISTENCE_MISMATCH: 'read_data', DATA_COMMIT_UNCONFIRMED: 'read_data',
++      CORRECTION_WRITE_FAILED: 'submit_data', DATA_WRITE_FAILED: 'submit_data', CORRECTION_STATUS_UNCONFIRMED: 'confirm_correction',
++      PHOTO_WRITE_FAILED: 'upload_photo', PHOTO_COMMIT_UNCONFIRMED: 'confirm_photo' }[error.code];
+     bqTechnicalError_(action, error.code || 'SERVER_ERROR', auth, payload.recordId || payload.record && payload.record.recordId,
+-      payload.correlationId, payload.clientVersion, 'SERVIDOR');
++      payload.correlationId, payload.clientVersion, 'SERVIDOR', stage, error.details?.columns);
+   } catch (failure) { /* Monitoring must never replace the original error. */ }
