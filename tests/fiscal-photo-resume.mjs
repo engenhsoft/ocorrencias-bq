@@ -184,7 +184,7 @@ test('photoPatch intent or old key alone never confirms corrected photograph', a
   assert.ok((await h.storage.getPhoto(UUID, 1)).blob); assert.equal((await h.storage.getRecord(UUID)).photoStates[0].replacePending, true); assert.equal(h.server().status, core.RECORD_STATUS.CORRECTION_REQUESTED);
 });
 test('new photo without COMPLETE receipt does not show correction success', async () => {
-  const h = await runtime(); h.fault('receipt'); const result = await h.run(); assert.equal(result.syncPhase, 'error'); assert.equal(result.lastSyncError.code, 'CORRECTION_DATA_UNCONFIRMED'); assert.ok(await h.storage.getRecord(UUID));
+  const h = await runtime(); h.fault('receipt'); const result = await h.run(); assert.equal(result.syncPhase, 'error'); assert.equal(result.lastSyncError.code, 'PHOTO_CONFIRMATION_PENDING'); assert.ok(await h.storage.getRecord(UUID));
 });
 test('wrong local uploadKey is blocked before upload and Blob remains', async () => {
   const h = await runtime(), record = await h.storage.getRecord(UUID); record.photoStates[0].uploadKey = randomUUID();

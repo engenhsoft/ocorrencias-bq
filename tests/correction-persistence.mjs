@@ -65,6 +65,7 @@ function harness(catalog = [catalogRow()], source = backend) {
   const context = vm.createContext({
     console, Date, JSON, Math, Number, String,
     SpreadsheetApp: { openById: () => spreadsheet, flush() {} },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     LockService: { getScriptLock: () => ({ waitLock() { lockDepth++; }, releaseLock() { lockDepth--; } }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
@@ -192,7 +193,7 @@ test('gravação parcial de PG não devolve sucesso nem evento de reenvio', () =
 });
 
 
-const REQUEST_AT = '2026-10-05T15:42:04-03:00';
+const REQUEST_AT = new Date(Date.now() - 3600000).toISOString();
 const SEND_ID = '33333333-3333-4333-8333-333333333333';
 function seedRequested(h, record, photoIndexes = []) {
   const row = h.seedCorrection(record); const { APP, COL } = h.c.meta;
@@ -299,7 +300,7 @@ test('falha total na gravação mantém pendência e nenhuma confirmação', () 
   const h = fieldHarness(); const p = seedRequested(h, pgRecord()); p.pgPostRemoved = 'NOVO';
   const sheet = h.sheet(h.c.meta.APP.pendingSheet); const range = sheet.getRange.bind(sheet);
   sheet.getRange = (...args) => { const r = range(...args); r.setValues = () => { throw Error('Falha de gravação'); }; return r; };
-  assert.throws(() => h.submit(p), /Falha de gravação/); assert.equal(resendCount(h), 0);
+  assert.throws(() => h.submit(p), error => error.code === 'CORRECTION_WRITE_FAILED'); assert.equal(resendCount(h), 0);
   assert.equal(actualRow(h).values[h.c.meta.COL.STATUS - 1], 'CORRECAO_SOLICITADA');
 });
 test('write parcial guarda intenção e retry conclui sem duplicação', () => {
@@ -321,7 +322,7 @@ test('falha ao concluir recibo volta a pendência; retry confirma uma vez', () =
   const h = fieldHarness(); const p = seedRequested(h, pgRecord()); p.pgPostRemoved = 'NOVO';
   const sheet = h.sheet(h.c.meta.APP.pendingSheet); const original = sheet.getRange.bind(sheet);
   sheet.getRange = (...args) => { const r = original(...args); if (args[1] === h.c.meta.COL.AUDIT) { const set = r.setValue; r.setValue = value => { if (String(value).includes('"phase":"COMPLETE"')) throw Error('Falha de conclusão'); return set(value); }; } return r; };
-  assert.throws(() => h.submit(p), /Falha de conclusão/); assert.equal(resendCount(h), 0);
+  assert.throws(() => h.submit(p), error => error.code === 'CORRECTION_STATUS_UNCONFIRMED'); assert.equal(resendCount(h), 0);
   assert.equal(actualRow(h).values[h.c.meta.COL.STATUS - 1], 'CORRECAO_SOLICITADA');
   sheet.getRange = original; assertConfirmed(h, p, h.submit(p));
 });
@@ -471,7 +472,7 @@ test('parcial com exceção após primeiras colunas conserva pendência e comple
   const h = fieldHarness(); const p = seedRequested(h, optionalTrafoRecord()); p.pgPostRemoved = 'CORRIGIDO'; p.transformer = changedTrafo(p).transformer;
   const sheet = h.sheet(h.c.meta.APP.pendingSheet); const original = sheet.getRange.bind(sheet); let writes = 0;
   sheet.getRange = (...args) => { const r = original(...args); const set = r.setValues; r.setValues = values => { if (++writes === 2) { for (let i = 0; i < 9; i++) sheet.rows[args[0] - 1][args[1] - 1 + i] = values[0][i]; throw Error('Write parcial interrompido'); } return set(values); }; return r; };
-  assert.throws(() => h.submit(p), /Write parcial/); assert.equal(resendCount(h), 0); assert.equal(actualRow(h).values[h.c.meta.COL.STATUS - 1], 'CORRECAO_SOLICITADA');
+  assert.throws(() => h.submit(p), error => error.code === 'CORRECTION_WRITE_FAILED'); assert.equal(resendCount(h), 0); assert.equal(actualRow(h).values[h.c.meta.COL.STATUS - 1], 'CORRECAO_SOLICITADA');
   sheet.getRange = original; assertConfirmed(h, p, h.submit(p));
 });
 test('Supervisor vê PG opcional e CIA/BTO no detalhe e os preserva ao editar observação', async () => {

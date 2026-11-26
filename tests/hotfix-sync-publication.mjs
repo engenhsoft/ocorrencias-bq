@@ -66,9 +66,27 @@ function runtime(h, { fiscal = true, changes = { observation: 'Correção sinté
 test('Fiscal: resposta textual perdida é reconciliada sem segundo submit e chega ao Supervisor', async () => {
   const h = fixture(), ui = runtime(h, { drop: 'submitRecord' }); const result = await ui.run();
   assert.equal(result.status, 'AGUARDANDO_SUPERVISOR', result.lastError); assert.equal(result.syncPhase, 'confirmed');
+  assert.equal(result.syncProgress.responseRecovered, true);
   assert.equal(ui.events.filter(action => action === 'submitRecord').length, 1);
   assert.equal(h.row(1)[h.c.meta.COL.OBSERVATION - 1], 'Correção sintética confirmada');
   assert.equal(h.audit(1).lastCorrectionSubmission.phase, 'COMPLETE');
+  assert.equal(h.sheet(h.c.meta.APP.historySheet).rows.filter(row => row[3] === 'CORRECAO_REENVIADA').length, 1);
+});
+test('Fiscal: retenta só a finalização quando os dados e fotos já foram confirmados', async () => {
+  const h = fixture(), ui = runtime(h);
+  const finish = h.c.finishCorrection_;
+  h.c.finishCorrection_ = () => { throw h.c.apiError_('CORRECTION_STATUS_UNCONFIRMED', 'Falha sintética ao finalizar.'); };
+  const first = await ui.run();
+  assert.equal(first.lastSyncError.code, 'CORRECTION_STATUS_UNCONFIRMED');
+  const receipt = plain(h.audit(1).lastCorrectionSubmission);
+  assert.equal(receipt.phase, 'DATA_VERIFIED');
+  h.c.finishCorrection_ = finish;
+  const result = await ui.run();
+  assert.equal(result.status, 'AGUARDANDO_SUPERVISOR', result.lastError);
+  assert.equal(h.audit(1).lastCorrectionSubmission.dataVerifiedAt, receipt.dataVerifiedAt);
+  assert.equal(h.audit(1).lastCorrectionSubmission.requestId, receipt.requestId);
+  assert.equal(ui.events.filter(action => action === 'submitRecord').length, 2);
+  assert.equal(ui.events.filter(action => action === 'uploadPhoto').length, 0);
   assert.equal(h.sheet(h.c.meta.APP.historySheet).rows.filter(row => row[3] === 'CORRECAO_REENVIADA').length, 1);
 });
 test('Fiscal: foto com resposta perdida continua pela mesma chave e um só arquivo', async () => {

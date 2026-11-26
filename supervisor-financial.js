@@ -1,4 +1,4 @@
-import { dateInRange, escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate, validDateRange } from './core.js?v=2026.11.19.3';
+import { dateInRange, escapeHtml, formatCurrency, formatNumber, isUuid, normalizeText, operationalDate, validDateRange } from './core.js?v=2026.11.26.1';
 
 const list = value => Array.isArray(value) ? value : [];
 const text = value => escapeHtml(String(value ?? ''));

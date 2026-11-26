@@ -28,7 +28,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`, calls = [], errors = [], checks = [];
 let browser;
 try {
-  if (browserName !== 'webkit') browser = await chromium.launch({ headless: true, channel: process.env.OCCBQ_CHROME_CHANNEL || undefined });
+  if (browserName !== 'webkit') browser = await chromium.launch({ headless: true, channel: process.env.OCCBQ_CHROME_CHANNEL || undefined, executablePath: process.env.OCCBQ_CHROMIUM_EXECUTABLE || undefined });
   for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }], ['narrow', { width: 320, height: 700 }]]) {
     const h = make(); h.grant(); h.add(2); h.drive();
     h.c.readTeamDirectory_ = () => [{ base: 'CAICÓ', team: 'LM A', crewLeader: 'Chefe A' }];
@@ -140,16 +140,44 @@ try {
     // New records of existing types also carry the immutable creation version.
     // Their correction acknowledgement must remain valid without CHAVES selected.
     h.add(3); h.row(3)[h.c.meta.COL.FORM_VERSION - 1] = 1; h.request(3);
+    const fiscalPg = '000007';
+    const writeAndRead = h.c.writeAndReadCorrection_;
+    h.c.writeAndReadCorrection_ = (sheet, rowNumber, values, operation, current) => {
+      if (!current && operation === 'CORRECTION_RESUBMIT' && values[0] === id(3)) {
+        const altered = values.slice();
+        altered[h.c.meta.COL.PG_POST_REMOVED - 1] = Number(fiscalPg);
+        writeAndRead(sheet, rowNumber, altered, operation);
+        return h.c.assertCorrectionRow_(sheet, values, operation, rowNumber);
+      }
+      return writeAndRead(sheet, rowNumber, values, operation, current);
+    };
     await page.locator('#fiscalCorrectionsRefresh').click();
     await page.locator(`[data-fiscal-correct="${id(3)}"]`).click();
     await page.locator('#observation').fill('PODA fixture revisada');
+    await page.locator('#occurrenceTypes input[value="SUBSTITUIÇÃO DE POSTE"]').check();
+    await page.locator('#pgPostRemoved').fill(fiscalPg);
+    await page.locator('#pgPostInstalled').fill('PG-INSTALADO-FIXTURE');
     await page.locator('#continueToPhotosButton').click(); await page.locator('#continueToReviewButton').click();
     await page.locator('#submitOccurrenceButton').click(); await page.locator('#confirmActionButton').click();
     await until(() => page.evaluate(async ({ version, recordId, aclRevision }) => {
       const db = await import('./db.js?v=' + version);
       const draft = (await db.getFiscalCorrectionDrafts('Fiscal A', aclRevision)).find(record => record.recordId === recordId);
-      return draft?.syncPhase === 'confirmed' && draft.observation === 'PODA fixture revisada';
+      return draft?.lastSyncError?.code === 'CORRECTION_PERSISTENCE_MISMATCH' && draft.pgPostRemoved === '000007';
     }, { version, recordId: id(3), aclRevision: fiscalAclRevision }));
+    const staged = h.audit(3).lastCorrectionSubmission;
+    assert.equal(staged.phase, 'STAGED');
+    assert.equal(h.row(3)[h.c.meta.COL.PG_POST_REMOVED - 1], 7);
+    h.c.writeAndReadCorrection_ = writeAndRead;
+    await page.locator(`[data-fiscal-retry="${id(3)}"]`).first().click();
+    await until(() => page.evaluate(async ({ version, recordId, aclRevision }) => {
+      const db = await import('./db.js?v=' + version);
+      const draft = (await db.getFiscalCorrectionDrafts('Fiscal A', aclRevision)).find(record => record.recordId === recordId);
+      return draft?.syncPhase === 'confirmed' && draft.observation === 'PODA fixture revisada' && draft.pgPostRemoved === '000007';
+    }, { version, recordId: id(3), aclRevision: fiscalAclRevision }));
+    assert.equal(h.audit(3).lastCorrectionSubmission.requestId, staged.requestId);
+    assert.equal(h.row(3)[h.c.meta.COL.PG_POST_REMOVED - 1], fiscalPg);
+    assert.equal(h.sheet(h.c.meta.APP.historySheet).rows.filter(row => row[0] === id(3) && row[3] === 'CORRECAO_REENVIADA').length, 1);
+    assert.equal(calls.filter(call => call.viewport === name && call.recordId === id(3) && call.action === 'uploadPhoto').length, 0);
     await logout(); await login('supervisor');
     await page.locator('[data-review-record="' + originalId + '"]').click();
     await page.locator('#approveButton').click(); await page.locator('#confirmActionButton').click();
@@ -159,7 +187,7 @@ try {
     assert.equal(h.sheet(h.c.meta.APP.officialSheet).rows.filter(row => row[0] === originalId).length, 1);
     console.error(name + ': approval and publication verified');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
-    checks.push({ viewport: name, offlineDraft: true, sameUuid: true, dataThenPhotos: true, synchronization: true, supervisorDetail: true, fiscalCorrection: true, fiscalLocalConfirmation: true, existingTypeCorrection: true, approvalAndPublication: true, pdfText: true, excelText: true, pageOverflow: false }); await context.close();
+    checks.push({ viewport: name, offlineDraft: true, sameUuid: true, dataThenPhotos: true, synchronization: true, supervisorDetail: true, fiscalCorrection: true, fiscalLocalConfirmation: true, existingTypeCorrection: true, numericPgRetry: true, approvalAndPublication: true, pdfText: true, excelText: true, pageOverflow: false }); await context.close();
   }
   assert.deepEqual(errors, []);
   const report = { browser: browserName, photoPreparation: 'file chooser UI and native IndexedDB Blobs', storage: browserName === 'webkit' ? 'fresh persistent profile' : 'fresh isolated context', checks, errors, calls, productionWrites: 0, operationalLogins: 0 }; await writeFile(path.join(evidence, 'results.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));

@@ -1,24 +1,24 @@
-import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.19.3';
-import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.19.3';
-import { createOperationalFeatures } from './operational-features.js?v=2026.11.19.3';
+import { fiscalDraftKey, fiscalDraftStorage } from './fiscal-drafts.js?v=2026.11.26.1';
+import { cardMetadataMarkup, cardThumbnailsMarkup } from './occurrence-card.js?v=2026.11.26.1';
+import { createOperationalFeatures } from './operational-features.js?v=2026.11.26.1';
 import {
   correctionTiming, correctionDeadlineMarkup, correctionOverviewMarkup, observeServerClock, CORRECTION_EXPIRED_MESSAGE, dataCommitMatches, dataCommitDifferences, dataCommitPendingPhotos, confirmedEvidenceReady, synchronizationFeedback, synchronizationDiagnostic, synchronizationFailureMessage, APP_BUILD, APP_VERSION, OCCURRENCE_TYPES, TEAM_GOAL, RECORD_STATUS, countConfirmedPhotos, countReadyPhotoStates, serviceSnapshotErrors, historicalServiceIndex, occurrenceSnapshotTotal,
   contractForBase, dailyGoalProjection, dedupeMaterialCatalog, driveFileId, escapeHtml, formatCurrency, formatDateTime, formatNumber,
-  correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
+  correctedAfterResend, correctionFields, correctionDataSnapshot, correctionOriginalSnapshot, correctionDelta, correctionConfirmationMatches, correctionReceiptHasChanges, generateUuid, goalProgress, mergeRecordCollections, normalizePhotoUrl, normalizeTeamKey, openPhotoSyncRequest,
   materialKey, normalizeArray, normalizeMaterials, normalizeOccurrenceRecord, normalizeOccurrenceRecords, normalizeOccurrenceTypes, normalizePhotoStates, normalizeServices, normalizeText, occurrenceTotal, operationalDate, parseMaterialQuantity, parseServiceQuantity, photoIssueIndexes, reconcilePhotoStates, requiredPhotoDeficit, searchMaterialCatalog, serializeMaterialsForBackend, serializeServicesForBackend, serviceTotal,
   priceServiceForContract, repriceServicesForBase, supervisorCorrectionChanges, supervisorKpis, uniqueRecordsById,
   mineNeedsAttention, nextVisibleRecordId, supervisorDateWindow, validDateRange, occurrenceDate, dateInRange,
   sameUser, normalizeTeamDirectory, teamsForBase, teamDirectoryEntry,
   statusLabel, statusTone, tokenExpiry, sessionIdentityMatches, validateOccurrence, CHAVES_FIELDS, OCCURRENCE_FORM_VERSION, chavesRequired
-} from './core.js?v=2026.11.19.3';
+} from './core.js?v=2026.11.26.1';
 import {
   DB_VERSION, purgeRemovedRecords, cacheCatalogResults, cacheMaterialCatalog, clearMetaIfValue, deletePhoto, deleteRecord, getAllRecords, getCachedMaterialCatalog, getMeta, getPhoto,
   getPhotosForRecord, getQueueSummary, getRecord, openDatabase, putPhotoAndRecord, putRecord,
   searchCachedCatalog, setMeta
-} from './db.js?v=2026.11.19.3';
-import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.19.3';
-import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.19.3';
-import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.19.3';
+} from './db.js?v=2026.11.26.1';
+import { ApiError, api, ambiguousMutationError, blobToDataUrl, endpointConfigured, healthCheck, loadMaterialCatalog, loadOccurrenceDataset, configureOperationalClient, flushOperationalErrors, monitoringAvailable, reportOperationalError, resetOperationalErrors, UPDATE_LOCK } from './api.js?v=2026.11.26.1';
+import { API_CONTRACT, createCompatibilityView } from './release-compatibility.js?v=2026.11.26.1';
+import { canQueueRetry, prioritizeQueue, syncQueueMarkup } from './sync-queue.js?v=2026.11.26.1';
 
 const SESSION_KEY = 'ocorrencias-bq-session-v1';
 const LAST_USER_KEY = 'ocorrencias-bq-last-user-v1';
@@ -1637,22 +1637,31 @@ async function cacheDailySummary(summary, updateCurrentUi = true) {
 async function syncSingleRecord(recordId, notify = true, fiscalKey = '') {
   if (typeof updateApplying !== 'undefined' && updateApplying) return null;
   const revision = sessionRevision;
-  const running = recordSyncPromises.get(fiscalKey || recordId);
+  const key = fiscalKey || recordId;
+  const running = recordSyncPromises.get(key);
   if (running) {
     if (notify) toast('Esta ocorrência já está sendo sincronizada.');
     return running;
   }
   const perform = () => revision === sessionRevision ? performSyncSingleRecord(recordId, notify, fiscalKey) : null;
-  const sync = () => navigator.locks?.request ? navigator.locks.request(`ocorrencias-bq-sync:${fiscalKey || recordId}`, perform) : perform();
+  const sync = () => navigator.locks?.request ? navigator.locks.request(`ocorrencias-bq-sync:${key}`, perform) : perform();
   const task = navigator.locks?.request && typeof UPDATE_LOCK === 'string'
     ? navigator.locks.request(UPDATE_LOCK, { mode: 'shared' }, sync) : sync();
-  recordSyncPromises.set(fiscalKey || recordId, task);
+  recordSyncPromises.set(key, task);
+  let result;
   try {
-    const result = await task;
-    if (fiscalKey && result?.syncPhase === 'confirmed' && revision === sessionRevision && typeof featuresController === 'function') featuresController()?.fiscalConfirmed?.();
+    result = await task;
     return result;
+  } finally {
+    if (recordSyncPromises.get(key) === task) recordSyncPromises.delete(key);
+    if (fiscalKey && result && revision === sessionRevision && typeof featuresController === 'function') {
+      try {
+        const controller = featuresController();
+        controller?.fiscalSyncChanged?.(result);
+        if (result.syncPhase === 'confirmed') controller?.fiscalConfirmed?.();
+      } catch (error) { console.warn('[Fiscal] Estado salvo; atualização visual pendente.', { code: error?.code || error?.name }); }
+    }
   }
-  finally { if (recordSyncPromises.get(fiscalKey || recordId) === task) recordSyncPromises.delete(fiscalKey || recordId); }
 }
 
 async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') {
@@ -1691,7 +1700,8 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   let syncStage = 'prepare'; let syncPhotoIndex = 0;
   let localVersion = String(storedRecord.updatedAt || '');
   const save = async () => {
-    next.syncProgress = { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed, ...(serverRecordSeen ? { serverRecordSeen } : {}) };
+    next.syncProgress = { stage: syncStage, photoIndex: syncPhotoIndex, dataConfirmed: dataCommitConfirmed,
+      ...(responseRecovered ? { responseRecovered } : {}), ...(serverRecordSeen ? { serverRecordSeen } : {}) };
     const stored = await storage.putRecord(next, { expectedUpdatedAt: localVersion });
     localVersion = String(stored?.updatedAt || next.updatedAt || localVersion);
     if (stored) next = stored;
@@ -1706,6 +1716,8 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
   const markSynced = () => { if (fiscalKey) return; void setMeta(LAST_SYNC_META, next.syncedAt).catch(error => console.warn('[Fila] Confirmação mantida; data do último sincronismo não pôde ser armazenada.', { code: error?.code || error?.name })); };
   let correctionPayload = null;
   let dataCommitConfirmed = false; let photoSyncStarted = false;
+  let correctionNeedsFinalization = false;
+  let responseRecovered = record.syncProgress?.responseRecovered === true;
   try {
     if (next.correctionMode) {
       if (next.correctionOriginal) Object.assign(next, correctionDelta(next.correctionOriginal, next));
@@ -1718,6 +1730,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         const previous = next.audit?.lastCorrectionSubmission;
         if (previous && previous.requestId === next.correctionRequestId && previous.phase === 'DATA_VERIFIED' && previous.requestedAt === next.correctionRequestedAt) next.supersedesRequestId = previous.requestId;
         next.correctionRequestId = generateUuid();
+        responseRecovered = false;
       }
       next.correctionPayloadSignature = signature;
       if (!Object.hasOwn(next, 'correctionRequestedAt')) next.correctionRequestedAt = correctionRequest(next).lastRequestedAt || correctionRequest(next).requestedAt || '';
@@ -1730,6 +1743,11 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       try {
         const serverState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
         dataCommitConfirmed = fieldCreate ? verifyFieldCommit(serverState) : dataCommitMatches(next, serverState);
+        if (dataCommitConfirmed && correctionPayload) {
+          const reread = serverState.record;
+          correctionNeedsFinalization = reread.audit?.lastCorrectionSubmission?.phase === 'DATA_VERIFIED'
+            && correctionReceiptHasChanges(reread, true) && confirmedEvidenceReady(reread) && !reread.audit.requestedPhotoIndexes?.length;
+        }
         next = reconcilePhotoStates(next, serverState);
         if (fieldCreate) next.status = RECORD_STATUS.SYNCING_PHOTOS;
         await save();
@@ -1753,9 +1771,9 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
       }
       return next;
     }
-    if (!dataCommitConfirmed) {
+    if (!dataCommitConfirmed || correctionNeedsFinalization) {
       if (fieldCreate && !stillCurrent()) throw new ApiError('A sessão mudou. As alterações locais foram preservadas.', 'SESSION_CHANGED');
-      syncStage = 'submit_data';
+      syncStage = correctionNeedsFinalization ? 'confirm_correction' : 'submit_data';
       next.status = RECORD_STATUS.SYNCING_DATA; next.syncPhase = 'sending'; await save();
       let submitResult;
       try { submitResult = await api.submitRecord(requestSession.token, {
@@ -1776,7 +1794,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         next.syncPhase = 'confirming'; await save();
         try {
           const readback = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
-          if (fieldCreate || dataCommitMatches(next, readback)) submitResult = readback;
+          if (fieldCreate || dataCommitMatches(next, readback)) { submitResult = readback; responseRecovered ||= ambiguousMutationError(error); }
         } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
         if (!submitResult) throw error;
       }
@@ -1812,7 +1830,7 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
         next.syncPhase = 'confirming'; await save();
         try {
           const readback = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
-          if (readback.photoStates.some(photo => photo.photoIndex === index && photo.confirmed && photo.uploadKey === localPhoto.uploadKey)) photoResult = readback;
+          if (readback.photoStates.some(photo => photo.photoIndex === index && photo.confirmed && photo.uploadKey === localPhoto.uploadKey)) { photoResult = readback; responseRecovered = true; }
         } catch (readError) { if (['AUTH_REQUIRED', 'FORBIDDEN', 'FISCAL_ASSIGNMENT_CHANGED'].includes(readError?.code)) throw readError; }
         if (!photoResult) throw error;
       }
@@ -1826,7 +1844,13 @@ async function performSyncSingleRecord(recordId, notify = true, fiscalKey = '') 
     next.syncPhase = 'confirming'; await save();
     const finalState = await api.getRecordState(requestSession.token, next.recordId, next.fiscalCorrection);
     if (fieldCreate) verifyFieldCommit(finalState);
-    if (correctionPayload && !correctionConfirmationMatches(correctionPayload, finalState, true)) throw new ApiError('A releitura ainda não confirmou a correção completa. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
+    if (correctionPayload && !correctionConfirmationMatches(correctionPayload, finalState, true)) {
+      if (!correctionConfirmationMatches(correctionPayload, finalState)) throw new ApiError('A releitura ainda não confirmou os campos da correção. A edição permanece na fila.', 'CORRECTION_DATA_UNCONFIRMED');
+      if (!correctionReceiptHasChanges(finalState.record, true) || !confirmedEvidenceReady(finalState.record) || finalState.record.audit?.requestedPhotoIndexes?.length) {
+        throw new ApiError('Os dados foram confirmados. Ainda há fotografias pendentes de confirmação.', 'PHOTO_CONFIRMATION_PENDING');
+      }
+      throw new ApiError('A situação final da correção ainda precisa ser confirmada. Tente novamente para retomar.', 'CORRECTION_STATUS_UNCONFIRMED');
+    }
     next = reconcilePhotoStates(next, finalState);
     if (!confirmedEvidenceReady(next) || next.photoStates.some(photo => photo.localReady || photo.replacePending)) throw new ApiError('Ainda há evidências pendentes de confirmação. A fila foi preservada.', 'PHOTOS_INCOMPLETE');
     for (let index = 1; index <= lastPhotoIndex; index += 1) {
@@ -3257,7 +3281,7 @@ async function openMonitoring(section, recordId = '') {
   const revision = sessionRevision;
   try {
     if (!monitorController) {
-      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.19.3').catch(error => { monitorImport = null; throw error; });
+      monitorImport ||= import('./supervisor-monitoring.js?v=2026.11.26.1').catch(error => { monitorImport = null; throw error; });
       const { createSupervisorMonitoring } = await monitorImport;
       if (sessionRevision !== revision) return;
       monitorController ||= createSupervisorMonitoring({ getSession: () => session, getRevision: () => sessionRevision, onDetail: openMonitoredOccurrence, onAuthFailure: logout });
